@@ -7,7 +7,7 @@ set -euo pipefail
 #  Or:    wget -qO- https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.sh | bash
 # ═══════════════════════════════════════════════════════════
 
-REPO="https://github.com/YOUR_USER/discord-alt.git"
+REPO="https://github.com/bebraamogusa/discord-alt.git"
 INSTALL_DIR="/opt/discord-alt"
 DOMAIN=""
 PORT=3000
