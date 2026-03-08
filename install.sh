@@ -153,58 +153,144 @@ if [ -n "$DOMAIN" ]; then
     fi
 
     CADDYFILE="/etc/caddy/Caddyfile"
-    SITE_BLOCK="${DOMAIN} {
-    reverse_proxy localhost:${PORT}
-}"
 
-    # Check if this domain block already exists
-    if grep -qF "${DOMAIN}" "$CADDYFILE" 2>/dev/null; then
-      warn "Domain ${DOMAIN} already exists in Caddyfile — updating block..."
-      # Remove the old block for this domain (handles multi-line)
-      cp "$CADDYFILE" "${CADDYFILE}.bak"
-      python3 -c "
-import re, sys
+    # ── Detect port 443 situation ──────────────────────
+    # Check if something else (xray, nginx, etc.) already holds 443
+    PORT443_PID=$(ss -tlnp 'sport = :443' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+    PORT443_PROC=""
+    if [ -n "$PORT443_PID" ]; then
+      PORT443_PROC=$(ps -p "$PORT443_PID" -o comm= 2>/dev/null || echo "unknown")
+    fi
+
+    if [ -n "$PORT443_PID" ] && [ "$PORT443_PROC" != "caddy" ]; then
+      # Another process owns 443 (xray, nginx, etc.)
+      # Caddy must NOT try to bind 443 — use a fallback HTTP port instead
+      warn "Port 443 is used by ${PORT443_PROC} (PID ${PORT443_PID})"
+      warn "Caddy will listen on HTTP-only port (no auto-HTTPS)"
+
+      # Find the port Caddy was previously using (check existing Caddyfile)
+      CADDY_PORT=""
+      if [ -f "$CADDYFILE" ]; then
+        CADDY_PORT=$(grep -oP '^:\K[0-9]+' "$CADDYFILE" | head -1)
+      fi
+
+      # If no existing port, find a free one
+      if [ -z "$CADDY_PORT" ]; then
+        for p in 8080 8443 9090 8880; do
+          if ! ss -tlnp "sport = :${p}" 2>/dev/null | grep -q LISTEN; then
+            CADDY_PORT=$p
+            break
+          fi
+        done
+      fi
+
+      # Verify the chosen port is actually free (could be occupied by zombie caddy)
+      if ss -tlnp "sport = :${CADDY_PORT}" 2>/dev/null | grep -q LISTEN; then
+        CADDY_HOLDER=$(ss -tlnp "sport = :${CADDY_PORT}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+        CADDY_HOLDER_NAME=$(ps -p "$CADDY_HOLDER" -o comm= 2>/dev/null || echo "")
+        if [ "$CADDY_HOLDER_NAME" = "caddy" ]; then
+          warn "Killing orphan caddy process (PID ${CADDY_HOLDER}) on port ${CADDY_PORT}..."
+          kill "$CADDY_HOLDER" 2>/dev/null; sleep 1
+          kill -9 "$CADDY_HOLDER" 2>/dev/null || true
+        fi
+      fi
+
+      CADDY_PORT="${CADDY_PORT:-8080}"
+
+      # Write Caddyfile — HTTP-only on chosen port, no domain (avoids auto-HTTPS)
+      cp "$CADDYFILE" "${CADDYFILE}.bak" 2>/dev/null || true
+      cat > "$CADDYFILE" <<EOF
+:${CADDY_PORT} {
+    reverse_proxy localhost:${PORT}
+}
+EOF
+      log "Caddyfile: :${CADDY_PORT} → localhost:${PORT}"
+      warn "Configure ${PORT443_PROC} to proxy ${DOMAIN} → 127.0.0.1:${CADDY_PORT}"
+      warn "Or directly to 127.0.0.1:${PORT} (Caddy not strictly needed)"
+
+    else
+      # Port 443 is free or Caddy already owns it — use domain with auto-HTTPS
+      # Kill any orphan caddy processes not managed by systemd
+      if pgrep -x caddy &>/dev/null; then
+        warn "Killing orphan caddy processes..."
+        pkill -x caddy; sleep 1
+        pkill -9 -x caddy 2>/dev/null || true
+      fi
+
+      # Check if this domain block already exists
+      if grep -qF "${DOMAIN}" "$CADDYFILE" 2>/dev/null; then
+        warn "Domain ${DOMAIN} already exists in Caddyfile — updating..."
+        cp "$CADDYFILE" "${CADDYFILE}.bak"
+        python3 -c "
+import re
 text = open('${CADDYFILE}').read()
-# Match the domain block: domain { ... }
 pattern = re.escape('${DOMAIN}') + r'\s*\{[^}]*\}'
 text = re.sub(pattern, '', text).strip()
 open('${CADDYFILE}', 'w').write(text + '\n')
-" 2>/dev/null || {
-        # Fallback: just append, Caddy will merge or error
-        warn "Could not parse existing block, appending..."
-      }
-    fi
-
-    # Append our site block
-    echo "" >> "$CADDYFILE"
-    echo "$SITE_BLOCK" >> "$CADDYFILE"
-    caddy fmt --overwrite "$CADDYFILE" 2>/dev/null || true
-    log "Added ${DOMAIN} block to Caddyfile"
-
-    # Reload Caddy (keeps existing connections alive)
-    if systemctl is-active --quiet caddy 2>/dev/null; then
-      if caddy reload --config "$CADDYFILE" --adapter caddyfile 2>/dev/null; then
-        log "Caddy reloaded with new config"
-      else
-        warn "Caddy reload failed, trying restart..."
-        systemctl restart caddy
+" 2>/dev/null || true
       fi
-    else
-      systemctl start caddy
+
+      echo "" >> "$CADDYFILE"
+      cat >> "$CADDYFILE" <<EOF
+${DOMAIN} {
+    reverse_proxy localhost:${PORT}
+}
+EOF
     fi
 
-    systemctl enable caddy 2>/dev/null || true
+    caddy fmt --overwrite "$CADDYFILE" 2>/dev/null || true
+    log "Caddyfile written"
+    echo "  ─── Caddyfile ───"
+    cat "$CADDYFILE"
+    echo "  ─────────────────"
+
+    # ── Kill ALL orphan caddy processes before systemd start ──
+    systemctl stop caddy 2>/dev/null || true
+    if pgrep -x caddy &>/dev/null; then
+      warn "Stopping orphan caddy processes..."
+      pkill -x caddy 2>/dev/null; sleep 2
+      pkill -9 -x caddy 2>/dev/null || true
+      sleep 1
+    fi
+
+    # Verify nothing is on our target port
+    if [ -n "$CADDY_PORT" ]; then
+      CHECK_PORT=$CADDY_PORT
+    else
+      CHECK_PORT=443
+    fi
+
+    if ss -tlnp "sport = :${CHECK_PORT}" 2>/dev/null | grep -q caddy; then
+      err "Could not free port ${CHECK_PORT} from caddy. Kill it manually: pkill -9 caddy"
+    fi
+
+    # ── Start Caddy via systemd ──────────────────────
+    if systemctl start caddy; then
+      systemctl enable caddy 2>/dev/null || true
+      log "Caddy started successfully"
+    else
+      warn "Caddy failed to start. Diagnostics:"
+      systemctl status caddy --no-pager -l 2>&1 | tail -5
+      echo ""
+      warn "Try: pkill -9 caddy && systemctl start caddy"
+    fi
 
     if systemctl is-active --quiet caddy; then
-      log "Caddy running — ${DOMAIN} → localhost:${PORT}"
-      echo ""
-      log "Open https://${DOMAIN} in your browser"
+      if [ -n "$PORT443_PID" ] && [ "$PORT443_PROC" != "caddy" ]; then
+        log "Caddy running on :${CADDY_PORT}"
+        echo ""
+        log "App direct: http://YOUR_IP:${PORT}"
+        warn "For HTTPS: configure ${PORT443_PROC} fallback → 127.0.0.1:${CADDY_PORT} or 127.0.0.1:${PORT}"
+      else
+        log "Caddy running — https://${DOMAIN}"
+        echo ""
+        log "Open https://${DOMAIN} in your browser"
+      fi
     else
       echo ""
-      warn "Caddy is not running. Debug with: journalctl -xeu caddy.service"
-      warn "Your Caddyfile: cat ${CADDYFILE}"
-      warn "You may need to manually edit it if other services conflict on 443."
-      log "The app server is still available at http://YOUR_IP:${PORT}"
+      warn "Caddy is not running."
+      log "App is still available at http://YOUR_IP:${PORT}"
+      warn "Debug: journalctl -xeu caddy.service"
     fi
   else
     warn "Skipped Caddy. Set up your own reverse proxy for HTTPS."
