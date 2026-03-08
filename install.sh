@@ -138,6 +138,7 @@ if [ -n "$DOMAIN" ]; then
   do_caddy="${do_caddy:-Y}"
 
   if [[ "$do_caddy" =~ ^[Yy] ]]; then
+
     if command -v caddy &>/dev/null; then
       log "Caddy already installed"
     else
@@ -151,17 +152,60 @@ if [ -n "$DOMAIN" ]; then
       log "Caddy installed"
     fi
 
-    # Write Caddyfile
-    cat > /etc/caddy/Caddyfile <<EOF
-${DOMAIN} {
+    CADDYFILE="/etc/caddy/Caddyfile"
+    SITE_BLOCK="${DOMAIN} {
     reverse_proxy localhost:${PORT}
-}
-EOF
-    systemctl restart caddy
-    systemctl enable caddy
-    log "Caddy configured for ${DOMAIN} with auto HTTPS"
-    echo ""
-    log "Open https://${DOMAIN} in your browser"
+}"
+
+    # Check if this domain block already exists
+    if grep -qF "${DOMAIN}" "$CADDYFILE" 2>/dev/null; then
+      warn "Domain ${DOMAIN} already exists in Caddyfile — updating block..."
+      # Remove the old block for this domain (handles multi-line)
+      cp "$CADDYFILE" "${CADDYFILE}.bak"
+      python3 -c "
+import re, sys
+text = open('${CADDYFILE}').read()
+# Match the domain block: domain { ... }
+pattern = re.escape('${DOMAIN}') + r'\s*\{[^}]*\}'
+text = re.sub(pattern, '', text).strip()
+open('${CADDYFILE}', 'w').write(text + '\n')
+" 2>/dev/null || {
+        # Fallback: just append, Caddy will merge or error
+        warn "Could not parse existing block, appending..."
+      }
+    fi
+
+    # Append our site block
+    echo "" >> "$CADDYFILE"
+    echo "$SITE_BLOCK" >> "$CADDYFILE"
+    caddy fmt --overwrite "$CADDYFILE" 2>/dev/null || true
+    log "Added ${DOMAIN} block to Caddyfile"
+
+    # Reload Caddy (keeps existing connections alive)
+    if systemctl is-active --quiet caddy 2>/dev/null; then
+      if caddy reload --config "$CADDYFILE" --adapter caddyfile 2>/dev/null; then
+        log "Caddy reloaded with new config"
+      else
+        warn "Caddy reload failed, trying restart..."
+        systemctl restart caddy
+      fi
+    else
+      systemctl start caddy
+    fi
+
+    systemctl enable caddy 2>/dev/null || true
+
+    if systemctl is-active --quiet caddy; then
+      log "Caddy running — ${DOMAIN} → localhost:${PORT}"
+      echo ""
+      log "Open https://${DOMAIN} in your browser"
+    else
+      echo ""
+      warn "Caddy is not running. Debug with: journalctl -xeu caddy.service"
+      warn "Your Caddyfile: cat ${CADDYFILE}"
+      warn "You may need to manually edit it if other services conflict on 443."
+      log "The app server is still available at http://YOUR_IP:${PORT}"
+    fi
   else
     warn "Skipped Caddy. Set up your own reverse proxy for HTTPS."
     echo ""
