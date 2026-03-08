@@ -15,14 +15,18 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-const PORT = parseInt(process.env.PORT || '3000');
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || '5242880');
-const UPLOADS_DIR = process.env.UPLOADS_DIR || join(ROOT, 'uploads');
-const DB_PATH = process.env.DB_PATH || join(ROOT, 'data', 'chat.db');
+const PORT           = parseInt(process.env.PORT           || '3000');
+const MAX_FILE_SIZE  = parseInt(process.env.MAX_FILE_SIZE  || '104857600'); // 100 MB
+const UPLOADS_DIR    = process.env.UPLOADS_DIR  || join(ROOT, 'uploads');
+const DB_PATH        = process.env.DB_PATH      || join(ROOT, 'data', 'chat.db');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+
+// ── Admin tokens (in-memory, reset on restart) ───────────────────────────────
+const adminTokens = new Set();
 
 [UPLOADS_DIR, dirname(DB_PATH)].forEach(d => mkdirSync(d, { recursive: true }));
 
-// ── Database ────────────────────────────────────────────────────────────────
+// ── Database ─────────────────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
@@ -38,12 +42,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_msg_room ON messages(room, created_at);
 `);
 
-const stmtInsert = db.prepare(
-  'INSERT INTO messages (id, room, username, type, content, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-);
-const stmtSelect = db.prepare(
-  'SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?'
-);
+const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
+const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
+const stmtDelete    = db.prepare('DELETE FROM messages WHERE id = ?');
+const stmtClearRoom = db.prepare('DELETE FROM messages WHERE room = ?');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -65,27 +67,39 @@ await app.register(fastifyMultipart, {
   limits: { fileSize: MAX_FILE_SIZE },
 });
 
-// SPA — все /room/* отдают index.html
+// SPA — all /room/* serve index.html
 app.get('/room/:roomId', (_req, reply) => reply.sendFile('index.html'));
 
-// ── REST API ────────────────────────────────────────────────────────────────
+// ── File type helpers ─────────────────────────────────────────────────────────
+const ALLOWED_EXTS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.bmp',
+  '.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.ogv', '.3gp', '.ts', '.mts',
+  '.mp3', '.ogg', '.wav', '.flac', '.aac', '.m4a', '.opus', '.wma',
+  '.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.zip', '.7z', '.rar', '.tar', '.gz',
+]);
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.bmp']);
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.ogv', '.3gp', '.ts', '.mts']);
+function getMessageType(ext) {
+  const e = ext.toLowerCase();
+  if (IMAGE_EXTS.has(e)) return 'image';
+  if (VIDEO_EXTS.has(e)) return 'video';
+  return 'file';
+}
+
+// ── Upload endpoint ───────────────────────────────────────────────────────────
 app.post('/api/upload', async (req, reply) => {
   const file = await req.file();
   if (!file) return reply.code(400).send({ error: 'No file provided' });
 
   const ext = extname(file.filename).toLowerCase();
-  const ALLOWED = [
-    '.jpg', '.jpeg', '.png', '.gif', '.webp',
-    '.pdf', '.txt', '.zip', '.7z', '.rar',
-    '.doc', '.docx', '.mp3', '.mp4', '.ogg',
-  ];
-  if (!ALLOWED.includes(ext)) {
-    return reply.code(400).send({ error: 'Unsupported file type' });
+  if (!ALLOWED_EXTS.has(ext)) {
+    file.file.resume();
+    return reply.code(400).send({ error: `Unsupported type: ${ext}` });
   }
 
   const name = `${nanoid(12)}${ext}`;
   const dest = join(UPLOADS_DIR, name);
-
   await pipeline(file.file, createWriteStream(dest));
 
   if (file.file.truncated) {
@@ -93,13 +107,106 @@ app.post('/api/upload', async (req, reply) => {
     return reply.code(413).send({ error: 'File too large' });
   }
 
-  return { url: `/uploads/${name}`, name: file.filename };
+  return { url: `/uploads/${name}`, name: file.filename, type: getMessageType(ext) };
 });
 
-app.get('/api/rooms/:roomId/messages', (req, _reply) => {
+// ── Messages history ──────────────────────────────────────────────────────────
+app.get('/api/rooms/:roomId/messages', (req) => {
   const { roomId } = req.params;
   const limit = Math.min(parseInt(req.query.limit || '200'), 500);
   return stmtSelect.all(roomId, limit).reverse();
+});
+
+// ── Link embed proxy ──────────────────────────────────────────────────────────
+app.get('/api/embed', async (req, reply) => {
+  const { url } = req.query;
+  if (!url) return reply.code(400).send({ error: 'Missing url' });
+  let u;
+  try { u = new URL(url); } catch { return reply.code(400).send({ error: 'Invalid url' }); }
+  if (!['http:', 'https:'].includes(u.protocol)) return reply.code(400).send({ error: 'Bad protocol' });
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DiscordAlt/1.0)' },
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('text/html')) return reply.code(204).send();
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of res.body) {
+      chunks.push(chunk); total += chunk.length;
+      if (total > 200_000) break;
+    }
+    const html = Buffer.concat(chunks).toString('utf-8');
+    const og = (p) => {
+      return html.match(new RegExp(`<meta[^>]+property=["']og:${p}["'][^>]+content=["']([^"']{1,500})["']`, 'i'))?.[1]
+          || html.match(new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+property=["']og:${p}["']`, 'i'))?.[1]
+          || null;
+    };
+    const mt = (n) => {
+      return html.match(new RegExp(`<meta[^>]+name=["']${n}["'][^>]+content=["']([^"']{1,500})["']`, 'i'))?.[1]
+          || html.match(new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+name=["']${n}["']`, 'i'))?.[1]
+          || null;
+    };
+    const title       = og('title') || mt('title') || html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] || u.hostname;
+    const description = og('description') || mt('description') || null;
+    const image       = og('image') || null;
+    const site        = og('site_name') || u.hostname;
+    return { title: title?.trim(), description: description?.trim(), image, site, url };
+  } catch { return reply.code(204).send(); }
+});
+
+// ── Admin auth helper ─────────────────────────────────────────────────────────
+function checkAdmin(req, reply) {
+  if (!ADMIN_PASSWORD) { reply.code(404).send({ error: 'Admin not configured' }); return false; }
+  const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  if (!adminTokens.has(token)) { reply.code(401).send({ error: 'Unauthorized' }); return false; }
+  return true;
+}
+
+// ── Admin endpoints ───────────────────────────────────────────────────────────
+app.post('/api/admin/auth', async (req, reply) => {
+  if (!ADMIN_PASSWORD) return reply.code(404).send({ error: 'Admin not configured' });
+  const { password } = req.body || {};
+  if (password !== ADMIN_PASSWORD) return reply.code(403).send({ error: 'Wrong password' });
+  const token = nanoid(32);
+  adminTokens.add(token);
+  return { token };
+});
+
+app.delete('/api/admin/messages/:id', (req, reply) => {
+  if (!checkAdmin(req, reply)) return;
+  stmtDelete.run(req.params.id);
+  io.emit('message-deleted', { id: req.params.id });
+  return { ok: true };
+});
+
+app.delete('/api/admin/rooms/:roomId/messages', (req, reply) => {
+  if (!checkAdmin(req, reply)) return;
+  stmtClearRoom.run(req.params.roomId);
+  io.to(req.params.roomId).emit('room-cleared');
+  return { ok: true };
+});
+
+app.post('/api/admin/kick', (req, reply) => {
+  if (!checkAdmin(req, reply)) return;
+  const { roomId, username: target } = req.body || {};
+  if (!roomId || !target) return reply.code(400).send({ error: 'Missing params' });
+  const room = rooms.get(roomId);
+  if (room) {
+    for (const [sid, user] of room) {
+      if (user.username === target) {
+        io.to(sid).emit('kicked', { reason: 'Kicked by admin' });
+        io.sockets.sockets.get(sid)?.disconnect(true);
+        break;
+      }
+    }
+  }
+  return { ok: true };
 });
 
 // ── Socket.io ───────────────────────────────────────────────────────────────
@@ -148,20 +255,14 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chat-message', msg);
   });
 
-  // ── Чат ──────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────
   socket.on('chat-message', (data) => {
     if (!roomId || !username) return;
     const content = String(data.content || '').slice(0, 4000);
     if (!content) return;
-
-    const msg = {
-      id: nanoid(16),
-      room: roomId,
-      username,
-      type: ['image', 'file'].includes(data.type) ? data.type : 'text',
-      content,
-      created_at: Date.now(),
-    };
+    const VALID = new Set(['text', 'image', 'video', 'file']);
+    const type = VALID.has(data.type) ? data.type : 'text';
+    const msg = { id: nanoid(16), room: roomId, username, type, content, created_at: Date.now() };
     stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
     io.to(roomId).emit('chat-message', msg);
   });

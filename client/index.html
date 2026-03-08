@@ -10,6 +10,907 @@
   --bg-primary:#313338;--bg-secondary:#2b2d31;--bg-tertiary:#1e1f22;
   --text:#f2f3f5;--text-dim:#b5bac1;--text-muted:#949ba4;
   --accent:#5865f2;--accent-h:#4752c4;--green:#23a559;--red:#f23f43;
+  --orange:#f0a500;
+  --input-bg:#383a40;--border:#3f4147;--hover:rgba(255,255,255,.06);
+}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg-primary);color:var(--text);overflow:hidden}
+button{cursor:pointer;font:inherit;border:none;background:none;color:inherit}
+input{font:inherit;color:var(--text);background:var(--input-bg);border:1px solid var(--border);
+  border-radius:8px;padding:10px 14px;outline:none;width:100%}
+input:focus{border-color:var(--accent)}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ── Landing / Login ─────────────────────────────── */
+.overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:var(--bg-tertiary);z-index:1000}
+.card{background:var(--bg-secondary);padding:40px;border-radius:16px;width:380px;
+  text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.card h1{font-size:26px;margin-bottom:6px}
+.card p{color:var(--text-dim);margin-bottom:24px;font-size:14px}
+.card input{margin-bottom:12px}
+.card .btn{display:block;width:100%;padding:12px;border-radius:8px;font-weight:600;
+  font-size:15px;transition:background .15s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-h)}
+.btn-danger{background:var(--red);color:#fff}
+.divider{color:var(--text-muted);font-size:13px;margin:16px 0;position:relative}
+.divider::before,.divider::after{content:'';position:absolute;top:50%;width:40%;height:1px;background:var(--border)}
+.divider::before{left:0}.divider::after{right:0}
+
+/* ── App layout ──────────────────────────────────── */
+#app{display:none;height:100vh;flex-direction:row}
+#sidebar{width:260px;background:var(--bg-secondary);display:flex;flex-direction:column;
+  border-right:1px solid var(--border);flex-shrink:0}
+.sidebar-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;
+  align-items:center;justify-content:space-between;gap:6px}
+.sidebar-header h2{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.sidebar-header button{font-size:16px;padding:4px 8px;border-radius:6px;background:var(--input-bg);flex-shrink:0}
+.sidebar-header button:hover{background:var(--border)}
+.sidebar-section{padding:12px 16px;flex:1;overflow-y:auto}
+.sidebar-section h3{font-size:12px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;letter-spacing:.5px}
+#user-list{list-style:none}
+#user-list li{padding:6px 8px;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:14px}
+#user-list li:hover{background:var(--hover)}
+.user-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+.user-dot.in-call{background:var(--accent);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.btn-kick{margin-left:auto;font-size:11px;padding:2px 6px;border-radius:4px;background:var(--red);
+  color:#fff;display:none;flex-shrink:0}
+#user-list li:hover .btn-kick{display:block}
+
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* ── Toolbar ─────────────────────────────────────── */
+#toolbar{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;
+  align-items:center;justify-content:space-between;background:var(--bg-primary);flex-shrink:0}
+#toolbar .room-label{font-weight:600;font-size:15px}
+#call-controls{display:flex;gap:6px}
+.ctrl-btn{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:18px;background:var(--input-bg);transition:background .15s}
+.ctrl-btn:hover{background:var(--border)}
+.ctrl-btn.active{background:var(--accent)}
+.ctrl-btn.danger{background:var(--red)}
+.ctrl-btn.danger:hover{background:#d6363a}
+.ctrl-btn.muted{opacity:.5}
+
+/* ── Video grid ──────────────────────────────────── */
+#video-area{display:none;padding:8px;gap:8px;flex-wrap:wrap;justify-content:center;
+  background:var(--bg-tertiary);border-bottom:1px solid var(--border);max-height:45vh;overflow-y:auto}
+.video-box{position:relative;border-radius:12px;overflow:hidden;background:#000;min-width:140px}
+.video-box video{width:100%;height:100%;object-fit:cover;display:block}
+.video-box .label{position:absolute;bottom:6px;left:8px;font-size:12px;background:rgba(0,0,0,.65);
+  padding:2px 8px;border-radius:4px;color:#fff}
+.video-box.local{border:2px solid var(--accent)}
+
+/* ── Chat ────────────────────────────────────────── */
+#messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:4px}
+.msg{padding:4px 6px;line-height:1.45;border-radius:4px;position:relative}
+.msg:hover{background:var(--hover)}
+.msg:hover .msg-del{display:flex}
+.msg-author{font-size:14px;font-weight:600;margin-right:8px}
+.msg-author.me{color:var(--accent)}
+.msg-time{font-size:11px;color:var(--text-muted);margin-right:8px}
+.msg-text{font-size:14px;color:var(--text-dim);word-break:break-word}
+.msg-text a{color:var(--accent)}
+.msg-image img{max-width:320px;max-height:240px;border-radius:8px;margin-top:4px;cursor:pointer;
+  display:block;transition:opacity .15s}
+.msg-image img:hover{opacity:.85}
+
+/* ── Video message ───────────────────────────────── */
+.msg-video video{max-width:400px;max-height:300px;border-radius:8px;margin-top:4px;
+  display:block;background:#000}
+
+/* ── File message ────────────────────────────────── */
+.msg-file a{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;
+  background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;
+  margin-top:4px;font-size:13px;text-decoration:none;color:var(--text-dim)}
+.msg-file a:hover{border-color:var(--accent);color:var(--text)}
+
+/* ── Embed card ──────────────────────────────────── */
+.msg-embed{margin-top:6px;border-left:4px solid var(--accent);background:var(--bg-secondary);
+  border-radius:0 8px 8px 0;padding:10px 12px;max-width:480px;display:flex;gap:10px}
+.msg-embed .embed-text{flex:1;min-width:0}
+.msg-embed .embed-site{font-size:11px;color:var(--text-muted);margin-bottom:3px}
+.msg-embed .embed-title{font-size:14px;font-weight:600;color:var(--accent);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg-embed .embed-desc{font-size:13px;color:var(--text-dim);margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.msg-embed .embed-img{width:80px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0}
+
+/* ── Admin delete btn ────────────────────────────── */
+.msg-del{display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:22px;height:22px;border-radius:4px;background:var(--red);color:#fff;
+  align-items:center;justify-content:center;font-size:13px;z-index:1}
+.msg-del:hover{opacity:.85}
+
+.msg-system{font-size:13px;color:var(--text-muted);text-align:center;padding:4px 0}
+
+/* ── Input bar ───────────────────────────────────── */
+#input-bar{padding:12px 16px;background:var(--bg-primary);border-top:1px solid var(--border);
+  display:flex;gap:8px;align-items:center;flex-shrink:0}
+#input-bar input{flex:1}
+#input-bar button{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:20px;background:var(--input-bg);flex-shrink:0}
+#input-bar button:hover{background:var(--border)}
+#btn-send{background:var(--accent)!important;font-size:16px}
+#btn-send:hover{background:var(--accent-h)!important}
+#file-input{display:none}
+
+/* ── Drop overlay ────────────────────────────────── */
+#drop-overlay{display:none;position:fixed;inset:0;background:rgba(88,101,242,.25);
+  z-index:2000;align-items:center;justify-content:center;pointer-events:none}
+#drop-overlay .inner{background:var(--accent);color:#fff;padding:32px 48px;border-radius:16px;
+  font-size:20px;font-weight:600;pointer-events:none}
+
+/* ── Toast ───────────────────────────────────────── */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--bg-secondary);color:var(--text);padding:10px 20px;border-radius:8px;
+  font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.4);opacity:0;transition:opacity .3s;z-index:3000;
+  pointer-events:none}
+#toast.show{opacity:1}
+
+/* ── Admin modal ─────────────────────────────────── */
+#admin-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:4000;
+  align-items:center;justify-content:center}
+#admin-modal.open{display:flex}
+.admin-card{background:var(--bg-secondary);border-radius:12px;width:340px;padding:28px;
+  box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.admin-card h2{font-size:18px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.admin-card .admin-actions{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.admin-card .admin-actions button{padding:10px;border-radius:8px;background:var(--input-bg);
+  font-size:14px;text-align:left;transition:background .15s}
+.admin-card .admin-actions button:hover{background:var(--border)}
+.admin-card .admin-actions button.danger{background:rgba(242,63,67,.2);color:var(--red)}
+.admin-card .admin-actions button.danger:hover{background:rgba(242,63,67,.35)}
+.admin-close{float:right;font-size:20px;cursor:pointer;color:var(--text-muted)}
+.admin-close:hover{color:var(--text)}
+.admin-badge{background:var(--orange);color:#000;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700}
+
+/* ── Responsive ──────────────────────────────────── */
+@media(max-width:700px){
+  #sidebar{display:none}
+  .card{width:92vw;padding:24px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Landing ═══ -->
+<div id="landing" class="overlay">
+  <div class="card">
+    <h1>💬 Discord Alt</h1>
+    <p>Simple group chat with video calls</p>
+    <input id="l-name" placeholder="Your nickname" maxlength="20" autofocus>
+    <button class="btn btn-primary" id="btn-create">Create Room</button>
+    <div class="divider">or join existing</div>
+    <input id="l-room" placeholder="Room ID" maxlength="64">
+    <button class="btn btn-primary" id="btn-join-landing" style="margin-top:4px">Join Room</button>
+  </div>
+</div>
+
+<!-- ═══ Login (direct room link) ═══ -->
+<div id="login" class="overlay" style="display:none">
+  <div class="card">
+    <h1>💬 Join Room</h1>
+    <p id="login-room-label"></p>
+    <input id="j-name" placeholder="Your nickname" maxlength="20">
+    <button class="btn btn-primary" id="btn-join-login" style="margin-top:8px">Join</button>
+  </div>
+</div>
+
+<!-- ═══ App ═══ -->
+<div id="app">
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h2 id="room-title"></h2>
+      <button id="btn-copy" title="Copy invite link">📋</button>
+      <button id="btn-admin" title="Admin panel">🛡️</button>
+    </div>
+    <div class="sidebar-section">
+      <h3>Online — <span id="user-count">0</span></h3>
+      <ul id="user-list"></ul>
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="toolbar">
+      <span class="room-label" id="toolbar-room"></span>
+      <div id="call-controls">
+        <button class="ctrl-btn" id="btn-call" title="Join call">📞</button>
+        <button class="ctrl-btn" id="btn-mic" title="Mute" style="display:none">🎤</button>
+        <button class="ctrl-btn" id="btn-cam" title="Camera" style="display:none">📹</button>
+        <button class="ctrl-btn" id="btn-screen" title="Share screen" style="display:none">🖥️</button>
+        <button class="ctrl-btn danger" id="btn-hangup" title="Leave call" style="display:none">📵</button>
+      </div>
+    </div>
+
+    <div id="video-area"></div>
+    <div id="messages"></div>
+
+    <div id="input-bar">
+      <button id="btn-attach" title="Upload file">📎</button>
+      <input id="msg-input" placeholder="Type a message…" autocomplete="off">
+      <button id="btn-send" title="Send">➤</button>
+      <input type="file" id="file-input">
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Admin modal ═══ -->
+<div id="admin-modal">
+  <div class="admin-card">
+    <span class="admin-close" id="admin-close">✕</span>
+    <h2>🛡️ Admin Panel <span id="admin-status-badge"></span></h2>
+    <div id="admin-login-form">
+      <input id="admin-pw-input" type="password" placeholder="Admin password" style="margin-bottom:10px">
+      <button class="btn btn-primary" id="btn-admin-login" style="width:100%;padding:10px;border-radius:8px;font-weight:600">Login</button>
+    </div>
+    <div id="admin-actions-panel" style="display:none" class="admin-actions">
+      <button id="btn-admin-clear" class="danger">🗑️ Clear all messages in this room</button>
+    </div>
+  </div>
+</div>
+
+<div id="drop-overlay"><div class="inner">📁 Drop file to upload</div></div>
+<div id="toast"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+/* ================================================================
+   State
+   ================================================================ */
+let socket     = null;
+let roomId     = null;
+let username   = null;
+let adminToken = sessionStorage.getItem('adminToken') || null;
+
+let localStream  = null;
+let screenStream = null;
+let inCall = false;
+let micOn = true;
+let camOn = true;
+const peers = new Map();
+
+const ICE = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+// embed cache: url → { title, description, image, site } | null
+const embedCache = new Map();
+
+/* ================================================================
+   Helpers
+   ================================================================ */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+function esc(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function linkify(text) {
+  const safe = esc(text);
+  return safe.replace(/(https?:\/\/[^\s<>"]+)/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+
+function genId(len) {
+  const c = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < len; i++) s += c[Math.random() * c.length | 0];
+  return s;
+}
+
+function toast(msg, color) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.style.borderLeft = color ? `3px solid ${color}` : '';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function extractUrls(text) {
+  return [...text.matchAll(/(https?:\/\/[^\s<>"]+)/g)].map(m => m[1]);
+}
+
+function formatBytes(b) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1048576) return `${(b/1024).toFixed(1)} KB`;
+  return `${(b/1048576).toFixed(1)} MB`;
+}
+
+/* ================================================================
+   Init
+   ================================================================ */
+(function init() {
+  const path   = location.pathname;
+  const stored = sessionStorage.getItem('username');
+
+  if (path.startsWith('/room/')) {
+    roomId = path.split('/room/')[1];
+    if (stored) { username = stored; enterRoom(); }
+    else showDirectLogin();
+  } else {
+    showLanding();
+  }
+})();
+
+function showLanding() {
+  $('#landing').style.display = 'flex';
+  $('#login').style.display   = 'none';
+  $('#app').style.display     = 'none';
+
+  const savedName = sessionStorage.getItem('username') || '';
+  $('#l-name').value = savedName;
+
+  $('#btn-create').onclick = () => {
+    const name = $('#l-name').value.trim();
+    if (!name) return $('#l-name').focus();
+    username = name; roomId = genId(8);
+    sessionStorage.setItem('username', name);
+    history.pushState(null, '', `/room/${roomId}`);
+    enterRoom();
+  };
+  $('#btn-join-landing').onclick = () => {
+    const name = $('#l-name').value.trim();
+    const rid  = $('#l-room').value.trim();
+    if (!name) return $('#l-name').focus();
+    if (!rid)  return $('#l-room').focus();
+    username = name; roomId = rid;
+    sessionStorage.setItem('username', name);
+    history.pushState(null, '', `/room/${roomId}`);
+    enterRoom();
+  };
+  $('#l-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-create').click(); });
+  $('#l-room').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-join-landing').click(); });
+}
+
+function showDirectLogin() {
+  $('#landing').style.display = 'none';
+  $('#login').style.display   = 'flex';
+  $('#app').style.display     = 'none';
+  $('#login-room-label').textContent = `Room: ${roomId}`;
+  $('#btn-join-login').onclick = () => {
+    const name = $('#j-name').value.trim();
+    if (!name) return $('#j-name').focus();
+    username = name;
+    sessionStorage.setItem('username', name);
+    enterRoom();
+  };
+  $('#j-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-join-login').click(); });
+  $('#j-name').focus();
+}
+
+/* ================================================================
+   Enter Room
+   ================================================================ */
+function enterRoom() {
+  $('#landing').style.display = 'none';
+  $('#login').style.display   = 'none';
+  $('#app').style.display     = 'flex';
+  $('#room-title').textContent   = `# ${roomId}`;
+  $('#toolbar-room').textContent = `# ${roomId}`;
+  document.title = `${roomId} — Discord Alt`;
+
+  connectSocket();
+  setupChat();
+  setupDragDrop();
+  setupCallControls();
+  setupAdminPanel();
+  updateAdminUI();
+}
+
+/* ================================================================
+   Socket.io
+   ================================================================ */
+function connectSocket() {
+  socket = io({ transports: ['websocket', 'polling'] });
+
+  socket.on('connect', () => {
+    socket.emit('join-room', { roomId, username });
+    loadHistory();
+  });
+
+  socket.on('room-users', (users) => {
+    updateUserList(users);
+    users.forEach(u => {
+      const el = document.getElementById('video-' + u.socketId);
+      if (el) el.querySelector('.label').textContent = u.username;
+    });
+  });
+
+  socket.on('chat-message', renderMessage);
+
+  socket.on('message-deleted', ({ id }) => {
+    const el = document.getElementById('msg-' + id);
+    if (el) el.remove();
+  });
+
+  socket.on('room-cleared', () => {
+    $('#messages').innerHTML = '';
+    toast('Room history cleared by admin', 'var(--orange)');
+  });
+
+  socket.on('kicked', ({ reason }) => {
+    socket.disconnect();
+    alert(`You were kicked: ${reason}`);
+    location.href = '/';
+  });
+
+  socket.on('call-user-joined', ({ socketId: sid }) => {
+    if (!inCall) return;
+    createPeer(sid, true);
+  });
+  socket.on('call-user-left', ({ socketId: sid }) => removePeer(sid));
+
+  socket.on('webrtc-offer', async ({ from, offer }) => {
+    if (!inCall) return;
+    if (!peers.has(from)) createPeer(from, false);
+    const { pc } = peers.get(from);
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('webrtc-answer', { to: from, answer: pc.localDescription });
+  });
+  socket.on('webrtc-answer', async ({ from, answer }) => {
+    const p = peers.get(from);
+    if (p) await p.pc.setRemoteDescription(answer);
+  });
+  socket.on('webrtc-ice-candidate', ({ from, candidate }) => {
+    const p = peers.get(from);
+    if (p) p.pc.addIceCandidate(candidate).catch(() => {});
+  });
+
+  socket.on('disconnect', () => toast('Connection lost, reconnecting…'));
+  socket.io.on('reconnect', () => {
+    socket.emit('join-room', { roomId, username });
+    toast('Reconnected');
+  });
+}
+
+/* ================================================================
+   Chat
+   ================================================================ */
+function setupChat() {
+  $('#msg-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+  });
+  $('#btn-send').onclick = sendText;
+  $('#btn-attach').onclick = () => $('#file-input').click();
+  $('#file-input').onchange = e => {
+    if (e.target.files[0]) uploadFile(e.target.files[0]);
+    e.target.value = '';
+  };
+  document.addEventListener('paste', e => {
+    const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+    if (item) uploadFile(item.getAsFile());
+  });
+}
+
+function sendText() {
+  const input = $('#msg-input');
+  const text  = input.value.trim();
+  if (!text || !socket) return;
+  socket.emit('chat-message', { roomId, content: text, type: 'text' });
+  input.value = '';
+  input.focus();
+}
+
+async function loadHistory() {
+  try {
+    const res  = await fetch(`/api/rooms/${roomId}/messages`);
+    const msgs = await res.json();
+    $('#messages').innerHTML = '';
+    msgs.forEach(renderMessage);
+  } catch (e) { console.error('Failed to load history', e); }
+}
+
+function renderMessage(msg) {
+  const box = $('#messages');
+  const div = document.createElement('div');
+  div.id = 'msg-' + msg.id;
+
+  if (msg.type === 'system') {
+    div.className = 'msg-system';
+    div.textContent = msg.content;
+  } else {
+    div.className = 'msg';
+    const isMe = msg.username === username;
+    const authorCls = isMe ? 'msg-author me' : 'msg-author';
+    const time = fmtTime(msg.created_at);
+    const header = `<span class="${authorCls}">${esc(msg.username)}</span><span class="msg-time">${time}</span>`;
+
+    if (msg.type === 'image') {
+      div.innerHTML = header + `<div class="msg-image"><img src="${esc(msg.content)}" loading="lazy" onclick="window.open(this.src)"></div>`;
+    } else if (msg.type === 'video') {
+      div.innerHTML = header + `<div class="msg-video"><video src="${esc(msg.content)}" controls preload="metadata"></video></div>`;
+    } else if (msg.type === 'file') {
+      const fname = decodeURIComponent(msg.content.split('/').pop());
+      div.innerHTML = header + `<div class="msg-file"><a href="${esc(msg.content)}" download="${esc(fname)}" target="_blank">📄 ${esc(fname)}</a></div>`;
+    } else {
+      div.innerHTML = header + `<span class="msg-text">${linkify(msg.content)}</span>`;
+      // Fetch embeds for URLs asynchronously
+      const urls = extractUrls(msg.content);
+      if (urls.length > 0) {
+        fetchEmbed(urls[0]).then(embed => {
+          if (embed && document.getElementById('msg-' + msg.id)) {
+            div.appendChild(buildEmbedCard(embed, urls[0]));
+          }
+        });
+      }
+    }
+
+    // Admin delete button
+    if (adminToken) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'msg-del';
+      delBtn.title = 'Delete message';
+      delBtn.textContent = '✕';
+      delBtn.onclick = (e) => { e.stopPropagation(); deleteMessage(msg.id); };
+      div.appendChild(delBtn);
+    }
+  }
+
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function buildEmbedCard(embed, url) {
+  const card = document.createElement('div');
+  card.className = 'msg-embed';
+  const desc = embed.description ? `<div class="embed-desc">${esc(embed.description)}</div>` : '';
+  const img  = embed.image ? `<img class="embed-img" src="${esc(embed.image)}" loading="lazy" onerror="this.remove()">` : '';
+  card.innerHTML = `<div class="embed-text">
+    <div class="embed-site">${esc(embed.site || '')}</div>
+    <a class="embed-title" href="${esc(url)}" target="_blank" rel="noopener">${esc(embed.title || url)}</a>
+    ${desc}
+  </div>${img}`;
+  return card;
+}
+
+async function fetchEmbed(url) {
+  if (embedCache.has(url)) return embedCache.get(url);
+  try {
+    const res = await fetch(`/api/embed?url=${encodeURIComponent(url)}`);
+    if (!res.ok || res.status === 204) { embedCache.set(url, null); return null; }
+    const data = await res.json();
+    embedCache.set(url, data);
+    return data;
+  } catch { embedCache.set(url, null); return null; }
+}
+
+/* ================================================================
+   File Upload & Drag-Drop
+   ================================================================ */
+const UPLOAD_EXTS = new Set([
+  'jpg','jpeg','png','gif','webp','avif','svg','bmp',
+  'mp4','webm','mov','avi','mkv','flv','wmv','m4v','ogv','3gp','ts','mts',
+  'mp3','ogg','wav','flac','aac','m4a','opus','wma',
+  'pdf','txt','doc','docx','xls','xlsx','ppt','pptx',
+  'zip','7z','rar','tar','gz',
+]);
+
+async function uploadFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!UPLOAD_EXTS.has(ext)) return toast(`Unsupported file type: .${ext}`);
+  if (file.size > 100 * 1024 * 1024) return toast('Max file size is 100 MB');
+
+  toast(`Uploading ${file.name}…`);
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+    const data = await res.json();
+    socket.emit('chat-message', { roomId, content: data.url, type: data.type });
+  } catch (e) { toast('Upload failed: ' + e.message); }
+}
+
+function setupDragDrop() {
+  let counter = 0;
+  const ov = $('#drop-overlay');
+  document.addEventListener('dragenter', e => { e.preventDefault(); counter++; ov.style.display = 'flex'; });
+  document.addEventListener('dragleave', () => { counter--; if (counter <= 0) { counter = 0; ov.style.display = 'none'; } });
+  document.addEventListener('dragover',  e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault(); counter = 0; ov.style.display = 'none';
+    const f = e.dataTransfer.files[0];
+    if (f) uploadFile(f);
+  });
+}
+
+/* ================================================================
+   User List
+   ================================================================ */
+function updateUserList(users) {
+  $('#user-count').textContent = users.length;
+  const ul = $('#user-list');
+  ul.innerHTML = '';
+  users.forEach(u => {
+    const li = document.createElement('li');
+    const dot = u.inCall ? 'user-dot in-call' : 'user-dot';
+    const kickBtn = adminToken && u.username !== username
+      ? `<button class="btn-kick" onclick="kickUser('${esc(u.username)}')">kick</button>` : '';
+    li.innerHTML = `<span class="${dot}"></span>${esc(u.username)}${u.inCall ? ' 🔊' : ''}${kickBtn}`;
+    ul.appendChild(li);
+  });
+}
+
+/* ================================================================
+   Copy Room Link
+   ================================================================ */
+$('#btn-copy').onclick = () => {
+  navigator.clipboard.writeText(location.href).then(
+    () => toast('Link copied!'),
+    () => toast('Failed to copy')
+  );
+};
+
+/* ================================================================
+   Admin Panel
+   ================================================================ */
+function setupAdminPanel() {
+  $('#btn-admin').onclick = () => $('#admin-modal').classList.add('open');
+  $('#admin-close').onclick = () => $('#admin-modal').classList.remove('open');
+  $('#admin-modal').onclick = e => { if (e.target === $('#admin-modal')) $('#admin-modal').classList.remove('open'); };
+
+  $('#btn-admin-login').onclick = async () => {
+    const pw = $('#admin-pw-input').value;
+    if (!pw) return;
+    try {
+      const res = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (!res.ok) { const d = await res.json(); return toast(d.error || 'Wrong password', 'var(--red)'); }
+      const { token } = await res.json();
+      adminToken = token;
+      sessionStorage.setItem('adminToken', token);
+      updateAdminUI();
+      toast('Admin logged in', 'var(--green)');
+      $('#admin-pw-input').value = '';
+    } catch { toast('Auth failed', 'var(--red)'); }
+  };
+  $('#admin-pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-admin-login').click(); });
+
+  $('#btn-admin-clear').onclick = async () => {
+    if (!confirm('Delete ALL messages in this room?')) return;
+    await adminReq('DELETE', `/api/admin/rooms/${roomId}/messages`);
+    $('#admin-modal').classList.remove('open');
+  };
+}
+
+function updateAdminUI() {
+  const badge = $('#admin-status-badge');
+  if (adminToken) {
+    badge.textContent = 'ADMIN';
+    badge.className = 'admin-badge';
+    $('#admin-login-form').style.display = 'none';
+    $('#admin-actions-panel').style.display = 'flex';
+    $('#btn-admin').style.color = 'var(--orange)';
+  } else {
+    badge.textContent = '';
+    $('#admin-login-form').style.display = 'block';
+    $('#admin-actions-panel').style.display = 'none';
+    $('#btn-admin').style.color = '';
+  }
+}
+
+async function adminReq(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${adminToken}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (res.status === 401) {
+    adminToken = null;
+    sessionStorage.removeItem('adminToken');
+    updateAdminUI();
+    toast('Admin session expired', 'var(--red)');
+    return null;
+  }
+  return res;
+}
+
+async function deleteMessage(id) {
+  await adminReq('DELETE', `/api/admin/messages/${id}`);
+}
+
+async function kickUser(targetUsername) {
+  if (!confirm(`Kick ${targetUsername}?`)) return;
+  await adminReq('POST', '/api/admin/kick', { roomId, username: targetUsername });
+}
+
+/* ================================================================
+   Call Controls
+   ================================================================ */
+function setupCallControls() {
+  $('#btn-call').onclick   = joinCall;
+  $('#btn-hangup').onclick = leaveCall;
+  $('#btn-mic').onclick    = toggleMic;
+  $('#btn-cam').onclick    = toggleCam;
+  $('#btn-screen').onclick = toggleScreen;
+}
+
+function showCallUI() {
+  $('#btn-call').style.display   = 'none';
+  $('#btn-mic').style.display    = 'flex';
+  $('#btn-cam').style.display    = 'flex';
+  $('#btn-screen').style.display = 'flex';
+  $('#btn-hangup').style.display = 'flex';
+  $('#video-area').style.display = 'flex';
+}
+function hideCallUI() {
+  $('#btn-call').style.display   = 'flex';
+  $('#btn-mic').style.display    = 'none';
+  $('#btn-cam').style.display    = 'none';
+  $('#btn-screen').style.display = 'none';
+  $('#btn-hangup').style.display = 'none';
+  $('#video-area').style.display = 'none';
+  $('#video-area').innerHTML     = '';
+  $('#btn-mic').classList.remove('muted');
+  $('#btn-cam').classList.remove('muted');
+  $('#btn-screen').classList.remove('active');
+}
+
+/* ================================================================
+   WebRTC — Join / Leave
+   ================================================================ */
+async function joinCall() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+  } catch {
+    try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { return toast('Cannot access camera or microphone'); }
+  }
+  inCall = true; micOn = true;
+  camOn = localStream.getVideoTracks().length > 0;
+  showCallUI();
+  addVideoBox('local', localStream, username + ' (You)', true);
+  socket.emit('call-join');
+}
+
+function leaveCall() {
+  inCall = false;
+  socket.emit('call-leave');
+  for (const [id] of peers) removePeer(id);
+  peers.clear();
+  if (localStream)  { localStream.getTracks().forEach(t => t.stop());  localStream  = null; }
+  if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
+  hideCallUI();
+}
+
+/* ================================================================
+   WebRTC — Peers
+   ================================================================ */
+function createPeer(targetId, initiator) {
+  if (peers.has(targetId)) removePeer(targetId);
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  if (screenStream) {
+    const st = screenStream.getVideoTracks()[0];
+    if (st) { const s = pc.getSenders().find(s => s.track?.kind === 'video'); if (s) s.replaceTrack(st); }
+  }
+  pc.onicecandidate = e => {
+    if (e.candidate) socket.emit('webrtc-ice-candidate', { to: targetId, candidate: e.candidate });
+  };
+  const remoteStream = new MediaStream();
+  pc.ontrack = e => {
+    if (e.streams?.[0]) {
+      e.streams[0].getTracks().forEach(t => { if (!remoteStream.getTrackById(t.id)) remoteStream.addTrack(t); });
+    } else { remoteStream.addTrack(e.track); }
+    addVideoBox(targetId, remoteStream, '', false);
+  };
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') removePeer(targetId); };
+  peers.set(targetId, { pc, remoteStream });
+  if (initiator) {
+    pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => {
+      socket.emit('webrtc-offer', { to: targetId, offer: pc.localDescription });
+    });
+  }
+}
+
+function removePeer(targetId) {
+  const p = peers.get(targetId);
+  if (p) { p.pc.close(); peers.delete(targetId); }
+  document.getElementById('video-' + targetId)?.remove();
+  layoutVideos();
+}
+
+/* ================================================================
+   WebRTC — Mic / Cam / Screen
+   ================================================================ */
+function toggleMic() {
+  if (!localStream) return;
+  micOn = !micOn;
+  localStream.getAudioTracks().forEach(t => { t.enabled = micOn; });
+  $('#btn-mic').classList.toggle('muted', !micOn);
+  $('#btn-mic').textContent = micOn ? '🎤' : '🔇';
+}
+function toggleCam() {
+  if (!localStream) return;
+  camOn = !camOn;
+  localStream.getVideoTracks().forEach(t => { t.enabled = camOn; });
+  $('#btn-cam').classList.toggle('muted', !camOn);
+}
+async function toggleScreen() {
+  if (screenStream) return stopScreen();
+  try { screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true }); } catch { return; }
+  const track = screenStream.getVideoTracks()[0];
+  for (const [, { pc }] of peers) {
+    const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+    if (sender) sender.replaceTrack(track);
+  }
+  const localVid = document.querySelector('#video-local video');
+  if (localVid) localVid.srcObject = screenStream;
+  $('#btn-screen').classList.add('active');
+  track.onended = () => stopScreen();
+}
+function stopScreen() {
+  if (!screenStream) return;
+  screenStream.getTracks().forEach(t => t.stop());
+  screenStream = null;
+  const camTrack = localStream?.getVideoTracks()[0] || null;
+  for (const [, { pc }] of peers) {
+    const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+    if (sender) sender.replaceTrack(camTrack);
+  }
+  const localVid = document.querySelector('#video-local video');
+  if (localVid && localStream) localVid.srcObject = localStream;
+  $('#btn-screen').classList.remove('active');
+}
+
+/* ================================================================
+   Video Grid
+   ================================================================ */
+function addVideoBox(id, stream, label, isLocal) {
+  const existing = document.getElementById('video-' + id);
+  if (existing) { existing.querySelector('video').srcObject = stream; return; }
+  const wrap  = document.createElement('div');
+  wrap.className = 'video-box' + (isLocal ? ' local' : '');
+  wrap.id = 'video-' + id;
+  const video = document.createElement('video');
+  video.autoplay = true; video.playsInline = true;
+  if (isLocal) video.muted = true;
+  video.srcObject = stream;
+  const lbl = document.createElement('span');
+  lbl.className = 'label'; lbl.textContent = label || '';
+  wrap.appendChild(video); wrap.appendChild(lbl);
+  $('#video-area').appendChild(wrap);
+  layoutVideos();
+}
+
+function layoutVideos() {
+  const area  = $('#video-area');
+  const count = area.children.length;
+  if (count === 0) return;
+  const w = count <= 2 ? 'calc(50% - 4px)' : 'calc(50% - 4px)';
+  const h = count <= 2 ? '220px' : '170px';
+  Array.from(area.children).forEach(box => {
+    box.style.width  = count === 1 ? '360px' : w;
+    box.style.height = h;
+  });
+}
+</script>
+</body>
+</html>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-primary:#313338;--bg-secondary:#2b2d31;--bg-tertiary:#1e1f22;
+  --text:#f2f3f5;--text-dim:#b5bac1;--text-muted:#949ba4;
+  --accent:#5865f2;--accent-h:#4752c4;--green:#23a559;--red:#f23f43;
   --input-bg:#383a40;--border:#3f4147;--hover:rgba(255,255,255,.06);
 }
 html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
