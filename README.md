@@ -1,45 +1,92 @@
 # Discord Alt
 
-Group chat with video calls, screen sharing and image uploads.  
-Runs on any VPS with Docker. Supports 2–5 users per room.
+Desktop messenger + self-hosted server for 2–5 people.  
+Text chat, video calls, screen sharing, file uploads.
 
-## Quick Start
+---
+
+## Architecture
+
+```
+┌──────────────────────┐         ┌──────────────────────┐
+│  Desktop App (Tauri)  │ ──────▶ │   Server (Docker)     │
+│  Windows / Linux      │ Socket  │   Node.js + SQLite    │
+│  ~5 MB                │  .io    │   VPS 1 CPU / 1 GB   │
+└──────────────────────┘         └──────────────────────┘
+        │                                 │
+        └────── WebRTC P2P (media) ──────┘
+```
+
+## Project Structure
+
+```
+├── app/                          # Tauri desktop application
+│   ├── package.json              # Tauri CLI
+│   ├── scripts/
+│   │   └── gen-icons.cjs         # Generates app icons (PNG + ICO)
+│   ├── frontend/
+│   │   ├── index.html            # UI + CSS
+│   │   └── main.js               # App logic (chat, WebRTC, etc.)
+│   └── src-tauri/
+│       ├── Cargo.toml            # Rust dependencies
+│       ├── tauri.conf.json       # Tauri config
+│       ├── capabilities/
+│       │   └── default.json      # Permission grants
+│       └── src/
+│           ├── main.rs           # Entry point
+│           └── lib.rs            # Tray icon, notifications
+│
+├── server/                       # Signal server
+│   ├── index.js                  # Fastify + Socket.io + SQLite
+│   └── package.json
+│
+├── client/                       # Web client (standalone browser version)
+│   └── index.html
+│
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+---
+
+## 1. Deploy the Server
+
+### One-command install (Ubuntu/Debian VPS)
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.sh | sudo bash
+```
+
+The script will:
+- Install Docker, Docker Compose, git (if missing)
+- Clone the repo to `/opt/discord-alt`
+- Ask for domain, port, upload size
+- Build and start the server
+- Optionally install Caddy for automatic HTTPS
+- Open firewall ports (UFW)
+
+### Manual install
+
+```bash
+git clone <repo> && cd discord-alt
 cp .env.example .env
+# Edit .env if needed (PORT, MAX_FILE_SIZE)
 docker-compose up -d
 ```
 
-Open `http://YOUR_IP:3000`.
+Server listens on port 3000. A web client is also available at `http://YOUR_IP:3000`.
 
----
+### HTTPS (required for WebRTC on non-localhost)
 
-## Features
-
-- Login by nickname (no registration)
-- Rooms by link — create or share
-- Text chat with message history (SQLite)
-- Audio / video calls (WebRTC mesh, browser-to-browser)
-- Screen sharing (`getDisplayMedia`)
-- Image upload via drag & drop, clipboard paste, or attach button
-
----
-
-## HTTPS with Caddy (recommended)
-
-WebRTC and `getDisplayMedia` require HTTPS (except localhost).  
-Caddy auto-provisions Let's Encrypt certificates.
-
-### 1. Install Caddy on the host
+**Option A — Caddy (simplest, auto HTTPS):**
 
 ```bash
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudflare.com/apt/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudflare.com/apt/stable.list' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update && sudo apt install caddy
+sudo apt install caddy
 ```
 
-### 2. Create `/etc/caddy/Caddyfile`
+Create `/etc/caddy/Caddyfile`:
 
 ```
 chat.example.com {
@@ -47,17 +94,11 @@ chat.example.com {
 }
 ```
 
-### 3. Restart Caddy
-
 ```bash
 sudo systemctl restart caddy
 ```
 
-Caddy gets a certificate automatically. Point your DNS A-record to the VPS IP.
-
----
-
-## Alternative: nginx + certbot
+**Option B — nginx + certbot:**
 
 ```nginx
 server {
@@ -65,11 +106,9 @@ server {
     server_name chat.example.com;
     return 301 https://$host$request_uri;
 }
-
 server {
     listen 443 ssl http2;
     server_name chat.example.com;
-
     ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
 
@@ -79,7 +118,6 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
@@ -90,63 +128,103 @@ sudo certbot --nginx -d chat.example.com
 
 ---
 
-## Environment Variables
+## 2. Build the Desktop App
 
-| Variable       | Default   | Description                |
-|----------------|-----------|----------------------------|
-| `PORT`         | `3000`    | Internal server port       |
-| `MAX_FILE_SIZE`| `5242880` | Max upload size in bytes   |
-| `UPLOADS_DIR`  | `/app/uploads` | Image storage path    |
-| `DB_PATH`      | `/app/data/chat.db` | SQLite DB path    |
+### Prerequisites
+
+| Tool | Install |
+|------|---------|
+| **Rust** | [rustup.rs](https://rustup.rs) |
+| **Node.js** >= 18 | [nodejs.org](https://nodejs.org) |
+| **System libs** (Linux only) | See below |
+
+**Linux build dependencies (Ubuntu/Debian):**
+
+```bash
+sudo apt install -y \
+  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+  patchelf build-essential curl wget file \
+  libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+```
+
+**Windows:** No extra dependencies — just Rust + Node.js.
+
+### Build Steps
+
+```bash
+cd app
+
+# Install Tauri CLI
+npm install
+
+# Generate app icons (PNG + ICO)
+npm run icons
+
+# Development mode (opens app window)
+npm run dev
+
+# Production build → .exe / .deb / .dmg
+npm run build
+```
+
+### Build Output
+
+| Platform | Output path |
+|----------|-------------|
+| Windows  | `src-tauri/target/release/bundle/nsis/*.exe` |
+| Windows  | `src-tauri/target/release/bundle/msi/*.msi` |
+| Linux    | `src-tauri/target/release/bundle/deb/*.deb` |
+| Linux    | `src-tauri/target/release/bundle/appimage/*.AppImage` |
+| macOS    | `src-tauri/target/release/bundle/dmg/*.dmg` |
 
 ---
 
-## Architecture
+## 3. Using the App
 
-```
-Browser ──Socket.io──▶ Fastify (Node.js)
-       ◀──WebRTC────▶ Browser (mesh P2P)
-                       │
-                       ├── SQLite (messages)
-                       └── /uploads (images)
-```
+1. Launch the built application
+2. Enter **Server Address** — e.g. `https://chat.example.com`
+3. Enter your **Nickname**
+4. Enter a **Room Code** or leave blank to create a new room
+5. Click **Connect**
 
-- **Signaling** goes through Socket.io on the server
-- **Media streams** flow directly between browsers (WebRTC mesh)
-- Works for 2–5 participants; for more, add a TURN server or switch to an SFU
+### Features
+
+| Feature | How |
+|---------|-----|
+| Text chat | Type and press Enter |
+| Share room | Click 📋 — copies room code to clipboard |
+| Voice / video call | Click 📞, toggle 🎤 📹 |
+| Screen share | Click 🖥️ during a call |
+| Upload files | Click 📎, drag & drop, or Ctrl+V (images) |
+| Notifications | Native OS notifications when window is not focused |
+| System tray | Closing the window minimizes to tray. Right-click tray → Show / Quit |
+
+---
+
+## Environment Variables (.env)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Server port |
+| `MAX_FILE_SIZE` | `5242880` | Max upload in bytes (5 MB) |
+| `UPLOADS_DIR` | `/app/uploads` | File storage path |
+| `DB_PATH` | `/app/data/chat.db` | SQLite database path |
+
+---
 
 ## TURN Server (optional)
 
-For users behind strict/symmetric NAT, add a TURN server.  
-The easiest option is [coturn](https://github.com/coturn/coturn):
+For users behind strict/symmetric NAT, add a TURN server ([coturn](https://github.com/coturn/coturn)):
 
 ```bash
 sudo apt install coturn
 ```
 
-Then add TURN credentials to the `ICE` array in `client/index.html`:
+Edit `ICE_SERVERS` in `app/frontend/main.js`:
 
 ```js
-const ICE = [
+const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'turn:YOUR_VPS_IP:3478', username: 'user', credential: 'pass' },
+  { urls: 'turn:YOUR_VPS:3478', username: 'user', credential: 'pass' },
 ];
-```
-
----
-
-## Project Structure
-
-```
-├── client/
-│   └── index.html        # Full frontend (HTML + CSS + JS)
-├── server/
-│   ├── index.js           # Backend (Fastify + Socket.io + SQLite)
-│   └── package.json
-├── uploads/               # Uploaded images (volume)
-├── data/                  # SQLite database (volume)
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-└── README.md
 ```
