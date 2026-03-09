@@ -1469,7 +1469,7 @@ async function renderServerSettingsPage(serverId, page) {
         </tbody>
       </table>`}
     `;
-    body.querySelector('#ss-create-inv')?.onclick = () => createInvite(serverId);
+    body.querySelector('#ss-create-inv')?.addEventListener('click', () => createInvite(serverId));
     body.querySelectorAll('.del-inv-btn').forEach(btn => {
       btn.onclick = async () => {
         try { await API.del(`/api/invites/${btn.dataset.code}`); renderServerSettingsPage(serverId, 'invites'); }
