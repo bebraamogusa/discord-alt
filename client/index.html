@@ -254,7 +254,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 <div id="drop-overlay"><div class="inner">рџ“Ѓ Drop file to upload</div></div>
 <div id="toast"></div>
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
 <script>
 /* ================================================================
    State
@@ -411,6 +411,11 @@ function enterRoom() {
    Socket.io
    ================================================================ */
 function connectSocket() {
+  if (typeof io !== 'function') {
+    alert('Socket.IO client failed to load. Refresh the page and try again.');
+    return;
+  }
+
   socket = io({ transports: ['websocket', 'polling'] });
 
   socket.on('connect', () => {
