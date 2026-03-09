@@ -549,6 +549,100 @@ svg{flex-shrink:0;pointer-events:none}
 }
 .msg-reactions:not(:empty) + .add-reaction-btn,
 .msg:hover .add-reaction-btn{display:flex}
+
+/* ── User area bar */
+.user-area{
+  margin-top:auto;padding:8px 8px;background:var(--bg-3);
+  display:flex;align-items:center;gap:8px;flex-shrink:0;
+  border-top:1px solid var(--border);
+}
+.ua-avatar{
+  width:32px;height:32px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;color:#fff;
+}
+.ua-info{flex:1;min-width:0;}
+.ua-name{font-size:13px;font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+.ua-tag{font-size:11px;color:var(--text-3);}
+#btn-user-settings{width:32px;height:32px;border-radius:6px;color:var(--text-3);flex-shrink:0;padding:0;display:flex;align-items:center;justify-content:center;}
+#btn-user-settings:hover{background:var(--hover);color:var(--text);}
+
+/* ── Settings overlay */
+#settings-overlay{
+  position:fixed;inset:0;z-index:3000;background:var(--bg);
+  display:none;opacity:0;transition:opacity .18s ease;
+}
+#settings-overlay.open{display:flex;}
+#settings-overlay.visible{opacity:1;}
+.settings-body{
+  display:flex;width:100%;height:100%;
+}
+.settings-nav{
+  width:232px;min-width:168px;background:var(--bg-2);
+  padding:60px 8px 16px;overflow-y:auto;flex-shrink:0;
+  display:flex;flex-direction:column;
+  animation:settingsIn .2s ease-out;
+}
+.settings-content{
+  flex:1;padding:60px 40px 40px;overflow-y:auto;
+  animation:settingsIn .2s ease-out;
+}
+@keyframes settingsIn{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+.settings-nav-label{
+  padding:6px 10px;font-size:11px;font-weight:700;letter-spacing:.5px;
+  text-transform:uppercase;color:var(--text-3);margin-top:8px;
+}
+.settings-nav-item{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border-radius:4px;cursor:pointer;font-size:14px;color:var(--text-2);
+  transition:background .1s,color .1s;width:100%;text-align:left;
+  background:none;border:none;
+}
+.settings-nav-item:hover{background:var(--hover);color:var(--text);}
+.settings-nav-item.active{background:rgba(255,255,255,.1);color:var(--text);}
+.settings-nav-item.danger{color:var(--red);}
+.settings-nav-item.danger:hover{background:var(--red);color:#fff;}
+.settings-nav-divider{height:1px;background:var(--border);margin:6px 0;}
+.settings-content h2{font-size:20px;font-weight:700;margin:0 0 20px;color:var(--text);}
+.settings-content p{color:var(--text-2);font-size:14px;line-height:1.6;}
+.settings-close-wrap{
+  position:fixed;top:16px;right:16px;display:flex;align-items:center;
+  gap:8px;color:var(--text-3);font-size:13px;cursor:pointer;
+  animation:settingsIn .2s ease-out;
+}
+.settings-close-btn{
+  width:36px;height:36px;border-radius:50%;background:transparent;
+  border:2px solid var(--text-3);color:var(--text-3);font-size:18px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:border-color .15s,color .15s;line-height:1;
+}
+.settings-close-wrap:hover .settings-close-btn{border-color:var(--text);color:var(--text);}
+.settings-close-wrap:hover{color:var(--text);}
+/* settings form elements */
+.sett-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
+.sett-row:last-child{border-bottom:none;}
+.sett-label{font-size:14px;color:var(--text);}
+.sett-desc{font-size:12px;color:var(--text-3);margin-top:2px;}
+.sett-toggle{
+  width:40px;height:22px;border-radius:11px;border:none;cursor:pointer;
+  position:relative;background:var(--bg-4);transition:background .2s;flex-shrink:0;
+}
+.sett-toggle.on{background:var(--accent);}
+.sett-toggle::after{
+  content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;
+  border-radius:50%;background:#fff;transition:transform .2s;
+}
+.sett-toggle.on::after{transform:translateX(18px);}
+.sett-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-3);margin:20px 0 8px;}
+.sett-kbd-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
+.sett-kbd-row:last-child{border-bottom:none;}
+.sett-kbd{display:flex;gap:4px;}
+.sett-kbd kbd{
+  background:var(--bg-3);border:1px solid var(--border);border-radius:4px;
+  padding:2px 7px;font-size:12px;font-family:monospace;color:var(--text-2);
+}
+.sett-about-logo{font-size:36px;text-align:center;margin-bottom:12px;}
+.sett-about-version{font-size:13px;color:var(--text-3);text-align:center;margin-bottom:20px;}
 </style>
 </head>
 <body>
@@ -590,6 +684,14 @@ svg{flex-shrink:0;pointer-events:none}
         <button class="ic-btn" id="btn-new-room" title="Create room"></button>
       </div>
       <ul id="room-list"></ul>
+    </div>
+    <div class="user-area" id="user-area">
+      <div class="ua-avatar" id="ua-avatar">?</div>
+      <div class="ua-info">
+        <span class="ua-name" id="ua-name">—</span>
+        <span class="ua-tag">#0000</span>
+      </div>
+      <button class="ic-btn" id="btn-user-settings" title="User Settings (Ctrl+,)"></button>
     </div>
   </nav>
   <div id="sidebar-backdrop"></div>
@@ -773,7 +875,8 @@ let editOrigContent = null;
 /* ================================================================
    Utilities
    ================================================================ */
-const $ = s => document.querySelector(s);
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function fmtTime(ts) {
@@ -931,6 +1034,7 @@ function switchRoom(newId) {
 function initIcons() {
   $('#btn-rooms-settings').innerHTML = ic('settings');
   $('#btn-new-room').innerHTML        = ic('plus');
+  $('#btn-user-settings').innerHTML   = ic('settings');
   $('#btn-sidebar-toggle').innerHTML  = ic('menu', 20);
   $('#btn-copy').innerHTML            = ic('copy');
   $('#btn-admin').innerHTML           = ic('shield');
@@ -1045,6 +1149,16 @@ function enterRoom() {
   setupAdminPanel();
   updateAdminUI();
   setupSidebarToggle();
+  setupSettings();
+
+  // populate user-area bar
+  const uaName   = $('#ua-name');
+  const uaAvatar = $('#ua-avatar');
+  if (uaName)   uaName.textContent   = username || '—';
+  if (uaAvatar) {
+    uaAvatar.textContent   = username ? username.charAt(0).toUpperCase() : '?';
+    uaAvatar.style.background = username ? avatarColor(username) : '#5865f2';
+  }
 
   $('#btn-new-room').onclick = () => {
     const newId = prompt('Enter room ID (or leave empty to create):')?.trim();
@@ -1777,7 +1891,208 @@ function setupSidebarToggle() {
 }
 
 /* ================================================================
-   @Mention autocomplete
+   Settings
+   ================================================================ */
+const _settingsPages = {
+  account: {
+    title: 'Мой аккаунт',
+    render() {
+      return `<h2>Мой аккаунт</h2>
+        <div class="sett-section-title">Имя пользователя</div>
+        <div class="sett-row">
+          <div><div class="sett-label" id="sett-uname-display">${username || '—'}</div>
+          <div class="sett-desc">Отображается в чате</div></div>
+        </div>`;
+    }
+  },
+  profile: {
+    title: 'Профиль',
+    render() {
+      const initial = username ? username.charAt(0).toUpperCase() : '?';
+      const bg      = username ? avatarColor(username) : '#5865f2';
+      return `<h2>Профиль</h2>
+        <div class="sett-section-title">Аватар</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+          <div style="width:72px;height:72px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;">${initial}</div>
+          <div class="sett-desc">Аватар генерируется автоматически на основе имени.</div>
+        </div>`;
+    }
+  },
+  appearance: {
+    title: 'Внешний вид',
+    render() {
+      const saved = localStorage.getItem('sett_theme') || 'dark';
+      return `<h2>Внешний вид</h2>
+        <div class="sett-section-title">Тема</div>
+        <div class="sett-row">
+          <div class="sett-label">Тёмная тема</div>
+          <button class="sett-toggle ${saved === 'dark' ? 'on' : ''}" id="toggle-theme" title="Переключить тему"></button>
+        </div>
+        <div class="sett-section-title">Масштаб шрифта</div>
+        <div class="sett-row">
+          <div class="sett-label">Размер текста сообщений</div>
+          <select id="sel-font-size" style="background:var(--bg-3);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:13px;">
+            <option value="13" ${(localStorage.getItem('sett_fontSize')||'14')==='13'?'selected':''}>Маленький</option>
+            <option value="14" ${(localStorage.getItem('sett_fontSize')||'14')==='14'?'selected':''}>Средний</option>
+            <option value="16" ${(localStorage.getItem('sett_fontSize')||'14')==='16'?'selected':''}>Большой</option>
+          </select>
+        </div>`;
+    }
+  },
+  notifications: {
+    title: 'Уведомления',
+    render() {
+      const on = localStorage.getItem('sett_notif') !== 'off';
+      const snd = localStorage.getItem('sett_sound') !== 'off';
+      return `<h2>Уведомления</h2>
+        <div class="sett-row">
+          <div><div class="sett-label">Push-уведомления</div><div class="sett-desc">Десктопные уведомления при новых сообщениях</div></div>
+          <button class="sett-toggle ${on?'on':''}" data-key="sett_notif" data-off="off"></button>
+        </div>
+        <div class="sett-row">
+          <div><div class="sett-label">Звук уведомления</div><div class="sett-desc">Звук при получении нового сообщения</div></div>
+          <button class="sett-toggle ${snd?'on':''}" data-key="sett_sound" data-off="off"></button>
+        </div>`;
+    }
+  },
+  voice: {
+    title: 'Звук и видео',
+    render() {
+      const vad = localStorage.getItem('sett_vad') !== 'off';
+      return `<h2>Звук и видео</h2>
+        <div class="sett-row">
+          <div><div class="sett-label">Автоматическое определение речи (VAD)</div><div class="sett-desc">Микрофон автоматически включается при звуке голоса</div></div>
+          <button class="sett-toggle ${vad?'on':''}" data-key="sett_vad" data-off="off"></button>
+        </div>
+        <div class="sett-section-title">Горячие клавиши голоса</div>
+        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл микрофон</span><div class="sett-kbd"><kbd>M</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл камеру</span><div class="sett-kbd"><kbd>V</kbd></div></div>`;
+    }
+  },
+  keybinds: {
+    title: 'Горячие клавиши',
+    render() {
+      return `<h2>Горячие клавиши</h2>
+        <div class="sett-kbd-row"><span class="sett-label">Открыть настройки</span><div class="sett-kbd"><kbd>Ctrl</kbd><kbd>,</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Закрыть настройки / модал</span><div class="sett-kbd"><kbd>Esc</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл микрофон (в звонке)</span><div class="sett-kbd"><kbd>M</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл камеру (в звонке)</span><div class="sett-kbd"><kbd>V</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Редактировать последнее сообщение</span><div class="sett-kbd"><kbd>↑</kbd></div></div>
+        <div class="sett-kbd-row"><span class="sett-label">Отмена редактирования</span><div class="sett-kbd"><kbd>Esc</kbd></div></div>`;
+    }
+  },
+  privacy: {
+    title: 'Приватность',
+    render() {
+      return `<h2>Приватность</h2>
+        <p>Все сообщения хранятся только на выбранном сервере. Никаких аналитических или рекламных трекеров не используется.</p>
+        <div class="sett-section-title">Хранение данных</div>
+        <div class="sett-row"><div class="sett-label">История сообщений</div><div class="sett-desc" style="text-align:right">SQLite на сервере</div></div>
+        <div class="sett-row"><div class="sett-label">Пользовательские настройки</div><div class="sett-desc" style="text-align:right">localStorage браузера</div></div>`;
+    }
+  },
+  about: {
+    title: 'О программе',
+    render() {
+      return `<h2>О программе</h2>
+        <div class="sett-about-logo">💬</div>
+        <div class="sett-about-version">Discord Alt — v1.0.0</div>
+        <p>Open-source мессенджер, построенный на Node.js, Fastify, Socket.io и SQLite.</p>
+        <p style="margin-top:12px;">Repo: <a href="https://github.com/bebraamogusa/discord-alt" target="_blank" style="color:var(--accent)">github.com/bebraamogusa/discord-alt</a></p>`;
+    }
+  }
+};
+let _settingsPage = 'account';
+
+function openSettings(page) {
+  page = page || _settingsPage || 'account';
+  _settingsPage = page;
+  const overlay = $('#settings-overlay');
+  overlay.classList.add('open');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+  });
+  renderSettingsPage(page);
+}
+
+function closeSettings() {
+  const overlay = $('#settings-overlay');
+  overlay.classList.remove('visible');
+  setTimeout(() => overlay.classList.remove('open'), 180);
+}
+
+function renderSettingsPage(page) {
+  _settingsPage = page;
+  // update nav active state
+  $$('#settings-nav .settings-nav-item').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+  const def = _settingsPages[page];
+  const content = $('#settings-content');
+  if (!def) return;
+  content.innerHTML = def.render();
+  // wire up generic toggles
+  content.querySelectorAll('.sett-toggle[data-key]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.key;
+      const off = btn.dataset.off || 'off';
+      const isOn = btn.classList.toggle('on');
+      localStorage.setItem(key, isOn ? 'on' : off);
+    };
+  });
+  // appearance-specific wiring
+  const themeBtn = $('#toggle-theme');
+  if (themeBtn) {
+    themeBtn.onclick = () => {
+      const isOn = themeBtn.classList.toggle('on');
+      localStorage.setItem('sett_theme', isOn ? 'dark' : 'light');
+      // future: apply theme changes
+    };
+  }
+  const fontSel = $('#sel-font-size');
+  if (fontSel) {
+    fontSel.onchange = () => {
+      localStorage.setItem('sett_fontSize', fontSel.value);
+      document.querySelector('#messages')?.style.setProperty('font-size', fontSel.value + 'px');
+    };
+  }
+}
+
+function setupSettings() {
+  const overlay = $('#settings-overlay');
+  // nav item clicks
+  $$('#settings-nav .settings-nav-item').forEach(btn => {
+    btn.onclick = () => {
+      if (btn.dataset.page === 'logout') {
+        closeSettings();
+        setTimeout(() => {
+          sessionStorage.removeItem('username');
+          location.href = '/';
+        }, 200);
+        return;
+      }
+      renderSettingsPage(btn.dataset.page);
+    };
+  });
+  // close button
+  const closeWrap = $('#settings-close-wrap');
+  if (closeWrap) closeWrap.onclick = closeSettings;
+  // gear button in user-area
+  const userSettBtn = $('#btn-user-settings');
+  if (userSettBtn) userSettBtn.onclick = () => openSettings('account');
+  // Ctrl+, shortcut
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      const isOpen = overlay.classList.contains('open');
+      isOpen ? closeSettings() : openSettings();
+    }
+    if (e.key === 'Escape' && overlay.classList.contains('open')) {
+      e.stopPropagation();
+      closeSettings();
+    }
+  }, true);
+}
    ================================================================ */
 function setupMentionAutocomplete() {
   const inp = $('#msg-input');
@@ -2266,5 +2581,35 @@ function applyEdit(id, content) {
   editingMsgId = null;
 }
 </script>
+
+<!-- Settings overlay -->
+<div id="settings-overlay">
+  <div class="settings-body">
+    <nav class="settings-nav" id="settings-nav">
+      <div class="settings-nav-label">Мой аккаунт</div>
+      <button class="settings-nav-item active" data-page="account">Мой аккаунт</button>
+      <button class="settings-nav-item" data-page="profile">Профиль</button>
+      <div class="settings-nav-divider"></div>
+      <div class="settings-nav-label">Приложение</div>
+      <button class="settings-nav-item" data-page="appearance">Внешний вид</button>
+      <button class="settings-nav-item" data-page="notifications">Уведомления</button>
+      <button class="settings-nav-item" data-page="voice">Звук и видео</button>
+      <button class="settings-nav-item" data-page="keybinds">Горячие клавиши</button>
+      <div class="settings-nav-divider"></div>
+      <div class="settings-nav-label">Конфиденциальность</div>
+      <button class="settings-nav-item" data-page="privacy">Приватность</button>
+      <div class="settings-nav-divider"></div>
+      <div class="settings-nav-label">Прочее</div>
+      <button class="settings-nav-item" data-page="about">О программе</button>
+      <button class="settings-nav-item danger" data-page="logout">Выйти</button>
+    </nav>
+    <div class="settings-content" id="settings-content"></div>
+  </div>
+  <div class="settings-close-wrap" id="settings-close-wrap" title="Закрыть (Esc)">
+    <button class="settings-close-btn" id="btn-settings-close">✕</button>
+    <span>ESC</span>
+  </div>
+</div>
+
 </body>
 </html>
