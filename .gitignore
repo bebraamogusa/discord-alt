@@ -1,0 +1,47 @@
+# -- Node.js -----------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.pnpm-store/
+
+# -- Environment / Secrets ---------------------------------
+.env
+.env.local
+.env.production
+# Keep .env.example (it's safe, has no real secrets)
+
+# -- Runtime data ------------------------------------------
+uploads/
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# -- Rust / Tauri ------------------------------------------
+app/src-tauri/target/
+# Generated icons (can be recreated with: npm run icons / npx tauri icon)
+app/src-tauri/icons/
+# Tauri generated files
+app/src-tauri/gen/
+
+# -- Build outputs -----------------------------------------
+dist/
+build/
+
+# -- OS files ----------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# -- Editor ------------------------------------------------
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.suo
+*.user
+
+# -- Logs --------------------------------------------------
+logs/
+*.log
