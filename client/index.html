@@ -429,6 +429,62 @@ svg{flex-shrink:0;pointer-events:none}
   border-radius:3px;padding:0 4px;font-size:10px;
 }
 .msg-edited-mark{font-size:10px;color:var(--text-3);margin-left:4px}
+
+/* ── Emoji picker ─────────────────────────────────────────────── */
+#emoji-picker{
+  position:fixed;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+  z-index:4000;width:340px;display:none;flex-direction:column;
+  overflow:hidden;
+}
+.ep-header{padding:8px 10px 6px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ep-search{
+  width:100%;background:var(--bg-4);border:1px solid var(--border);
+  border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text);
+  outline:none;
+}
+.ep-search:focus{border-color:var(--accent)}
+.ep-cats{
+  display:flex;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--border);
+  overflow-x:auto;flex-shrink:0;
+}
+.ep-cats::-webkit-scrollbar{height:0}
+.ep-cat{
+  padding:4px 8px;border-radius:6px;font-size:17px;cursor:pointer;
+  transition:background .12s;flex-shrink:0;line-height:1.4;
+}
+.ep-cat:hover,.ep-cat.active{background:var(--hover)}
+.ep-grid{
+  display:grid;grid-template-columns:repeat(8,1fr);gap:2px;
+  padding:8px;overflow-y:auto;max-height:220px;
+}
+.ep-emoji{
+  font-size:22px;line-height:1;padding:5px 3px;border-radius:6px;
+  cursor:pointer;text-align:center;transition:background .1s;user-select:none;
+}
+.ep-emoji:hover{background:var(--hover)}
+
+/* ── Reaction pills ───────────────────────────────────────────── */
+.msg-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.reaction-pill{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+  background:var(--bg-4);border:1px solid var(--border);border-radius:12px;
+  cursor:pointer;font-size:13px;transition:background .12s,border-color .12s;
+  user-select:none;
+}
+.reaction-pill:hover{background:var(--hover);border-color:var(--text-3)}
+.reaction-pill.me{background:rgba(88,101,242,.2);border-color:var(--accent);color:var(--accent)}
+.reaction-pill .r-emoji{font-size:16px;line-height:1}
+.reaction-pill .r-count{font-size:12px;font-weight:600;min-width:10px}
+.add-reaction-btn{
+  display:none;align-items:center;justify-content:center;
+  width:28px;height:22px;border-radius:12px;
+  background:var(--bg-4);border:1px solid var(--border);
+  cursor:pointer;font-size:14px;transition:background .12s;
+  margin-top:4px;
+}
+.msg-reactions:not(:empty) + .add-reaction-btn,
+.msg:hover .add-reaction-btn{display:flex}
 </style>
 </head>
 <body>
@@ -499,6 +555,7 @@ svg{flex-shrink:0;pointer-events:none}
     <div id="input-bar">
       <div class="input-wrap">
         <button class="input-action" id="btn-attach" title="Upload file"></button>
+        <button class="input-action" id="btn-emoji" title="Emoji" style="font-size:18px">&#128578;</button>
         <textarea id="msg-input" placeholder="Send a message..." autocomplete="off" rows="1"></textarea>
         <button class="input-action" id="btn-send" title="Send"></button>
       </div>
@@ -538,6 +595,11 @@ svg{flex-shrink:0;pointer-events:none}
 </div>
 
 <div id="mention-popup"></div>
+<div id="emoji-picker">
+  <div class="ep-header"><input class="ep-search" id="ep-search" placeholder="Search emoji..." autocomplete="off"></div>
+  <div class="ep-cats" id="ep-cats"></div>
+  <div class="ep-grid" id="ep-grid"></div>
+</div>
 <div id="drop-overlay"><div class="inner">Drop file to upload</div></div>
 <div id="toast"></div>
 
@@ -597,6 +659,9 @@ let lastGroupTime   = 0;
 // Mention autocomplete
 let currentUsers = [];
 let mentionIdx   = -1;
+
+// Emoji picker
+let emojiPickerTarget = null; // null = input-mode, string = msg-id react-mode
 
 // Inline editing
 let editingMsgId    = null;
@@ -854,6 +919,7 @@ function enterRoom() {
   connectSocket();
   setupChat();
   setupMentionAutocomplete();
+  setupEmojiPicker();
   setupDragDrop();
   setupCallControls();
   setupAdminPanel();
@@ -882,6 +948,7 @@ function connectSocket() {
     loadHistory();
   });
   socket.on('room-users', updateUserList);
+  socket.on('reaction-update', ({ msgId, reactions }) => renderReactions(msgId, reactions));
   socket.on('message-edited', ({ id, content }) => {
     if (id !== editingMsgId) applyEdit(id, content);
   });
@@ -1051,6 +1118,23 @@ function renderMessage(msg, isNew = false) {
   }
 
   bodyEl.appendChild(contentEl);
+
+  // Reactions area
+  const reactArea = document.createElement('div');
+  reactArea.className = 'msg-reactions';
+  reactArea.id = 'reactions-' + msg.id;
+  if (msg.reactions && msg.reactions.length) {
+    buildReactionPills(reactArea, msg.id, msg.reactions);
+  }
+  bodyEl.appendChild(reactArea);
+
+  // Add-reaction button (always present, shown on hover)
+  const addReactBtn = document.createElement('button');
+  addReactBtn.className = 'add-reaction-btn';
+  addReactBtn.title = 'Add reaction';
+  addReactBtn.textContent = '\u{1F642}';
+  addReactBtn.onclick = e => { e.stopPropagation(); openEmojiPicker(e.currentTarget, msg.id); };
+  bodyEl.appendChild(addReactBtn);
 
   // Action bar: edit (own messages) + delete (admin)
   if (msg.username === username || adminToken) {
@@ -1522,6 +1606,168 @@ function insertMention(name) {
   inp.focus();
   inp.dispatchEvent(new Event('input'));
   hideMentionPopup();
+}
+
+/* ================================================================
+   Emoji picker & reactions
+   ================================================================ */
+const EMOJI_DATA = {
+  '😀 Smileys': ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','😉','😌','😍','🥰','🤩','😘','😗','😙','😚','🤗','🤔','🤭','🤫','😶','😐','😑','😬','🙄','😯','😧','😦','😮','😲','😵','🥴','😴','🤤','😪','😷','🤧','🥵','🥶','😱','😈','💀','👻','🤡'],
+  '👍 Gestures': ['👍','👎','👋','🤚','✋','🖐','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','👏','🙌','🤲','🙏','✍️','💪','🦾','🦵','👀','👁','👅','👂','🫶'],
+  '❤️ Hearts': ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💖','💗','💓','💞','💕','💟','❣️','💌','💘','💝','💍','💎'],
+  '🐶 Animals': ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🦆','🦉','🦋','🐛','🐝','🐞','🐌','🦎','🐍','🐢','🦕','🦖','🦑','🦈','🐬','🐋','🦭'],
+  '🍎 Food': ['🍎','🍊','🍋','🍇','🍓','🫐','🍑','🍍','🥥','🥑','🍆','🥦','🥕','🌽','🍄','🧅','🥔','🍞','🧀','🥚','🍳','🥓','🍔','🍟','🌭','🌮','🌯','🍕','🍝','🍜','🍣','🍱','🍩','🍪','🎂','🍰','🧁','🍫','🍬','🍭','🍺','🍻','🥂','🍷','☕','🧋'],
+  '⚽ Sports': ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🎱','🏓','🏸','🥊','🎿','🛷','🛹','🚴','🏊','🤸','⛷️','🏋️','🤼','🏇','🥋','🤺','🥅','⛳','🎯','🎱','🏆','🥇','🥈','🥉','🎖️'],
+  '🌍 Nature': ['🌍','🌲','🌳','🌴','🌵','🌾','🍀','🍁','🍂','🍃','🌺','🌸','🌼','🌻','🌞','🌝','🌛','⭐','🌟','💫','⚡','🌈','🌊','🌬','🍄','🌙','☀️','❄️','🌧','⛅','🌪','🔥','💧','🌱','🪨'],
+  '🚀 Objects': ['🚀','✈️','🚂','🚢','🏠','🏰','⛺','💻','🖥','📱','⌨️','🖱','🖨','📷','📸','🎥','📺','📻','📡','💡','🔋','🔌','🔨','🪛','🔧','🔩','🪤','🧲','🔗','📎','📏','📐','✂️','🗑','🔑','🪣','💰','💎','📦','🎁','🛒']
+};
+
+let _epMode = 'input';
+let _epMsgId = null;
+let _epCat = 0;
+let _epFilter = '';
+const _epCatList = Object.keys(EMOJI_DATA);
+
+function setupEmojiPicker() {
+  const picker = $('#emoji-picker');
+  const catsEl = $('#ep-cats');
+  const searchEl = $('#ep-search');
+
+  // Build category tabs
+  catsEl.innerHTML = '';
+  _epCatList.forEach((cat, i) => {
+    const btn = document.createElement('div');
+    btn.className = 'ep-cat' + (i === 0 ? ' active' : '');
+    btn.textContent = cat.split(' ')[0]; // just the emoji
+    btn.title = cat;
+    btn.onclick = () => {
+      _epCat = i;
+      _epFilter = '';
+      searchEl.value = '';
+      catsEl.querySelectorAll('.ep-cat').forEach((b,j) => b.classList.toggle('active', j===i));
+      renderEpGrid();
+    };
+    catsEl.appendChild(btn);
+  });
+
+  searchEl.addEventListener('input', () => {
+    _epFilter = searchEl.value.toLowerCase();
+    _epCat = -1;
+    catsEl.querySelectorAll('.ep-cat').forEach(b => b.classList.remove('active'));
+    renderEpGrid();
+  });
+
+  // Close on outside click
+  document.addEventListener('mousedown', e => {
+    if (!picker.contains(e.target) && e.target.id !== 'btn-emoji' && !e.target.closest('.add-reaction-btn')) {
+      closeEmojiPicker();
+    }
+  });
+
+  // Emoji button in input bar
+  $('#btn-emoji').onclick = e => {
+    e.stopPropagation();
+    if (picker.style.display === 'flex') { closeEmojiPicker(); return; }
+    openEmojiPicker(e.currentTarget, null);
+  };
+
+  renderEpGrid();
+}
+
+function renderEpGrid() {
+  const gridEl = $('#ep-grid');
+  gridEl.innerHTML = '';
+  let emojis = [];
+  if (_epFilter) {
+    // search across all categories
+    _epCatList.forEach(cat => {
+      EMOJI_DATA[cat].forEach(e => { if (e.includes(_epFilter)) emojis.push(e); });
+    });
+  } else {
+    const cat = _epCatList[_epCat] || _epCatList[0];
+    emojis = EMOJI_DATA[cat] || [];
+  }
+  emojis.forEach(em => {
+    const span = document.createElement('span');
+    span.className = 'ep-emoji';
+    span.textContent = em;
+    span.onclick = () => onEmojiSelect(em);
+    gridEl.appendChild(span);
+  });
+}
+
+function openEmojiPicker(anchor, msgId) {
+  const picker = $('#emoji-picker');
+  _epMode = msgId ? 'react' : 'input';
+  _epMsgId = msgId;
+
+  picker.style.display = 'flex';
+
+  // Position the picker above the anchor
+  const r = anchor.getBoundingClientRect();
+  const pw = 340, ph = 340;
+  let left = r.left;
+  let top  = r.top - ph - 6;
+  if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+  if (top < 8) top = r.bottom + 6;
+  picker.style.left = left + 'px';
+  picker.style.top  = top  + 'px';
+
+  $('#ep-search').focus();
+}
+
+function closeEmojiPicker() {
+  const picker = $('#emoji-picker');
+  picker.style.display = 'none';
+  _epMsgId = null;
+}
+
+function onEmojiSelect(em) {
+  if (_epMode === 'input') {
+    // Insert into textarea
+    const inp = $('#msg-input');
+    const s = inp.selectionStart, e = inp.selectionEnd;
+    inp.value = inp.value.slice(0, s) + em + inp.value.slice(e);
+    inp.selectionStart = inp.selectionEnd = s + [...em].length;
+    inp.focus();
+    closeEmojiPicker();
+  } else if (_epMode === 'react' && _epMsgId) {
+    const msgId = _epMsgId;
+    closeEmojiPicker();
+    // Check if we already reacted with this emoji
+    const reactArea = $('#reactions-' + msgId);
+    const existing = reactArea?.querySelector('[data-emoji="' + em + '"]');
+    const hasMe = existing?.classList.contains('me');
+    if (hasMe) {
+      socket.emit('reaction-remove', { msgId, emoji: em });
+    } else {
+      socket.emit('reaction-add', { msgId, emoji: em });
+    }
+  }
+}
+
+function buildReactionPills(container, msgId, reactions) {
+  container.innerHTML = '';
+  reactions.forEach(({ emoji, users }) => {
+    if (!users || !users.length) return;
+    const hasMe = users.includes(currentUser);
+    const pill = document.createElement('button');
+    pill.className = 'reaction-pill' + (hasMe ? ' me' : '');
+    pill.dataset.emoji = emoji;
+    pill.title = users.join(', ');
+    pill.innerHTML = `<span class="r-emoji">${emoji}</span><span class="r-count">${users.length}</span>`;
+    pill.onclick = () => {
+      if (hasMe) socket.emit('reaction-remove', { msgId, emoji });
+      else        socket.emit('reaction-add',    { msgId, emoji });
+    };
+    container.appendChild(pill);
+  });
+}
+
+function renderReactions(msgId, reactions) {
+  const container = $('#reactions-' + msgId);
+  if (!container) return;
+  buildReactionPills(container, msgId, reactions);
 }
 
 /* ================================================================

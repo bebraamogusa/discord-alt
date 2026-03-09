@@ -40,13 +40,27 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_msg_room ON messages(room, created_at);
+  CREATE TABLE IF NOT EXISTS reactions (
+    msg_id   TEXT NOT NULL,
+    username TEXT NOT NULL,
+    emoji    TEXT NOT NULL,
+    PRIMARY KEY (msg_id, username, emoji)
+  );
 `);
 
 const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
 const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
 const stmtDelete    = db.prepare('DELETE FROM messages WHERE id = ?');
 const stmtClearRoom = db.prepare('DELETE FROM messages WHERE room = ?');
-const stmtUpdate    = db.prepare('UPDATE messages SET content = ? WHERE id = ? AND username = ? AND type = \'text\'');
+const stmtUpdate      = db.prepare('UPDATE messages SET content = ? WHERE id = ? AND username = ? AND type = \'text\'');
+const stmtReactAdd    = db.prepare('INSERT OR IGNORE INTO reactions (msg_id, username, emoji) VALUES (?,?,?)');
+const stmtReactRemove = db.prepare('DELETE FROM reactions WHERE msg_id=? AND username=? AND emoji=?');
+const stmtReactForRoom = db.prepare(`
+  SELECT r.msg_id, r.emoji, r.username
+  FROM reactions r INNER JOIN messages m ON r.msg_id = m.id
+  WHERE m.room = ?
+`);
+const stmtReactForMsg = db.prepare('SELECT emoji, username FROM reactions WHERE msg_id=?');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -115,7 +129,19 @@ app.post('/api/upload', async (req, reply) => {
 app.get('/api/rooms/:roomId/messages', (req) => {
   const { roomId } = req.params;
   const limit = Math.min(parseInt(req.query.limit || '200'), 500);
-  return stmtSelect.all(roomId, limit).reverse();
+  const msgs = stmtSelect.all(roomId, limit).reverse();
+  // attach reactions grouped by msg_id
+  const rawReactions = stmtReactForRoom.all(roomId);
+  const reactionMap = {};
+  for (const r of rawReactions) {
+    if (!reactionMap[r.msg_id]) reactionMap[r.msg_id] = {};
+    if (!reactionMap[r.msg_id][r.emoji]) reactionMap[r.msg_id][r.emoji] = [];
+    reactionMap[r.msg_id][r.emoji].push(r.username);
+  }
+  return msgs.map(m => ({
+    ...m,
+    reactions: Object.entries(reactionMap[m.id] || {}).map(([emoji, users]) => ({ emoji, users }))
+  }));
 });
 
 // ── Link embed proxy ──────────────────────────────────────────────────────────
@@ -267,6 +293,29 @@ io.on('connection', (socket) => {
     stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
     io.to(roomId).emit('chat-message', msg);
   });
+
+  // ── Reactions ────────────────────────────────────────
+  function broadcastReactions(msgId) {
+    const rows = stmtReactForMsg.all(msgId);
+    const grouped = {};
+    for (const r of rows) {
+      if (!grouped[r.emoji]) grouped[r.emoji] = [];
+      grouped[r.emoji].push(r.username);
+    }
+    const reactions = Object.entries(grouped).map(([emoji, users]) => ({ emoji, users }));
+    if (roomId) io.to(roomId).emit('reaction-update', { msgId, reactions });
+  }
+  socket.on('reaction-add', ({ msgId, emoji }) => {
+    if (!roomId || !username || !msgId || !emoji) return;
+    stmtReactAdd.run(msgId, username, emoji);
+    broadcastReactions(msgId);
+  });
+  socket.on('reaction-remove', ({ msgId, emoji }) => {
+    if (!roomId || !username || !msgId || !emoji) return;
+    stmtReactRemove.run(msgId, username, emoji);
+    broadcastReactions(msgId);
+  });
+
   // ── Edit own message ─────────────────────────────────
   socket.on('edit-message', (data) => {
     if (!roomId || !username) return;
