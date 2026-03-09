@@ -371,6 +371,64 @@ svg{flex-shrink:0;pointer-events:none}
 @media(max-width:500px){
   .card{width:92vw;padding:24px}
 }
+
+/* ── Markdown rendering ──────────────────────────────────────── */
+.md-b{font-weight:700;color:var(--text)}
+.md-i{font-style:italic}
+.md-s{text-decoration:line-through;opacity:.6}
+.md-code{
+  font-family:'Consolas','Fira Code',monospace;font-size:13px;
+  background:var(--bg-3);padding:1px 5px;border-radius:4px;
+  color:#e3e5e8;white-space:pre-wrap;
+}
+.md-pre{
+  display:block;font-family:'Consolas','Fira Code',monospace;font-size:13px;
+  background:var(--bg-3);padding:10px 14px;border-radius:6px;
+  color:#e3e5e8;margin-top:6px;overflow-x:auto;white-space:pre;line-height:1.5;
+}
+.md-spoiler{
+  background:var(--bg-3);color:transparent;border-radius:3px;
+  cursor:pointer;transition:color .2s,background .2s;padding:0 3px;user-select:none;
+}
+.md-spoiler.revealed{background:rgba(255,255,255,.1);color:var(--text-2)}
+.mention{
+  color:var(--accent);background:rgba(88,101,242,.15);
+  border-radius:3px;padding:0 3px;font-weight:500;
+}
+.mention.me{color:#fff;background:var(--accent)}
+
+/* ── @mention autocomplete ───────────────────────────────────── */
+#mention-popup{
+  position:fixed;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,.4);
+  z-index:3000;min-width:200px;max-width:300px;overflow:hidden;display:none;
+}
+.mention-item{
+  display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;
+  transition:background .1s;
+}
+.mention-item:hover,.mention-item.selected{background:var(--hover)}
+.mention-item .m-avatar{
+  width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;
+  align-items:center;justify-content:center;font-weight:700;font-size:11px;
+  color:#fff;text-transform:uppercase;
+}
+.mention-item .m-name{font-size:13px;font-weight:500}
+
+/* ── Inline message editing ──────────────────────────────────── */
+.msg-edit-wrap{margin-top:4px;display:flex;flex-direction:column;gap:4px}
+.msg-edit-input{
+  background:var(--input-bg);border:1.5px solid var(--accent);
+  border-radius:var(--radius);padding:8px 10px;font-size:14px;
+  color:var(--text);resize:none;line-height:1.4;max-height:200px;
+  width:100%;outline:none;
+}
+.msg-edit-hint{font-size:11px;color:var(--text-3)}
+.msg-edit-hint kbd{
+  font-family:inherit;background:var(--bg-3);border:1px solid var(--border);
+  border-radius:3px;padding:0 4px;font-size:10px;
+}
+.msg-edited-mark{font-size:10px;color:var(--text-3);margin-left:4px}
 </style>
 </head>
 <body>
@@ -479,6 +537,7 @@ svg{flex-shrink:0;pointer-events:none}
   </div>
 </div>
 
+<div id="mention-popup"></div>
 <div id="drop-overlay"><div class="inner">Drop file to upload</div></div>
 <div id="toast"></div>
 
@@ -506,6 +565,8 @@ const IC = {
   trash2:      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
   file:        `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`,
   menu:        `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+  pencil:      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+  'at-sign':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>`,
 };
 
 function ic(name, size = 16) {
@@ -532,6 +593,14 @@ const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 // Message grouping state
 let lastGroupAuthor = null;
 let lastGroupTime   = 0;
+
+// Mention autocomplete
+let currentUsers = [];
+let mentionIdx   = -1;
+
+// Inline editing
+let editingMsgId    = null;
+let editOrigContent = null;
 
 /* ================================================================
    Utilities
@@ -565,6 +634,66 @@ function linkify(text) {
     /(https?:\/\/[^\s<>"']+)/g,
     '<a href="$1" target="_blank" rel="noopener">$1</a>'
   );
+}
+
+/* ---- Markdown renderer ---------------------------------------- */
+function mdRender(raw) {
+  // Protect code blocks ```...```
+  const blocks = [];
+  let s = raw.replace(/```[\s\S]*?```/g, m => { blocks.push(m); return `\x00CB${blocks.length-1}\x00`; });
+  // Protect inline code `...`
+  const codes = [];
+  s = s.replace(/`[^`\n]+`/g, m => { codes.push(m); return `\x00IC${codes.length-1}\x00`; });
+  // Protect URLs
+  const urlz = [];
+  s = s.replace(/https?:\/\/[^\s)>\]"]+/g, m => { urlz.push(m); return `\x00URL${urlz.length-1}\x00`; });
+  // HTML-escape
+  s = esc(s);
+  // Bold+italic combos
+  s = s.replace(/\*\*\*(.+?)\*\*\*/gs, '<strong class="md-b"><em class="md-i">$1</em></strong>');
+  s = s.replace(/\*\*(.+?)\*\*/gs,     '<strong class="md-b">$1</strong>');
+  s = s.replace(/\*([^\*\n]+?)\*/gs,   '<em class="md-i">$1</em>');
+  s = s.replace(/(?<![\w])_([^_\n]+)_(?![\w])/g, '<em class="md-i">$1</em>');
+  s = s.replace(/~~(.+?)~~/gs, '<s class="md-s">$1</s>');
+  s = s.replace(/\|\|(.+?)\|\|/gs, '<span class="md-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
+  // Mentions
+  s = s.replace(/@(\w+)/g, (_, name) => {
+    const isMe = name === username;
+    return `<span class="mention${isMe ? ' me' : ''}">@${esc(name)}</span>`;
+  });
+  // Restore URLs
+  s = s.replace(/\x00URL(\d+)\x00/g, (_, i) => {
+    const u = urlz[+i];
+    return `<a href="${u}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>`;
+  });
+  // Restore inline code
+  s = s.replace(/\x00IC(\d+)\x00/g, (_, i) => {
+    const code = codes[+i].slice(1,-1);
+    return `<code class="md-code">${esc(code)}</code>`;
+  });
+  // Restore code blocks
+  s = s.replace(/\x00CB(\d+)\x00/g, (_, i) => {
+    const content = blocks[+i].replace(/^```[^\n]*\n?/, '').replace(/```$/, '').trimEnd();
+    return `<span class="md-pre">${esc(content)}</span>`;
+  });
+  return s;
+}
+
+/* ---- Wrap selection in marker (Ctrl+B / Ctrl+I / Ctrl+`) ------ */
+function wrapSelection(inp, marker) {
+  const start = inp.selectionStart, end = inp.selectionEnd;
+  const sel = inp.value.slice(start, end);
+  const before = inp.value.slice(0, start), after = inp.value.slice(end);
+  if (sel) {
+    inp.value = before + marker + sel + marker + after;
+    inp.selectionStart = start + marker.length;
+    inp.selectionEnd   = end   + marker.length;
+  } else {
+    inp.value = before + marker + marker + after;
+    inp.selectionStart = inp.selectionEnd = start + marker.length;
+  }
+  inp.focus();
+  inp.dispatchEvent(new Event('input'));
 }
 function extractUrls(text) {
   return [...(text.matchAll(/https?:\/\/[^\s<>"']+/g))].map(m => m[0]);
@@ -724,6 +853,7 @@ function enterRoom() {
   renderRoomList();
   connectSocket();
   setupChat();
+  setupMentionAutocomplete();
   setupDragDrop();
   setupCallControls();
   setupAdminPanel();
@@ -752,6 +882,9 @@ function connectSocket() {
     loadHistory();
   });
   socket.on('room-users', updateUserList);
+  socket.on('message-edited', ({ id, content }) => {
+    if (id !== editingMsgId) applyEdit(id, content);
+  });
   socket.on('chat-message', msg => renderMessage(msg, true));
   socket.on('message-deleted', ({ id }) => document.getElementById('msg-' + id)?.remove());
   socket.on('room-cleared', () => {
@@ -795,7 +928,12 @@ function connectSocket() {
 function setupChat() {
   const inp = $('#msg-input');
   inp.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      if      (e.key === 'b') { e.preventDefault(); wrapSelection(inp, '**'); }
+      else if (e.key === 'i') { e.preventDefault(); wrapSelection(inp, '_'); }
+      else if (e.key === '`') { e.preventDefault(); wrapSelection(inp, '`'); }
+    }
   });
   inp.addEventListener('input', () => {
     inp.style.height = 'auto';
@@ -900,7 +1038,8 @@ function renderMessage(msg, isNew = false) {
     contentEl.innerHTML = `<a href="${esc(msg.content)}" download="${esc(fname)}" target="_blank">${ic('file',14)} ${esc(fname)}</a>`;
   } else {
     contentEl.className = 'msg-text';
-    contentEl.innerHTML = linkify(msg.content);
+    contentEl.dataset.raw = msg.content;
+    contentEl.innerHTML = mdRender(msg.content);
     const urls = extractUrls(msg.content);
     if (urls.length) {
       fetchEmbed(urls[0]).then(embed => {
@@ -913,16 +1052,30 @@ function renderMessage(msg, isNew = false) {
 
   bodyEl.appendChild(contentEl);
 
-  // Admin: delete action button
-  if (adminToken) {
+  // Action bar: edit (own messages) + delete (admin)
+  if (msg.username === username || adminToken) {
     const actEl = document.createElement('div');
     actEl.className = 'msg-actions';
-    const delBtn = document.createElement('button');
-    delBtn.className = 'msg-action-btn del';
-    delBtn.title = 'Delete';
-    delBtn.innerHTML = ic('trash2', 14);
-    delBtn.onclick = e => { e.stopPropagation(); deleteMessage(msg.id); };
-    actEl.appendChild(delBtn);
+    if (msg.type === 'text' && msg.username === username) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'msg-action-btn';
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = ic('pencil', 14);
+      editBtn.onclick = e => {
+        e.stopPropagation();
+        const raw = div.querySelector('.msg-text')?.dataset.raw || msg.content;
+        startEdit(div, msg.id, raw);
+      };
+      actEl.appendChild(editBtn);
+    }
+    if (adminToken) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'msg-action-btn del';
+      delBtn.title = 'Delete';
+      delBtn.innerHTML = ic('trash2', 14);
+      delBtn.onclick = e => { e.stopPropagation(); deleteMessage(msg.id); };
+      actEl.appendChild(delBtn);
+    }
     div.appendChild(actEl);
   }
 
@@ -1011,6 +1164,7 @@ function setupDragDrop() {
    User List (right panel)
    ================================================================ */
 function updateUserList(users) {
+  currentUsers = users.map(u => u.username);
   $('#user-count').textContent = users.length;
   const ul = $('#user-list');
   ul.innerHTML = '';
@@ -1296,6 +1450,149 @@ function setupSidebarToggle() {
     panel.classList.remove('open');
     backdrop.classList.remove('open');
   };
+}
+
+/* ================================================================
+   @Mention autocomplete
+   ================================================================ */
+function setupMentionAutocomplete() {
+  const inp = $('#msg-input');
+  const pop = $('#mention-popup');
+  inp.addEventListener('input', updateMentionPopup);
+  inp.addEventListener('keydown', e => {
+    if (!pop || pop.style.display === 'none' || !pop.style.display) return;
+    const items = pop.querySelectorAll('.mention-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown')                 { e.preventDefault(); mentionMove(1, items); }
+    else if (e.key === 'ArrowUp')              { e.preventDefault(); mentionMove(-1, items); }
+    else if (e.key === 'Tab' || e.key === 'Enter') {
+      const sel = pop.querySelector('.mention-item.selected');
+      if (sel) { e.preventDefault(); e.stopPropagation(); insertMention(sel.dataset.name); }
+    } else if (e.key === 'Escape')             { hideMentionPopup(); }
+  });
+  document.addEventListener('click', e => {
+    if (pop && !pop.contains(e.target) && e.target !== inp) hideMentionPopup();
+  });
+}
+function getMentionQuery() {
+  const inp = $('#msg-input');
+  const m = inp.value.slice(0, inp.selectionStart).match(/@(\w*)$/);
+  return m ? m[1] : null;
+}
+function updateMentionPopup() {
+  const pop = $('#mention-popup');
+  const query = getMentionQuery();
+  if (query === null) { hideMentionPopup(); return; }
+  const matches = currentUsers.filter(u =>
+    u.toLowerCase().startsWith(query.toLowerCase()) && u !== username
+  );
+  if (!matches.length) { hideMentionPopup(); return; }
+  mentionIdx = 0;
+  pop.innerHTML = matches.slice(0,8).map((u, i) =>
+    `<div class="mention-item${i===0?' selected':''}" data-name="${esc(u)}" onclick="insertMention('${esc(u)}')">` +
+    `<div class="m-avatar" style="background:${avatarColor(u)}">${u.charAt(0).toUpperCase()}</div>` +
+    `<span class="m-name">${esc(u)}</span></div>`
+  ).join('');
+  const inp = $('#msg-input');
+  const rect = inp.getBoundingClientRect();
+  pop.style.display = 'block';
+  pop.style.bottom  = (window.innerHeight - rect.top + 4) + 'px';
+  pop.style.left    = rect.left + 'px';
+}
+function hideMentionPopup() {
+  const pop = $('#mention-popup');
+  if (pop) pop.style.display = 'none';
+  mentionIdx = -1;
+}
+function mentionMove(delta, items) {
+  items[Math.max(0, mentionIdx)]?.classList.remove('selected');
+  mentionIdx = (mentionIdx + delta + items.length) % items.length;
+  items[mentionIdx].classList.add('selected');
+}
+function insertMention(name) {
+  const inp = $('#msg-input');
+  const pos = inp.selectionStart;
+  const before = inp.value.slice(0, pos);
+  const after  = inp.value.slice(pos);
+  const m = before.match(/@(\w*)$/);
+  if (!m) { hideMentionPopup(); return; }
+  const newBefore = before.slice(0, before.length - m[0].length) + '@' + name + ' ';
+  inp.value = newBefore + after;
+  inp.selectionStart = inp.selectionEnd = newBefore.length;
+  inp.focus();
+  inp.dispatchEvent(new Event('input'));
+  hideMentionPopup();
+}
+
+/* ================================================================
+   Inline message editing
+   ================================================================ */
+function startEdit(msgEl, msgId, content) {
+  if (editingMsgId) cancelEdit();
+  editingMsgId    = msgId;
+  editOrigContent = content;
+  const bodyEl = msgEl.querySelector('.msg-body');
+  const ctEl   = bodyEl.querySelector('.msg-text');
+  if (ctEl) ctEl.style.display = 'none';
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-edit-wrap';
+  wrap.id = 'edit-wrap-' + msgId;
+  const ta = document.createElement('textarea');
+  ta.className = 'msg-edit-input';
+  ta.id = 'edit-input-' + msgId;
+  ta.value = content;
+  const hint = document.createElement('span');
+  hint.className = 'msg-edit-hint';
+  hint.innerHTML = '<kbd>Enter</kbd> save &nbsp; <kbd>Esc</kbd> cancel &nbsp; <kbd>Shift+Enter</kbd> newline';
+  wrap.appendChild(ta);
+  wrap.appendChild(hint);
+  bodyEl.appendChild(wrap);
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+    else { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  });
+}
+function saveEdit() {
+  if (!editingMsgId) return;
+  const ta = document.getElementById('edit-input-' + editingMsgId);
+  const newText = ta?.value.trim();
+  if (!newText) { cancelEdit(); return; }
+  socket.emit('edit-message', { roomId, id: editingMsgId, content: newText });
+  applyEdit(editingMsgId, newText);
+}
+function cancelEdit() {
+  if (!editingMsgId) return;
+  const msgEl = document.getElementById('msg-' + editingMsgId);
+  if (msgEl) {
+    const ctEl = msgEl.querySelector('.msg-text');
+    if (ctEl) ctEl.style.display = '';
+  }
+  document.getElementById('edit-wrap-' + editingMsgId)?.remove();
+  editingMsgId = null;
+}
+function applyEdit(id, content) {
+  const msgEl = document.getElementById('msg-' + id);
+  if (!msgEl) return;
+  document.getElementById('edit-wrap-' + id)?.remove();
+  const ctEl = msgEl.querySelector('.msg-text');
+  if (ctEl) {
+    ctEl.innerHTML    = mdRender(content);
+    ctEl.dataset.raw  = content;
+    ctEl.style.display = '';
+    if (!msgEl.querySelector('.msg-edited-mark')) {
+      const mark = document.createElement('span');
+      mark.className   = 'msg-edited-mark';
+      mark.textContent = '(edited)';
+      const timeEl = msgEl.querySelector('.msg-time') || msgEl.querySelector('.msg-header');
+      timeEl?.insertAdjacentElement('afterend', mark);
+    }
+  }
+  editingMsgId = null;
 }
 </script>
 </body>

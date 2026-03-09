@@ -46,6 +46,7 @@ const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,co
 const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
 const stmtDelete    = db.prepare('DELETE FROM messages WHERE id = ?');
 const stmtClearRoom = db.prepare('DELETE FROM messages WHERE room = ?');
+const stmtUpdate    = db.prepare('UPDATE messages SET content = ? WHERE id = ? AND username = ? AND type = \'text\'');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -266,7 +267,17 @@ io.on('connection', (socket) => {
     stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
     io.to(roomId).emit('chat-message', msg);
   });
-
+  // ── Edit own message ─────────────────────────────────
+  socket.on('edit-message', (data) => {
+    if (!roomId || !username) return;
+    const id      = String(data.id || '');
+    const content = String(data.content || '').trim().slice(0, 4000);
+    if (!id || !content) return;
+    const info = stmtUpdate.run(content, id, username);
+    if (info.changes > 0) {
+      io.to(roomId).emit('message-edited', { id, content });
+    }
+  });
   // ── Звонки ───────────────────────────────────────────
   socket.on('call-join', () => {
     if (!roomId) return;
