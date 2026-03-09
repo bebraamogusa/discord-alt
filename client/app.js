@@ -331,10 +331,10 @@ function updateSidebarUser() {
   const av = $('su-avatar');
   if (S.me.avatar_url) {
     av.outerHTML; // can't reassign outerHTML easily; use innerHTML trick
-    $('su-av-wrapper').innerHTML = `<img src="${escHtml(S.me.avatar_url)}" style="width:32px;height:32px;border-radius:50%" id="su-avatar">${statusDotHtml(S.me.id, 'var(--bg-3)')}<div class="tooltip-label">Нажмите для профиля</div>`;
+    $('su-av-wrapper').innerHTML = `<img src="${escHtml(S.me.avatar_url)}" style="width:32px;height:32px;border-radius:50%" id="su-avatar">${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
   } else {
     const letter = (S.me.username || '?')[0].toUpperCase();
-    $('su-av-wrapper').innerHTML = `<div class="av-fallback" id="su-avatar" style="width:32px;height:32px;font-size:13px;background:${S.me.avatar_color||'#5865f2'}">${letter}</div>${statusDotHtml(S.me.id, 'var(--bg-3)')}<div class="tooltip-label">Нажмите для профиля</div>`;
+    $('su-av-wrapper').innerHTML = `<div class="av-fallback" id="su-avatar" style="width:32px;height:32px;font-size:13px;background:${S.me.avatar_color||'#5865f2'}">${letter}</div>${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
   }
 }
 
@@ -418,8 +418,8 @@ function renderChannelList() {
     for (const ch of S.dmChannels) {
       const isActive = ch.id === S.activeChannelId;
       const name = ch.type === 'dm'
-        ? (ch.recipient?.username || 'Unknown')
-        : (ch.name || 'Группа');
+        ? (ch.recipient?.username || 'Пользователь')
+        : (ch.name || 'Групповой чат');
       const user = ch.type === 'dm' ? ch.recipient : null;
       const status = user ? (S.presences[user.id]?.status || 'offline') : '';
       el.insertAdjacentHTML('beforeend', `
@@ -517,7 +517,7 @@ async function selectChannel(id) {
   const icon = ch.type === 'voice' ? '🔊' : ch.type === 'dm' ? '@' : ch.type === 'announcement' ? '📣' : '#';
   $('chat-ch-icon').textContent = icon;
   if (ch.type === 'dm') {
-    $('chat-ch-name').textContent = ch.recipient?.username || 'DM';
+    $('chat-ch-name').textContent = ch.recipient?.username || 'Личные сообщения';
   } else {
     $('chat-ch-name').textContent = ch.name;
   }
@@ -637,7 +637,7 @@ function msgHtml(msg, isFirst) {
         </div>
         <div class="msg-body">
           <div class="msg-meta">
-            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(author.username||'Unknown')}</span>
+            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(author.username||'Неизвестный')}</span>
             <span class="msg-time">${fmtTime(ts)}</span>
           </div>
     `;
@@ -1226,7 +1226,7 @@ function showNewDmModal() {
   const name = prompt('Имя пользователя (@username):');
   if (!name) return;
   // Can't search by username directly with current API, show placeholder
-  showToast('Функция поиска пользователей в разработке', 'error');
+  showToast('Скопируйте ID пользователя и передайте ссылку-приглашение', 'error');
 }
 
 // ─── MODAL HELPERS ────────────────────────────────────────────────────────────
@@ -1389,7 +1389,7 @@ async function renderServerSettingsPage(serverId, page) {
     const roles = getServer(serverId)?.roles || [];
     body.innerHTML = `
       <table class="settings-table">
-        <thead><tr><th>Пользователь</th><th>Ник</th><th>Роли</th><th>С</th><th></th></tr></thead>
+        <thead><tr><th>Пользователь</th><th>Ник</th><th>Роли</th><th>Вступил</th><th></th></tr></thead>
         <tbody>
           ${members.map(m => `
             <tr>

@@ -69,11 +69,14 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  user-select: none;
 }
-input, textarea, [contenteditable] {
-  user-select: text;
-  -webkit-user-select: text;
+/* Prevent accidental text selection on UI chrome, keep inputs typeable */
+#server-list, #sidebar-header, #sidebar-channel-list, #sidebar-user,
+#chat-header, #members-panel, .server-icon, .channel-item, .dm-item,
+.member-item, .category-row, .msg-meta, .msg-username, .msg-time,
+.msg-edited, .msg-system, .reaction-btn span, .dm-header {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ── Auth overlay ─────────────────────────────────────────────── */

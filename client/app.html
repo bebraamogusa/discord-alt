@@ -12,10 +12,10 @@
 <div id="auth-overlay">
   <div id="auth-login" class="auth-card">
     <h2>Добро пожаловать!</h2>
-    <p class="sub">Войдите, чтобы продолжить</p>
+    <p class="sub">Рады видеть тебя снова!</p>
     <div class="auth-error" id="auth-login-err"></div>
     <label for="li-email">E-mail</label>
-    <input id="li-email" type="email" autocomplete="username" placeholder="you@example.com">
+    <input id="li-email" type="email" autocomplete="email" placeholder="вы@example.com">
     <label for="li-pass">Пароль</label>
     <input id="li-pass" type="password" autocomplete="current-password" placeholder="••••••••">
     <button class="btn-primary" id="li-btn">Войти</button>
@@ -24,12 +24,12 @@
 
   <div id="auth-register" class="auth-card hidden">
     <h2>Создать аккаунт</h2>
-    <p class="sub">Быстро и бесплатно!</p>
+    <p class="sub">Присоединяйся к нам, это бесплатно!</p>
     <div class="auth-error" id="auth-reg-err"></div>
     <label for="reg-email">E-mail</label>
-    <input id="reg-email" type="email" autocomplete="username" placeholder="you@example.com">
+    <input id="reg-email" type="email" autocomplete="email" placeholder="вы@example.com">
     <label for="reg-name">Имя пользователя</label>
-    <input id="reg-name" type="text" autocomplete="off" placeholder="CoolNick">
+    <input id="reg-name" type="text" autocomplete="off" placeholder="МойНик">
     <label for="reg-pass">Пароль</label>
     <input id="reg-pass" type="password" autocomplete="new-password" placeholder="Минимум 8 символов">
     <button class="btn-primary" id="reg-btn">Зарегистрироваться</button>
@@ -91,8 +91,8 @@
     <!-- Welcome screen -->
     <div id="welcome-screen">
       <div class="empty-icon">💬</div>
-      <div class="empty-text">Выберите канал</div>
-      <div class="empty-sub text-muted">Или начните новый разговор</div>
+      <div class="empty-text">Выберите канал для начала</div>
+      <div class="empty-sub text-muted">Или откройте личные сообщения</div>
     </div>
 
     <!-- Chat header -->
@@ -175,7 +175,7 @@
         <p class="create-step-title">Вступить на сервер</p>
         <p class="create-step-sub">Введите ссылку-приглашение</p>
         <div class="form-group">
-          <input id="join-invite-input" type="text" placeholder="https://discord-alt.local/invite/abcd1234">
+          <input id="join-invite-input" type="text" placeholder="Ссылка или код приглашения">
         </div>
         <div class="auth-error" id="js-error"></div>
         <button class="btn-primary w100" id="btn-confirm-join-server">Вступить</button>
