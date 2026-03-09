@@ -1334,6 +1334,12 @@ function initIcons() {
 /* ================================================================
    Init flow
    ================================================================ */
+const THEMES = {
+  dark:   { '--bg':'#313338','--bg-2':'#2b2d31','--bg-3':'#1e1f22','--bg-4':'#232428','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#383a40','--border':'#3f4147','--hover':'rgba(255,255,255,.06)' },
+  light:  { '--bg':'#ffffff','--bg-2':'#f2f3f5','--bg-3':'#e3e5e8','--bg-4':'#ebedef','--text':'#060607','--text-2':'#4e5058','--text-3':'#80848e','--input-bg':'#e9eaec','--border':'#d4d7dc','--hover':'rgba(0,0,0,.06)' },
+  amoled: { '--bg':'#000000','--bg-2':'#080808','--bg-3':'#0f0f0f','--bg-4':'#141414','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#1a1a1a','--border':'#252525','--hover':'rgba(255,255,255,.06)' },
+};
+
 (function init() {
   loadAndApplyAllSettings();
   initIcons();
@@ -2178,12 +2184,6 @@ function setupSidebarToggle() {
 /* ================================================================
    Settings — Theme / scale / display systems
    ================================================================ */
-const THEMES = {
-  dark:   { '--bg':'#313338','--bg-2':'#2b2d31','--bg-3':'#1e1f22','--bg-4':'#232428','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#383a40','--border':'#3f4147','--hover':'rgba(255,255,255,.06)' },
-  light:  { '--bg':'#ffffff','--bg-2':'#f2f3f5','--bg-3':'#e3e5e8','--bg-4':'#ebedef','--text':'#060607','--text-2':'#4e5058','--text-3':'#80848e','--input-bg':'#e9eaec','--border':'#d4d7dc','--hover':'rgba(0,0,0,.06)' },
-  amoled: { '--bg':'#000000','--bg-2':'#080808','--bg-3':'#0f0f0f','--bg-4':'#141414','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#1a1a1a','--border':'#252525','--hover':'rgba(255,255,255,.06)' },
-};
-
 function applyTheme(name) {
   const root = document.documentElement;
   const vars = THEMES[name];
