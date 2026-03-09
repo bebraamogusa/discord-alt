@@ -146,6 +146,7 @@ function showApp() {
   initChat();
   initDragDrop();
   initCallControls();
+  initSettings();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -356,6 +357,74 @@ function initDragDrop() {
     const f = e.dataTransfer.files[0];
     if (f) uploadFile(f);
   });
+}
+
+// ══════════════════════════════════════════════════════════
+//  Settings Modal
+// ══════════════════════════════════════════════════════════
+let _settingsReady = false;
+
+function initSettings() {
+  if (_settingsReady) return;
+  _settingsReady = true;
+
+  $('#btn-settings').onclick = openSettings;
+  $('#btn-close-settings').onclick = closeSettings;
+  
+  document.querySelectorAll('.settings-tab').forEach(tab => {
+    if (tab.id === 'settings-logout') {
+      tab.onclick = () => { closeSettings(); doDisconnect(); };
+    } else {
+      tab.onclick = () => switchSettingsTab(tab.dataset.tab);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = $('#settings-modal');
+      if (modal && modal.style.display === 'flex') {
+        closeSettings();
+      }
+    }
+  });
+
+  // Закрытие по клику вне контента (в правой пустой зоне)
+  const contentArea = $('#settings-content-area');
+  if (contentArea) {
+    contentArea.addEventListener('mousedown', (e) => {
+      // Если клик на самом контейнере content-area (а не на его внутренностях)
+      if (e.target.id === 'settings-content-area') {
+        closeSettings();
+      }
+    });
+  }
+}
+
+function openSettings() {
+  const modal = $('#settings-modal');
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => {
+    modal.classList.add('show');
+  });
+}
+
+function closeSettings() {
+  const modal = $('#settings-modal');
+  modal.classList.remove('show');
+  setTimeout(() => {
+    modal.style.display = 'none';
+  }, 250); // должно совпадать с CSS transition
+}
+
+function switchSettingsTab(tabId) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
+  
+  const tab = document.querySelector(`.settings-tab[data-tab="${tabId}"]`);
+  if (tab) tab.classList.add('active');
+  
+  const pane = document.getElementById(`pane-${tabId}`);
+  if (pane) pane.classList.add('active');
 }
 
 // ══════════════════════════════════════════════════════════
