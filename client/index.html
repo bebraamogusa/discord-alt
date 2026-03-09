@@ -2024,11 +2024,16 @@ function closeSettings() {
 function renderSettingsPage(page) {
   _settingsPage = page;
   // update nav active state
-  $$('#settings-nav .settings-nav-item').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === page);
+  document.querySelectorAll('#settings-nav .settings-nav-item').forEach(btn => {
+    if (btn.dataset.page === page) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
   });
-  const def = _settingsPages[page];
   const content = $('#settings-content');
+  if (!content) return;
+  const def = _settingsPages[page];
   if (!def) return;
   content.innerHTML = def.render();
   // wire up generic toggles
