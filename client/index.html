@@ -1339,6 +1339,13 @@ const THEMES = {
   light:  { '--bg':'#ffffff','--bg-2':'#f2f3f5','--bg-3':'#e3e5e8','--bg-4':'#ebedef','--text':'#060607','--text-2':'#4e5058','--text-3':'#80848e','--input-bg':'#e9eaec','--border':'#d4d7dc','--hover':'rgba(0,0,0,.06)' },
   amoled: { '--bg':'#000000','--bg-2':'#080808','--bg-3':'#0f0f0f','--bg-4':'#141414','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#1a1a1a','--border':'#252525','--hover':'rgba(255,255,255,.06)' },
 };
+const CHAT_BG_MAP = {
+  none: '',
+  g1: 'linear-gradient(135deg,#667eea,#764ba2)',
+  g2: 'linear-gradient(135deg,#f093fb,#f5576c)',
+  g3: 'linear-gradient(135deg,#4facfe,#00f2fe)',
+  g4: 'linear-gradient(135deg,#43e97b,#38f9d7)',
+};
 
 (function init() {
   loadAndApplyAllSettings();
@@ -2223,13 +2230,6 @@ function applyCompact(on) {
   localStorage.setItem('sett_compact', on ? 'on' : 'off');
 }
 
-const CHAT_BG_MAP = {
-  none: '',
-  g1: 'linear-gradient(135deg,#667eea,#764ba2)',
-  g2: 'linear-gradient(135deg,#f093fb,#f5576c)',
-  g3: 'linear-gradient(135deg,#4facfe,#00f2fe)',
-  g4: 'linear-gradient(135deg,#43e97b,#38f9d7)',
-};
 function applyChatBg(key, opacity) {
   const msgs = document.querySelector('#messages');
   if (!msgs) return;
