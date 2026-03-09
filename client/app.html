@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>discord-alt</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<!-- ── Auth overlay ───────────────────────────────────────────── -->
+<div id="auth-overlay">
+  <div id="auth-login" class="auth-card">
+    <h2>Добро пожаловать!</h2>
+    <p class="sub">Войдите, чтобы продолжить</p>
+    <div class="auth-error" id="auth-login-err"></div>
+    <label for="li-email">E-mail</label>
+    <input id="li-email" type="email" autocomplete="username" placeholder="you@example.com">
+    <label for="li-pass">Пароль</label>
+    <input id="li-pass" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="btn-primary" id="li-btn">Войти</button>
+    <p class="auth-switch">Нет аккаунта? <a id="goto-register">Зарегистрироваться</a></p>
+  </div>
+
+  <div id="auth-register" class="auth-card hidden">
+    <h2>Создать аккаунт</h2>
+    <p class="sub">Быстро и бесплатно!</p>
+    <div class="auth-error" id="auth-reg-err"></div>
+    <label for="reg-email">E-mail</label>
+    <input id="reg-email" type="email" autocomplete="username" placeholder="you@example.com">
+    <label for="reg-name">Имя пользователя</label>
+    <input id="reg-name" type="text" autocomplete="off" placeholder="CoolNick">
+    <label for="reg-pass">Пароль</label>
+    <input id="reg-pass" type="password" autocomplete="new-password" placeholder="Минимум 8 символов">
+    <button class="btn-primary" id="reg-btn">Зарегистрироваться</button>
+    <p class="auth-switch">Уже есть аккаунт? <a id="goto-login">Войти</a></p>
+  </div>
+</div>
+
+<!-- ── Main App ────────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <!-- Server list (72px) -->
+  <div id="server-list">
+    <!-- DM home button -->
+    <div class="tooltip-wrapper">
+      <div class="server-icon active" id="btn-home" data-id="@me">
+        <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <div class="pill"></div>
+      </div>
+      <div class="tooltip-label">Личные сообщения</div>
+    </div>
+    <div id="server-list-divider"></div>
+    <!-- Server icons injected here -->
+    <div id="server-icons"></div>
+    <div id="server-list-divider2" class="hidden"><div style="width:32px;height:2px;background:var(--border);border-radius:1px"></div></div>
+    <div class="tooltip-wrapper">
+      <button class="server-add-btn" id="btn-add-server">＋</button>
+      <div class="tooltip-label">Добавить сервер</div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span class="server-name" id="sidebar-server-name">Личные сообщения</span>
+      <span id="sidebar-header-arrow">⌄</span>
+    </div>
+    <!-- Server dropdown menu -->
+    <div class="server-menu hidden" id="server-dropdown"></div>
+    <div id="sidebar-channel-list"></div>
+    <div id="sidebar-user">
+      <div class="su-av tooltip-wrapper" id="su-av-wrapper">
+        <div class="av-fallback" id="su-avatar" style="width:32px;height:32px;font-size:13px">?</div>
+        <div class="status-dot online" id="su-status-dot"></div>
+        <div class="tooltip-label">Нажмите для профиля</div>
+      </div>
+      <div class="su-info" id="su-info-click">
+        <div class="su-name" id="su-username">—</div>
+        <div class="su-status" id="su-custom-status"></div>
+      </div>
+      <div class="su-actions">
+        <button class="icon-btn" id="btn-toggle-mute" title="Микрофон">🎤</button>
+        <button class="icon-btn" id="btn-settings" title="Настройки">⚙</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <!-- Welcome screen -->
+    <div id="welcome-screen">
+      <div class="empty-icon">💬</div>
+      <div class="empty-text">Выберите канал</div>
+      <div class="empty-sub text-muted">Или начните новый разговор</div>
+    </div>
+
+    <!-- Chat header -->
+    <div id="chat-header" class="hidden">
+      <span class="ch-icon" id="chat-ch-icon">#</span>
+      <span class="ch-title" id="chat-ch-name"></span>
+      <span class="ch-topic" id="chat-ch-topic"></span>
+      <div class="header-actions">
+        <button class="icon-btn" id="btn-pins" title="Закреплённые">📌</button>
+        <button class="icon-btn" id="btn-members" title="Участники">👥</button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages-wrapper" class="hidden">
+      <div id="messages-list">
+        <div id="messages-load-more" class="hidden">⬆ Загрузить ещё</div>
+        <div id="messages-container"></div>
+      </div>
+    </div>
+
+    <!-- Typing -->
+    <div id="typing-indicator" class="hidden"></div>
+
+    <!-- Reply bar -->
+    <div id="reply-bar">
+      <span>Ответ для <span class="reply-name" id="reply-name"></span></span>
+      <span class="text-muted" id="reply-preview"></span>
+      <button class="reply-close" id="reply-close">✕</button>
+    </div>
+
+    <!-- Input area -->
+    <div id="input-area" class="hidden">
+      <div id="input-box">
+        <button class="input-action" id="btn-attach" title="Прикрепить файл">➕</button>
+        <textarea id="msg-input" placeholder="Написать сообщение..." rows="1"></textarea>
+        <div style="position:relative">
+          <button class="input-action" id="btn-emoji" title="Эмодзи">😀</button>
+          <div id="emoji-picker" class="emoji-picker hidden"></div>
+        </div>
+      </div>
+      <input type="file" id="file-input" style="display:none" multiple>
+    </div>
+  </div>
+
+  <!-- Members panel -->
+  <div id="members-panel" class="hidden"></div>
+</div>
+
+<!-- ── Modals ──────────────────────────────────────────────────── -->
+
+<!-- Create/join server -->
+<div class="modal-overlay hidden" id="modal-add-server">
+  <div class="modal modal-sm" id="modal-add-server-inner">
+    <div class="modal-header">
+      <h3 id="add-server-title">Добавить сервер</h3>
+      <button class="modal-close" data-close="modal-add-server">✕</button>
+    </div>
+    <div class="modal-body" id="add-server-body">
+      <!-- step 0 -->
+      <div id="add-server-step0">
+        <p class="create-step-title">Создать свой сервер</p>
+        <p class="create-step-sub">Сервер — это место для вас и ваших друзей.<br>Придумайте название и начните общение.</p>
+        <button class="btn-primary w100" id="btn-create-server-next">Создать сервер</button>
+        <div style="margin:16px 0;text-align:center;color:var(--text-3)">— или —</div>
+        <button class="btn-primary w100" style="background:var(--bg-3);color:var(--text)" id="btn-join-server-next">Вступить по ссылке</button>
+      </div>
+      <!-- step create -->
+      <div id="add-server-step-create" class="hidden">
+        <p class="create-step-title">Настроить сервер</p>
+        <div class="form-group">
+          <label for="new-server-name">Название сервера</label>
+          <input id="new-server-name" type="text" placeholder="Мой сервер">
+        </div>
+        <div class="auth-error" id="cs-error"></div>
+        <button class="btn-primary w100" id="btn-confirm-create-server">Создать</button>
+      </div>
+      <!-- step join -->
+      <div id="add-server-step-join" class="hidden">
+        <p class="create-step-title">Вступить на сервер</p>
+        <p class="create-step-sub">Введите ссылку-приглашение</p>
+        <div class="form-group">
+          <input id="join-invite-input" type="text" placeholder="https://discord-alt.local/invite/abcd1234">
+        </div>
+        <div class="auth-error" id="js-error"></div>
+        <button class="btn-primary w100" id="btn-confirm-join-server">Вступить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create channel -->
+<div class="modal-overlay hidden" id="modal-create-channel">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Создать канал</h3>
+      <button class="modal-close" data-close="modal-create-channel">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="new-ch-type">Тип канала</label>
+        <select id="new-ch-type">
+          <option value="text">Текстовый #</option>
+          <option value="voice">Голосовой 🔊</option>
+          <option value="announcement">Объявления 📣</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="new-ch-name">Название</label>
+        <input id="new-ch-name" type="text" placeholder="новый-канал">
+      </div>
+      <div class="form-group">
+        <label for="new-ch-topic">Тема (необязательно)</label>
+        <input id="new-ch-topic" type="text" placeholder="Описание канала">
+      </div>
+      <input type="hidden" id="new-ch-category-id">
+      <div class="auth-error" id="cc-error"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="modal-create-channel">Отмена</button>
+      <button class="btn btn-primary" id="btn-confirm-create-channel">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pins modal -->
+<div class="modal-overlay hidden" id="modal-pins">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>Закреплённые сообщения</h3>
+      <button class="modal-close" data-close="modal-pins">✕</button>
+    </div>
+    <div class="modal-body" id="pins-list" style="min-height:80px"></div>
+  </div>
+</div>
+
+<!-- Profile card (popup, not modal) -->
+<div id="profile-card-popup" class="profile-card hidden"></div>
+
+<!-- Context menu -->
+<div id="ctx-menu" class="ctx-menu hidden"></div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<!-- Server settings (full screen) -->
+<div id="server-settings" class="settings-overlay hidden">
+  <div class="settings-nav">
+    <div class="settings-nav-title" id="ss-server-name">Сервер</div>
+    <div id="ss-nav-items"></div>
+    <div class="settings-nav-divider"></div>
+    <div class="settings-nav-item text-danger" id="ss-leave-server">Покинуть сервер</div>
+    <div class="settings-nav-item text-danger hidden" id="ss-delete-server">🗑 Удалить сервер</div>
+  </div>
+  <div class="settings-content" id="ss-content">
+    <div class="settings-section-title" id="ss-page-title">Обзор</div>
+    <div id="ss-page-body"></div>
+  </div>
+  <button class="settings-close" id="ss-close">✕</button>
+</div>
+
+<!-- User settings -->
+<div id="user-settings" class="settings-overlay hidden">
+  <div class="settings-nav">
+    <div class="settings-nav-title">Настройки</div>
+    <div id="us-nav-items">
+      <div class="settings-nav-item active" data-page="profile">Мой аккаунт</div>
+      <div class="settings-nav-item" data-page="appearance">Оформление</div>
+      <div class="settings-nav-divider"></div>
+      <div class="settings-nav-item text-danger" id="us-logout">Выйти</div>
+    </div>
+  </div>
+  <div class="settings-content" id="us-content"></div>
+  <button class="settings-close" id="us-close">✕</button>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

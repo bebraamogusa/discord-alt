@@ -20,6 +20,9 @@ import {
   authenticateSocket,
   publicUser,
 } from './auth.js';
+import registerServerRoutes  from './routes/servers.js';
+import registerChannelRoutes from './routes/channels.js';
+import { setupGateway }      from './gateway.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -421,6 +424,14 @@ const io = new Server(app.server, {
   maxHttpBufferSize: 1e6,
 });
 
+// ── v2 API routes ────────────────────────────────────────────────────────────
+registerServerRoutes(app, db, io);
+registerChannelRoutes(app, db, io);
+
+// SPA for the new v2 app — /app* → app.html
+app.get('/app', (_req, reply) => reply.sendFile('app.html'));
+app.get('/app/*', (_req, reply) => reply.sendFile('app.html'));
+
 // Optional JWT auth on socket — if token present, attach socket.user.
 // Sockets without a token still connect (legacy client support).
 io.use((socket, next) => {
@@ -433,6 +444,9 @@ io.use((socket, next) => {
     next(); // don't block on bad token in legacy mode
   }
 });
+
+// ── v2 Socket.IO Gateway (/gateway namespace) ─────────────────────────────
+setupGateway(io, db);
 
 // roomId → Map<socketId, { socketId, username, inCall }>
 const rooms = new Map();
