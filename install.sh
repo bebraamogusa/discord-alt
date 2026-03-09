@@ -103,7 +103,13 @@ install_docker_compose
 if [ -d "$INSTALL_DIR/.git" ]; then
   log "Existing installation found — pulling latest..."
   cd "$INSTALL_DIR"
+  # .env may still be tracked locally from old commits — untrack it silently
+  git rm --cached .env 2>/dev/null || true
+  # Stash any local changes (e.g. .env) so pull doesn't abort
+  git stash 2>/dev/null || true
   git pull --ff-only
+  # Restore stashed changes (brings back .env if it existed)
+  git stash pop 2>/dev/null || true
 else
   log "Cloning repository..."
   git clone "$REPO" "$INSTALL_DIR"
