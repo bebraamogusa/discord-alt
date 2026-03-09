@@ -50,6 +50,7 @@ db.exec(`
 
 const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
 const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
+const stmtSelectBefore = db.prepare('SELECT * FROM messages WHERE room = ? AND created_at < (SELECT created_at FROM messages WHERE id = ?) ORDER BY created_at DESC LIMIT ?');
 const stmtDelete    = db.prepare('DELETE FROM messages WHERE id = ?');
 const stmtClearRoom = db.prepare('DELETE FROM messages WHERE room = ?');
 const stmtUpdate      = db.prepare('UPDATE messages SET content = ? WHERE id = ? AND username = ? AND type = \'text\'');
@@ -84,6 +85,28 @@ await app.register(fastifyMultipart, {
 
 // SPA — all /room/* serve index.html
 app.get('/room/:roomId', (_req, reply) => reply.sendFile('index.html'));
+
+// ── CSP & security headers ────────────────────────────────────────────────────
+app.addHook('onSend', (_req, reply, _payload, done) => {
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'SAMEORIGIN');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' blob: data: *",
+      "media-src 'self' blob: *",
+      "connect-src 'self' ws: wss:",
+      "font-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'"
+    ].join('; ')
+  );
+  done();
+});
 
 // ── File type helpers ─────────────────────────────────────────────────────────
 const ALLOWED_EXTS = new Set([
@@ -130,8 +153,12 @@ app.post('/api/upload', async (req, reply) => {
 // ── Messages history ──────────────────────────────────────────────────────────
 app.get('/api/rooms/:roomId/messages', (req) => {
   const { roomId } = req.params;
-  const limit = Math.min(parseInt(req.query.limit || '200'), 500);
-  const msgs = stmtSelect.all(roomId, limit).reverse();
+  const limit  = Math.min(parseInt(req.query.limit || '100'), 200);
+  const before = req.query.before || null;
+  const raw    = before
+    ? stmtSelectBefore.all(roomId, before, limit)
+    : stmtSelect.all(roomId, limit);
+  const msgs = raw.reverse();
   // attach reactions grouped by msg_id
   const rawReactions = stmtReactForRoom.all(roomId);
   const reactionMap = {};
@@ -285,15 +312,28 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat ──────────────────────────────────────────────
+  let _msgTimes = [];
   socket.on('chat-message', (data) => {
     if (!roomId || !username) return;
+    // Rate limit: max 5 messages per second
+    const now = Date.now();
+    _msgTimes = _msgTimes.filter(t => now - t < 1000);
+    if (_msgTimes.length >= 5) return;
+    _msgTimes.push(now);
+
     const content = String(data.content || '').slice(0, 4000);
     if (!content) return;
-    const VALID = new Set(['text', 'image', 'video', 'file']);
+    const VALID = new Set(['text', 'image', 'video', 'audio', 'file']);
     const type = VALID.has(data.type) ? data.type : 'text';
     const msg = { id: nanoid(16), room: roomId, username, type, content, created_at: Date.now() };
     stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
     io.to(roomId).emit('chat-message', msg);
+  });
+
+  // ── Typing indicator ────────────────────────────────────────
+  socket.on('user-typing', () => {
+    if (!roomId || !username) return;
+    socket.to(roomId).emit('user-typing', { username });
   });
 
   // ── Reactions ────────────────────────────────────────

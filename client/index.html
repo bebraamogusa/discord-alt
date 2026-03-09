@@ -371,6 +371,31 @@ svg{flex-shrink:0;pointer-events:none}
   transition:width .15s linear;pointer-events:none;z-index:1;
 }
 
+/* ── Typing indicator ─────────────────────────────────────────── */
+#typing-bar{
+  height:20px;padding:0 16px;font-size:12px;color:var(--text-3);
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  font-style:italic;transition:opacity .2s;
+}
+#typing-bar .typing-dots span{
+  display:inline-block;width:4px;height:4px;border-radius:50%;
+  background:var(--text-3);animation:tdot 1.2s infinite;
+  margin:0 1px;
+}
+#typing-bar .typing-dots span:nth-child(2){animation-delay:.2s}
+#typing-bar .typing-dots span:nth-child(3){animation-delay:.4s}
+@keyframes tdot{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}
+
+/* ── Load-more sentinel ───────────────────────────────────────── */
+#load-more-sentinel{height:1px}
+#load-more-spinner{
+  text-align:center;padding:8px;font-size:12px;color:var(--text-3);
+  display:none;
+}
+/* Lazy-image fade in */
+.msg-image img{opacity:0;transition:opacity .3s}
+.msg-image img.loaded{opacity:1}
+
 /* ── Record button ────────────────────────────────────────────── */
 #btn-record{font-size:16px;transition:color .15s}
 #btn-record.recording{color:var(--red)!important}
@@ -589,7 +614,9 @@ svg{flex-shrink:0;pointer-events:none}
     </div>
 
     <div id="video-area"></div>
+    <div id="load-more-spinner">Loading older messages...</div>
     <div id="messages"></div>
+    <div id="typing-bar"></div>
 
     <div id="input-bar">
       <div class="input-wrap">
@@ -709,6 +736,19 @@ let emojiPickerTarget = null;
 const unreadCounts   = {}; // roomId → number
 let _heartbeatTimer  = null;
 let _tabTitle        = document.title;
+
+// Optimistic messages
+const _pendingOptimistic = new Map(); // content → {tempId, ts}
+let _optimisticSeq = 0;
+
+// Typing indicator
+const _typingUsers  = new Map(); // username → timeoutId
+let _typingDebounce = null;
+
+// Pagination
+let _historyExhausted = false;
+let _oldestMsgId      = null;
+let _loadMoreObserver = null;
 
 const EMOJI_DATA = {
   '😀 Smileys': ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','😉','😌','😍','🥰','🤩','😘','😗','😙','😚','🤗','🤔','🤭','🤫','😶','😐','😑','😬','🙄','😯','😧','😦','😮','😲','😵','🥴','😴','🤤','😪','😷','🤧','🥵','🥶','😱','😈','💀','👻','🤡'],
@@ -942,7 +982,7 @@ function showLanding() {
   $('#l-name').value = saved;
 
   $('#btn-create').onclick = () => {
-    const name = $('#l-name').value.trim();
+    const name = $('#l-name').value.trim().slice(0, 32);
     if (!name) return $('#l-name').focus();
     username = name; roomId = genId(8);
     sessionStorage.setItem('username', name);
@@ -950,7 +990,7 @@ function showLanding() {
     enterRoom();
   };
   $('#btn-join-landing').onclick = () => {
-    const name = $('#l-name').value.trim();
+    const name = $('#l-name').value.trim().slice(0, 32);
     const rid  = $('#l-room').value.trim();
     if (!name) return $('#l-name').focus();
     if (!rid)  return $('#l-room').focus();
@@ -969,7 +1009,7 @@ function showDirectLogin() {
   $('#app').style.display     = 'none';
   $('#login-room-label').textContent = `Room: ${roomId}`;
   $('#btn-join-login').onclick = () => {
-    const name = $('#j-name').value.trim();
+    const name = $('#j-name').value.trim().slice(0, 32);
     if (!name) return $('#j-name').focus();
     username = name;
     sessionStorage.setItem('username', name);
@@ -1031,10 +1071,20 @@ function connectSocket() {
   });
   socket.on('room-users', updateUserList);
   socket.on('reaction-update', ({ msgId, reactions }) => renderReactions(msgId, reactions));
+  socket.on('user-typing', ({ username: who }) => showTyping(who));
   socket.on('message-edited', ({ id, content }) => {
     if (id !== editingMsgId) applyEdit(id, content);
   });
   socket.on('chat-message', msg => {
+    // Dedup optimistic messages from self
+    if (msg.username === username && msg.type === 'text' && _pendingOptimistic.has(msg.content)) {
+      const { tempId, ts } = _pendingOptimistic.get(msg.content);
+      if (Date.now() - ts < 10000) {
+        _pendingOptimistic.delete(msg.content);
+        const el = document.getElementById('msg-' + tempId);
+        if (el) { el.id = 'msg-' + msg.id; return; }
+      }
+    }
     renderMessage(msg, true);
     if (msg.username !== 'system' && msg.username !== username) {
       if (document.hidden) {
@@ -1102,6 +1152,12 @@ function setupChat() {
   inp.addEventListener('input', () => {
     inp.style.height = 'auto';
     inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
+    // Typing indicator debounce
+    if (_typingDebounce) clearTimeout(_typingDebounce);
+    _typingDebounce = setTimeout(() => {
+      socket?.emit('user-typing');
+      _typingDebounce = null;
+    }, 300);
   });
   $('#btn-send').onclick = sendText;
 }
@@ -1109,6 +1165,12 @@ function sendText() {
   const inp  = $('#msg-input');
   const text = inp.value.trim();
   if (!text || !socket) return;
+  if (text.length > 4000) return toast('Message too long (max 4000 chars)', 'var(--red)');
+  // Optimistic: render immediately
+  const tempId = 'optimistic-' + (++_optimisticSeq);
+  const tempMsg = { id: tempId, username, type: 'text', content: text, created_at: Date.now(), reactions: [] };
+  renderMessage(tempMsg, true);
+  _pendingOptimistic.set(text, { tempId, ts: Date.now() });
   socket.emit('chat-message', { roomId, content: text, type: 'text' });
   inp.value = '';
   inp.style.height = 'auto';
@@ -1116,15 +1178,63 @@ function sendText() {
 
 async function loadHistory() {
   try {
+    _historyExhausted = false;
+    _oldestMsgId = null;
     const res  = await fetch(`/api/rooms/${roomId}/messages`);
     if (!res.ok) return;
     const msgs = await res.json();
     lastGroupAuthor = null;
     lastGroupTime   = 0;
     msgs.forEach(m => renderMessage(m, false));
+    if (msgs.length > 0) _oldestMsgId = msgs[0].id;
+    if (msgs.length < 100) _historyExhausted = true;
     const box = $('#messages');
     box.scrollTop = box.scrollHeight;
+    _setupLoadMoreObserver();
   } catch {}
+}
+
+async function loadMore() {
+  if (_historyExhausted || !_oldestMsgId) return;
+  const spinner = $('#load-more-spinner');
+  if (spinner) spinner.style.display = 'block';
+  try {
+    const res = await fetch(`/api/rooms/${roomId}/messages?before=${encodeURIComponent(_oldestMsgId)}`);
+    if (!res.ok) return;
+    const msgs = await res.json();
+    if (spinner) spinner.style.display = 'none';
+    if (!msgs.length) { _historyExhausted = true; return; }
+    if (msgs.length < 100) _historyExhausted = true;
+    const box     = $('#messages');
+    const prevH   = box.scrollHeight;
+    const sentinel = document.getElementById('load-more-sentinel');
+    // Detach current messages, render older batch, re-attach
+    const existing = [...box.children].filter(c => c !== sentinel);
+    existing.forEach(c => c.remove());
+    const prevAuthor = lastGroupAuthor, prevTime = lastGroupTime;
+    lastGroupAuthor = null; lastGroupTime = 0;
+    msgs.forEach(m => renderMessage(m, false));
+    _oldestMsgId = msgs[0].id;
+    existing.forEach(c => box.appendChild(c));
+    lastGroupAuthor = prevAuthor; lastGroupTime = prevTime;
+    box.scrollTop = box.scrollHeight - prevH;
+  } catch { if (spinner) spinner.style.display = 'none'; }
+}
+
+function _setupLoadMoreObserver() {
+  if (_loadMoreObserver) _loadMoreObserver.disconnect();
+  // Inject sentinel at top of messages
+  const box = $('#messages');
+  let sentinel = document.getElementById('load-more-sentinel');
+  if (!sentinel) {
+    sentinel = document.createElement('div');
+    sentinel.id = 'load-more-sentinel';
+    box.insertBefore(sentinel, box.firstChild);
+  }
+  _loadMoreObserver = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting) loadMore();
+  }, { root: box, rootMargin: '100px 0px 0px 0px', threshold: 0 });
+  _loadMoreObserver.observe(sentinel);
 }
 
 /* ================================================================
@@ -1192,7 +1302,13 @@ function renderMessage(msg, isNew = false) {
 
   if (msg.type === 'image') {
     contentEl.className = 'msg-image';
-    contentEl.innerHTML = `<img src="${esc(msg.content)}" loading="lazy" onclick="openLightbox(this.src)">`;
+    const img = document.createElement('img');
+    img.src = msg.content;
+    img.loading = 'lazy';
+    img.alt = '';
+    img.onclick = () => openLightbox(img.src);
+    observeLazyImage(img);
+    contentEl.appendChild(img);
   } else if (msg.type === 'video') {
     contentEl.className = 'msg-video';
     contentEl.innerHTML = `<video src="${esc(msg.content)}" controls preload="metadata"></video>`;
@@ -1206,7 +1322,7 @@ function renderMessage(msg, isNew = false) {
   } else {
     contentEl.className = 'msg-text';
     contentEl.dataset.raw = msg.content;
-    contentEl.innerHTML = mdRender(msg.content);
+    contentEl.innerHTML = sanitizeHtml(mdRender(msg.content));
     const urls = extractUrls(msg.content);
     if (urls.length) {
       fetchEmbed(urls[0]).then(embed => {
@@ -1977,6 +2093,74 @@ async function toggleRecord() {
 /* ================================================================
    Notifications, unread, sound
    ================================================================ */
+
+/* ---- Typing indicator ---------------------------------------- */
+function showTyping(who) {
+  if (who === username) return;
+  // Reset or set timeout
+  if (_typingUsers.has(who)) clearTimeout(_typingUsers.get(who));
+  const tid = setTimeout(() => {
+    _typingUsers.delete(who);
+    _renderTypingBar();
+  }, 3000);
+  _typingUsers.set(who, tid);
+  _renderTypingBar();
+}
+function _renderTypingBar() {
+  const bar = $('#typing-bar');
+  if (!bar) return;
+  const names = [..._typingUsers.keys()];
+  if (!names.length) { bar.innerHTML = ''; return; }
+  const who = names.length === 1 ? names[0]
+    : names.length === 2 ? `${names[0]} and ${names[1]}`
+    : `${names[0]} and ${names.length - 1} others`;
+  bar.innerHTML = `<span>${esc(who)} is typing</span><span class="typing-dots"><span></span><span></span><span></span></span>`;
+}
+
+/* ---- HTML Sanitizer (DOMParser-based whitelist) -------------- */
+const _ALLOWED_TAGS = new Set(['strong','em','s','span','a','code','pre','br','b','i']);
+const _ALLOWED_ATTRS = { a: ['href','target','rel'], span: ['class'], '*': [] };
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  function clean(node) {
+    if (node.nodeType === 3) return; // text node – safe
+    if (node.nodeType === 1) {
+      const tag = node.tagName.toLowerCase();
+      if (!_ALLOWED_TAGS.has(tag)) { node.replaceWith(...node.childNodes); return; }
+      // Strip disallowed attributes
+      const allowed = _ALLOWED_ATTRS[tag] || _ALLOWED_ATTRS['*'] || [];
+      [...node.attributes].forEach(a => { if (!allowed.includes(a.name)) node.removeAttribute(a.name); });
+      // Force links to safe target+rel
+      if (tag === 'a') {
+        const href = node.getAttribute('href') || '';
+        if (!/^https?:\/\//i.test(href) && !href.startsWith('/')) node.removeAttribute('href');
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+    [...node.childNodes].forEach(clean);
+  }
+  [...doc.body.childNodes].forEach(clean);
+  return doc.body.innerHTML;
+}
+
+/* ---- Lazy-image observer ------------------------------------- */
+let _lazyObserver = null;
+function observeLazyImage(img) {
+  if (!_lazyObserver) {
+    _lazyObserver = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('loaded');
+          _lazyObserver.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: '200px' });
+  }
+  // If already in cache / loaded
+  if (img.complete) img.classList.add('loaded');
+  else _lazyObserver.observe(img);
+}
 function _updateDocTitle() {
   const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
   document.title = total > 0 ? `(${total}) ${_tabTitle}` : _tabTitle;
@@ -2068,7 +2252,7 @@ function applyEdit(id, content) {
   document.getElementById('edit-wrap-' + id)?.remove();
   const ctEl = msgEl.querySelector('.msg-text');
   if (ctEl) {
-    ctEl.innerHTML    = mdRender(content);
+    ctEl.innerHTML    = sanitizeHtml(mdRender(content));
     ctEl.dataset.raw  = content;
     ctEl.style.display = '';
     if (!msgEl.querySelector('.msg-edited-mark')) {
