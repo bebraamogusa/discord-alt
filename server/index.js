@@ -11,6 +11,15 @@ import { unlink } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import {
+  registerUser,
+  loginUser,
+  refreshTokens,
+  revokeSession,
+  authenticate,
+  authenticateSocket,
+  publicUser,
+} from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -335,10 +344,91 @@ app.post('/api/admin/kick', (req, reply) => {
   return { ok: true };
 });
 
+// ── Auth routes ─────────────────────────────────────────────────────────────
+
+// POST /api/auth/register
+app.post('/api/auth/register', async (req, reply) => {
+  try {
+    const { username, email, password } = req.body || {};
+    const meta = { userAgent: req.headers['user-agent'], ip: req.ip };
+    const result = registerUser(db, { username, email, password }, meta);
+    return reply.code(201).send(result);
+  } catch (e) {
+    return reply.code(e.statusCode || 500).send({ error: e.message });
+  }
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, reply) => {
+  try {
+    const { email, password } = req.body || {};
+    const meta = { userAgent: req.headers['user-agent'], ip: req.ip };
+    const result = loginUser(db, { email, password }, meta);
+    return reply.send(result);
+  } catch (e) {
+    return reply.code(e.statusCode || 500).send({ error: e.message });
+  }
+});
+
+// POST /api/auth/refresh
+app.post('/api/auth/refresh', async (req, reply) => {
+  try {
+    const { refreshToken } = req.body || {};
+    if (!refreshToken) return reply.code(400).send({ error: 'refreshToken required' });
+    const meta = { userAgent: req.headers['user-agent'], ip: req.ip };
+    const result = refreshTokens(db, refreshToken, meta);
+    return reply.send(result);
+  } catch (e) {
+    return reply.code(e.statusCode || 500).send({ error: e.message });
+  }
+});
+
+// POST /api/auth/logout
+app.post('/api/auth/logout', async (req, reply) => {
+  const { refreshToken } = req.body || {};
+  if (refreshToken) revokeSession(db, refreshToken);
+  return reply.send({ ok: true });
+});
+
+// GET /api/@me  — current user (requires JWT)
+app.get('/api/@me', { preHandler: authenticate }, async (req, reply) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return reply.code(404).send({ error: 'User not found' });
+  return reply.send(publicUser(user));
+});
+
+// PATCH /api/@me — update own profile
+app.patch('/api/@me', { preHandler: authenticate }, async (req, reply) => {
+  const allowed = ['avatar_url', 'avatar_color', 'banner_url', 'banner_color', 'about_me', 'custom_status'];
+  const fields = {};
+  for (const k of allowed) {
+    if (req.body?.[k] !== undefined) fields[k] = String(req.body[k]).slice(0, 2048);
+  }
+  if (!Object.keys(fields).length) return reply.code(400).send({ error: 'No updatable fields' });
+  const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE users SET ${sets} WHERE id = ?`)
+    .run(...Object.values(fields), req.user.id);
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  return reply.send(publicUser(user));
+});
+
 // ── Socket.io ───────────────────────────────────────────────────────────────
 const io = new Server(app.server, {
   cors: { origin: '*' },
   maxHttpBufferSize: 1e6,
+});
+
+// Optional JWT auth on socket — if token present, attach socket.user.
+// Sockets without a token still connect (legacy client support).
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token
+    || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+  if (!token) return next(); // anonymous / legacy
+  try {
+    authenticateSocket(db)(socket, next);
+  } catch {
+    next(); // don't block on bad token in legacy mode
+  }
 });
 
 // roomId → Map<socketId, { socketId, username, inCall }>
