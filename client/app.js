@@ -1860,6 +1860,19 @@ function setup() {
 } // end setup()
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
+// Dev helper: call window.__skipAuth() in DevTools console to bypass login
+window.__skipAuth = function() {
+  S.me = { id: 'dev', username: 'dev', discriminator: '0000', avatar_color: '#5865f2', custom_status: 'dev mode' };
+  S.servers = [];
+  S.dmChannels = [];
+  S.presences  = {};
+  hideAuth();
+  updateSidebarUser();
+  renderServerIcons();
+  selectServer('@me');
+  console.log('%c[dev] Auth bypassed. Socket gateway не подключён.', 'color:#5865f2;font-weight:bold');
+};
+
 async function init() {
   setup();
 
