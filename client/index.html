@@ -1749,7 +1749,7 @@ function buildReactionPills(container, msgId, reactions) {
   container.innerHTML = '';
   reactions.forEach(({ emoji, users }) => {
     if (!users || !users.length) return;
-    const hasMe = users.includes(currentUser);
+    const hasMe = users.includes(username);
     const pill = document.createElement('button');
     pill.className = 'reaction-pill' + (hasMe ? ' me' : '');
     pill.dataset.emoji = emoji;
