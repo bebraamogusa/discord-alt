@@ -46,6 +46,15 @@ db.exec(`
     emoji    TEXT NOT NULL,
     PRIMARY KEY (msg_id, username, emoji)
   );
+  CREATE TABLE IF NOT EXISTS users (
+    username     TEXT PRIMARY KEY,
+    tag          TEXT NOT NULL DEFAULT '0000',
+    avatar_color TEXT NOT NULL DEFAULT '#5865f2',
+    banner_color TEXT NOT NULL DEFAULT '#5865f2',
+    about_me     TEXT NOT NULL DEFAULT '',
+    custom_status TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+  );
 `);
 
 const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
@@ -62,6 +71,17 @@ const stmtReactForRoom = db.prepare(`
   WHERE m.room = ?
 `);
 const stmtReactForMsg = db.prepare('SELECT emoji, username FROM reactions WHERE msg_id=?');
+
+// ── Users ──────────────────────────────────────────────────────────────────────
+const stmtUpsertUser   = db.prepare(`
+  INSERT INTO users (username, tag, avatar_color, banner_color, about_me, custom_status, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(username) DO NOTHING
+`);
+const stmtGetUser      = db.prepare('SELECT * FROM users WHERE username = ?');
+const stmtUpdateUser   = db.prepare(`
+  UPDATE users SET avatar_color=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
+`);
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -216,6 +236,26 @@ app.get('/api/embed', async (req, reply) => {
   } catch { return reply.code(204).send(); }
 });
 
+// ── User profile endpoints ───────────────────────────────────────────────────
+app.get('/api/users/:username', (req, reply) => {
+  const u = stmtGetUser.get(req.params.username);
+  if (!u) return reply.code(404).send({ error: 'Not found' });
+  return u;
+});
+
+app.patch('/api/users/:username', async (req, reply) => {
+  const { username: uname } = req.params;
+  const existing = stmtGetUser.get(uname);
+  if (!existing) return reply.code(404).send({ error: 'User not found' });
+  const body = req.body || {};
+  const avatar_color  = typeof body.avatar_color  === 'string' ? body.avatar_color  : existing.avatar_color;
+  const banner_color  = typeof body.banner_color  === 'string' ? body.banner_color  : existing.banner_color;
+  const about_me      = typeof body.about_me      === 'string' ? body.about_me.slice(0, 190) : existing.about_me;
+  const custom_status = typeof body.custom_status === 'string' ? body.custom_status.slice(0, 128) : existing.custom_status;
+  stmtUpdateUser.run(avatar_color, banner_color, about_me, custom_status, uname);
+  return stmtGetUser.get(uname);
+});
+
 // ── Admin auth helper ─────────────────────────────────────────────────────────
 function checkAdmin(req, reply) {
   if (!ADMIN_PASSWORD) { reply.code(404).send({ error: 'Admin not configured' }); return false; }
@@ -290,6 +330,10 @@ io.on('connection', (socket) => {
 
     roomId = String(data.roomId).slice(0, 64);
     username = String(data.username).slice(0, 20);
+
+    // Auto-create user profile record if new
+    const tag = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    stmtUpsertUser.run(username, tag, '#5865f2', '#5865f2', '', '', Date.now());
 
     socket.join(roomId);
     if (!rooms.has(roomId)) rooms.set(roomId, new Map());

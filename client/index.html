@@ -551,8 +551,7 @@ svg{flex-shrink:0;pointer-events:none}
 .msg:hover .add-reaction-btn{display:flex}
 
 /* ── User area bar */
-.user-area{
-  margin-top:auto;padding:8px 8px;background:var(--bg-3);
+.user-area{  margin-top:auto;padding:8px 8px;background:var(--bg-3);
   display:flex;align-items:center;gap:8px;flex-shrink:0;
   border-top:1px solid var(--border);
 }
@@ -643,6 +642,95 @@ svg{flex-shrink:0;pointer-events:none}
 }
 .sett-about-logo{font-size:36px;text-align:center;margin-bottom:12px;}
 .sett-about-version{font-size:13px;color:var(--text-3);text-align:center;margin-bottom:20px;}
+
+/* ── Stage 2: Profile card + account form ── */
+.profile-card{
+  width:300px;background:var(--bg-2);border-radius:8px;
+  box-shadow:0 8px 32px rgba(0,0,0,.55);overflow:hidden;
+}
+.profile-card-banner{height:60px;}
+.profile-card-avatar-wrap{padding:0 16px;margin-top:-28px;margin-bottom:4px;}
+.profile-card-avatar{
+  width:80px;height:80px;border-radius:50%;
+  border:4px solid var(--bg-2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;font-weight:700;color:#fff;
+}
+.profile-card-body{padding:4px 16px 16px;}
+.profile-card-name{font-size:20px;font-weight:700;color:var(--text);line-height:1.2;}
+.profile-card-tag{font-size:14px;color:var(--text-3);}
+.profile-card-status{font-size:13px;color:var(--text-2);margin-top:4px;}
+.profile-card-divider{height:1px;background:var(--border);margin:12px 0;}
+.profile-card-section-title{
+  font-size:12px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.5px;color:var(--text-3);margin-bottom:6px;
+}
+.profile-card-about{font-size:14px;color:var(--text-2);word-break:break-word;}
+.profile-card-date{font-size:13px;color:var(--text-2);}
+#profile-popup{position:fixed;z-index:2000;pointer-events:auto;}
+/* account form */
+.sett-avatar-grid{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 16px;}
+.sett-avatar-option{
+  width:52px;height:52px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:20px;color:#fff;
+  cursor:pointer;border:3px solid transparent;
+  transition:transform .15s,border-color .15s;flex-shrink:0;
+}
+.sett-avatar-option:hover{transform:scale(1.1);}
+.sett-avatar-option.selected{border-color:#fff;box-shadow:0 0 0 2px var(--accent);}
+.sett-input{
+  background:var(--bg-3);border:1px solid var(--border);border-radius:4px;
+  padding:8px 12px;color:var(--text);font-size:14px;
+  width:100%;box-sizing:border-box;font-family:inherit;
+}
+.sett-input:focus{outline:none;border-color:var(--accent);}
+textarea.sett-input{resize:vertical;min-height:80px;}
+.sett-char-count{font-size:11px;color:var(--text-3);text-align:right;margin-top:3px;}
+.sett-nickname-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
+.sett-save-bar{
+  position:sticky;bottom:0;background:var(--bg-4);
+  border:1px solid var(--border);border-radius:8px;
+  padding:12px 16px;display:flex;align-items:center;
+  justify-content:space-between;margin-top:24px;gap:12px;box-sizing:border-box;
+}
+.sett-save-bar p{margin:0;font-size:14px;color:var(--text-2);}
+.btn-primary{
+  background:var(--accent);color:#fff;border:none;border-radius:4px;
+  padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer;
+  transition:background .15s;white-space:nowrap;
+}
+.btn-primary:hover{background:var(--accent-h);}
+.btn-ghost{
+  background:none;border:none;color:var(--text-2);font-size:14px;
+  cursor:pointer;padding:6px 12px;border-radius:4px;
+}
+.btn-ghost:hover{background:var(--hover);color:var(--text);}
+.sett-nick-preview{
+  display:flex;align-items:center;gap:12px;
+  padding:12px;background:var(--bg-3);border-radius:6px;margin-top:12px;
+}
+.sett-preview-avatar{
+  width:40px;height:40px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;
+  font-weight:700;font-size:16px;color:#fff;flex-shrink:0;
+}
+.sett-color-wrap{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.sett-color-swatch{
+  width:48px;height:36px;border-radius:6px;
+  border:1px solid var(--border);flex-shrink:0;
+}
+.sett-color-btn{
+  position:relative;width:36px;height:36px;border-radius:4px;
+  border:2px solid var(--border);overflow:hidden;cursor:pointer;flex-shrink:0;
+}
+.sett-color-btn input[type="color"]{
+  position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);
+  border:none;cursor:pointer;opacity:0;z-index:1;
+}
+.sett-color-btn-fill{width:100%;height:100%;}
+.sett-msg-avatar{cursor:pointer;transition:transform .1s;}
+.sett-msg-avatar:hover{transform:scale(1.15);}
 </style>
 </head>
 <body>
@@ -689,7 +777,7 @@ svg{flex-shrink:0;pointer-events:none}
       <div class="ua-avatar" id="ua-avatar">?</div>
       <div class="ua-info">
         <span class="ua-name" id="ua-name">—</span>
-        <span class="ua-tag">#0000</span>
+        <span class="ua-tag" id="ua-status"></span>
       </div>
       <button class="ic-btn" id="btn-user-settings" title="User Settings (Ctrl+,)"></button>
     </div>
@@ -813,6 +901,9 @@ let socket     = null;
 let roomId     = null;
 let username   = null;
 let adminToken = sessionStorage.getItem('adminToken') || null;
+
+// Current user's profile (loaded from server on join)
+let _profile = { tag: '0000', avatar_color: '#5865f2', banner_color: '#5865f2', about_me: '', custom_status: '' };
 
 let localStream  = null;
 let screenStream = null;
@@ -987,8 +1078,82 @@ function avatarColor(name) {
 }
 
 /* ================================================================
-   Recent rooms (localStorage)
+   User profile (Stage 2)
    ================================================================ */
+const AVATAR_COLORS = ['#5865f2','#57f287','#fee75c','#eb459e','#ed4245','#00b0f4','#f47fff','#faa61a'];
+
+async function loadUserProfile() {
+  if (!username) return;
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`);
+    if (res.ok) { _profile = { ..._profile, ...await res.json() }; }
+  } catch { /* use defaults */ }
+  applyProfileToUI();
+}
+
+function applyProfileToUI() {
+  const uaAvatar = $('#ua-avatar');
+  if (uaAvatar) {
+    uaAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+    uaAvatar.style.background = _profile.avatar_color || avatarColor(username || '');
+  }
+  const uaStatus = $('#ua-status');
+  if (uaStatus) uaStatus.textContent = _profile.custom_status || '';
+}
+
+async function showProfileCard(name, x, y) {
+  const popup = $('#profile-popup');
+  const card  = $('#profile-card-inner');
+  if (!popup || !card) return;
+  card.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3);">Загрузка…</div>';
+  popup.style.display = 'block';
+  // Positioning
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = x + 12, top = y - 50;
+  if (left + 310 > vw) left = x - 318;
+  if (top + 420 > vh) top = vh - 430;
+  if (top < 8) top = 8;
+  popup.style.left = left + 'px';
+  popup.style.top  = top + 'px';
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(name)}`);
+    const p   = res.ok ? await res.json() : {};
+    const initial = name.charAt(0).toUpperCase();
+    const avatarBg  = p.avatar_color  || avatarColor(name);
+    const bannerBg  = p.banner_color  || avatarBg;
+    const created   = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }) : '';
+    card.innerHTML = `
+      <div class="profile-card-banner" style="background:${bannerBg}"></div>
+      <div class="profile-card-avatar-wrap">
+        <div class="profile-card-avatar" style="background:${avatarBg}">${initial}</div>
+      </div>
+      <div class="profile-card-body">
+        <div class="profile-card-name">${esc(name)}</div>
+        <div class="profile-card-tag">#${p.tag || '0000'}</div>
+        ${p.custom_status ? `<div class="profile-card-status">${esc(p.custom_status)}</div>` : ''}
+        ${p.about_me ? `<div class="profile-card-divider"></div>
+          <div class="profile-card-section-title">Обо мне</div>
+          <div class="profile-card-about">${sanitizeHtml(mdRender(p.about_me))}</div>` : ''}
+        ${created ? `<div class="profile-card-divider"></div>
+          <div class="profile-card-section-title">Участник с</div>
+          <div class="profile-card-date">${created}</div>` : ''}
+      </div>`;
+  } catch {
+    card.innerHTML = `<div class="profile-card-body" style="padding-top:16px;"><div class="profile-card-name">${esc(name)}</div></div>`;
+  }
+}
+
+function hideProfileCard() {
+  const p = $('#profile-popup');
+  if (p) p.style.display = 'none';
+}
+
+// Close profile card when clicking outside
+document.addEventListener('click', e => {
+  const popup = $('#profile-popup');
+  if (popup && popup.style.display !== 'none' && !popup.contains(e.target)) hideProfileCard();
+});
+   /*================================================================ */
 function getRecentRooms() {
   try { return JSON.parse(localStorage.getItem('recentRooms') || '[]'); } catch { return []; }
 }
@@ -1151,14 +1316,11 @@ function enterRoom() {
   setupSidebarToggle();
   setupSettings();
 
-  // populate user-area bar
+  // populate user-area bar (initial; will be updated after loadUserProfile)
   const uaName   = $('#ua-name');
-  const uaAvatar = $('#ua-avatar');
-  if (uaName)   uaName.textContent   = username || '—';
-  if (uaAvatar) {
-    uaAvatar.textContent   = username ? username.charAt(0).toUpperCase() : '?';
-    uaAvatar.style.background = username ? avatarColor(username) : '#5865f2';
-  }
+  if (uaName) uaName.textContent = username || '—';
+  // load full profile from server (updates avatar color + status)
+  loadUserProfile();
 
   $('#btn-new-room').onclick = () => {
     const newId = prompt('Enter room ID (or leave empty to create):')?.trim();
@@ -1392,6 +1554,12 @@ function renderMessage(msg, isNew = false) {
   if (!grouped) {
     avatarEl.style.background = color;
     avatarEl.textContent = initial;
+    avatarEl.classList.add('sett-msg-avatar');
+    avatarEl.title = msg.username;
+    avatarEl.addEventListener('click', e => {
+      e.stopPropagation();
+      showProfileCard(msg.username, e.clientX, e.clientY);
+    });
   }
 
   // Body
@@ -1897,24 +2065,78 @@ const _settingsPages = {
   account: {
     title: 'Мой аккаунт',
     render() {
+      const initial = username ? username.charAt(0).toUpperCase() : '?';
+      const curColor = _profile.avatar_color || '#5865f2';
+      const avatarGrid = AVATAR_COLORS.map(c =>
+        `<div class="sett-avatar-option${c === curColor ? ' selected' : ''}" data-color="${c}" style="background:${c}">${initial}</div>`
+      ).join('');
       return `<h2>Мой аккаунт</h2>
-        <div class="sett-section-title">Имя пользователя</div>
-        <div class="sett-row">
-          <div><div class="sett-label" id="sett-uname-display">${username || '—'}</div>
-          <div class="sett-desc">Отображается в чате</div></div>
+        <div class="sett-section-title">Аватар</div>
+        <div class="sett-avatar-grid" id="avatar-grid">${avatarGrid}</div>
+        <div class="sett-section-title">Никнейм</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text);padding:8px 0;">${esc(username || '—')}</div>
+        <div class="sett-nickname-row">
+          <span style="font-size:13px;color:var(--text-3);">Тег:</span>
+          <span style="font-size:13px;color:var(--text-2);">#${_profile.tag || '0000'}</span>
+        </div>
+        <div class="sett-section-title" style="margin-top:16px;">Кастомный статус</div>
+        <input class="sett-input" id="sett-status-text" value="${esc(_profile.custom_status || '')}" maxlength="128" placeholder="Чем занимаешься?">
+        <div class="sett-section-title" style="margin-top:16px;">Предпросмотр</div>
+        <div class="sett-nick-preview">
+          <div class="sett-preview-avatar" id="preview-avatar" style="background:${curColor}">${initial}</div>
+          <div>
+            <div style="font-size:14px;font-weight:600;" id="preview-nick">${esc(username || '')}</div>
+            <div style="font-size:12px;color:var(--text-3);" id="preview-status-text">${esc(_profile.custom_status || '')}</div>
+          </div>
+        </div>
+        <div class="sett-save-bar" id="acct-save-bar" style="display:none;">
+          <p>Внимание — у вас есть несохранённые изменения!</p>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-ghost" id="acct-reset-btn">Сбросить</button>
+            <button class="btn-primary" id="acct-save-btn">Сохранить</button>
+          </div>
         </div>`;
     }
   },
   profile: {
     title: 'Профиль',
     render() {
-      const initial = username ? username.charAt(0).toUpperCase() : '?';
-      const bg      = username ? avatarColor(username) : '#5865f2';
+      const initial    = username ? username.charAt(0).toUpperCase() : '?';
+      const curColor   = _profile.avatar_color || '#5865f2';
+      const bannerColor = _profile.banner_color || '#5865f2';
+      const aboutMe    = _profile.about_me || '';
       return `<h2>Профиль</h2>
-        <div class="sett-section-title">Аватар</div>
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
-          <div style="width:72px;height:72px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;">${initial}</div>
-          <div class="sett-desc">Аватар генерируется автоматически на основе имени.</div>
+        <div class="sett-section-title">Цвет баннера</div>
+        <div class="sett-color-wrap">
+          <div class="sett-color-swatch" id="banner-swatch" style="background:${bannerColor};"></div>
+          <div class="sett-color-btn" title="Выбрать цвет">
+            <input type="color" id="sett-banner-color" value="${bannerColor}">
+            <div class="sett-color-btn-fill" id="banner-color-fill" style="background:${bannerColor};"></div>
+          </div>
+        </div>
+        <div class="sett-section-title">Обо мне</div>
+        <textarea class="sett-input" id="sett-about-me" rows="4" maxlength="190" placeholder="Расскажите о себе…">${esc(aboutMe)}</textarea>
+        <div class="sett-char-count"><span id="about-chars-left">${190 - aboutMe.length}</span> симв. осталось</div>
+        <div class="sett-section-title" style="margin-top:16px;">Предпросмотр карточки</div>
+        <div class="profile-card" style="max-width:280px;margin-top:8px;pointer-events:none;">
+          <div class="profile-card-banner" id="preview-prof-banner" style="background:${bannerColor};"></div>
+          <div class="profile-card-avatar-wrap">
+            <div class="profile-card-avatar" style="background:${curColor}">${initial}</div>
+          </div>
+          <div class="profile-card-body">
+            <div class="profile-card-name">${esc(username || '')}</div>
+            <div class="profile-card-tag">#${_profile.tag || '0000'}</div>
+            ${aboutMe ? `<div class="profile-card-divider"></div>
+              <div class="profile-card-section-title">Обо мне</div>
+              <div class="profile-card-about" id="preview-about-me">${sanitizeHtml(mdRender(aboutMe))}</div>` : `<div id="preview-about-me"></div>`}
+          </div>
+        </div>
+        <div class="sett-save-bar" id="prof-save-bar" style="display:none;">
+          <p>Внимание — у вас есть несохранённые изменения!</p>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-ghost" id="prof-reset-btn">Сбросить</button>
+            <button class="btn-primary" id="prof-save-btn">Сохранить</button>
+          </div>
         </div>`;
     }
   },
@@ -2046,7 +2268,6 @@ function renderSettingsPage(page) {
     themeBtn.onclick = () => {
       const isOn = themeBtn.classList.toggle('on');
       localStorage.setItem('sett_theme', isOn ? 'dark' : 'light');
-      // future: apply theme changes
     };
   }
   const fontSel = $('#sel-font-size');
@@ -2055,6 +2276,121 @@ function renderSettingsPage(page) {
       localStorage.setItem('sett_fontSize', fontSel.value);
       document.querySelector('#messages')?.style.setProperty('font-size', fontSel.value + 'px');
     };
+  }
+  // ── account page wiring ──────────────────────────────────────────
+  if (page === 'account') {
+    const grid        = $('#avatar-grid');
+    const statusInput = $('#sett-status-text');
+    const saveBar     = $('#acct-save-bar');
+    const saveBtn     = $('#acct-save-btn');
+    const resetBtn    = $('#acct-reset-btn');
+    const prevAvatar  = $('#preview-avatar');
+    const prevStatus  = $('#preview-status-text');
+    let draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status };
+
+    function acctCheckDirty() {
+      const dirty = draft.avatar_color !== _profile.avatar_color ||
+                    draft.custom_status !== _profile.custom_status;
+      if (saveBar) saveBar.style.display = dirty ? '' : 'none';
+    }
+    grid?.addEventListener('click', e => {
+      const opt = e.target.closest('.sett-avatar-option');
+      if (!opt) return;
+      grid.querySelectorAll('.sett-avatar-option').forEach(el => el.classList.remove('selected'));
+      opt.classList.add('selected');
+      draft.avatar_color = opt.dataset.color;
+      if (prevAvatar) prevAvatar.style.background = draft.avatar_color;
+      acctCheckDirty();
+    });
+    statusInput?.addEventListener('input', () => {
+      draft.custom_status = statusInput.value;
+      if (prevStatus) prevStatus.textContent = statusInput.value;
+      acctCheckDirty();
+    });
+    resetBtn?.addEventListener('click', () => {
+      draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status };
+      if (statusInput) statusInput.value = _profile.custom_status || '';
+      if (prevAvatar)  prevAvatar.style.background = _profile.avatar_color;
+      if (prevStatus)  prevStatus.textContent = _profile.custom_status || '';
+      grid?.querySelectorAll('.sett-avatar-option').forEach(el => {
+        if (el.dataset.color === _profile.avatar_color) { el.classList.add('selected'); }
+        else { el.classList.remove('selected'); }
+      });
+      if (saveBar) saveBar.style.display = 'none';
+    });
+    saveBtn?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ avatar_color: draft.avatar_color, custom_status: draft.custom_status }),
+        });
+        if (res.ok) {
+          _profile = { ..._profile, ...await res.json() };
+          applyProfileToUI();
+          if (saveBar) saveBar.style.display = 'none';
+          toast('Профиль обновлён', 'var(--green)');
+        }
+      } catch { toast('Ошибка при сохранении', 'var(--red)'); }
+    });
+  }
+  // ── profile page wiring ──────────────────────────────────────────
+  if (page === 'profile') {
+    const bannerInput = $('#sett-banner-color');
+    const bannerSwatch = $('#banner-swatch');
+    const bannerFill   = $('#banner-color-fill');
+    const aboutInput  = $('#sett-about-me');
+    const charsLeft   = $('#about-chars-left');
+    const prevBanner  = $('#preview-prof-banner');
+    const prevAbout   = $('#preview-about-me');
+    const saveBar     = $('#prof-save-bar');
+    const saveBtn     = $('#prof-save-btn');
+    const resetBtn    = $('#prof-reset-btn');
+    let draft = { banner_color: _profile.banner_color, about_me: _profile.about_me };
+
+    function profCheckDirty() {
+      const dirty = draft.banner_color !== _profile.banner_color ||
+                    draft.about_me !== _profile.about_me;
+      if (saveBar) saveBar.style.display = dirty ? '' : 'none';
+    }
+    bannerInput?.addEventListener('input', () => {
+      draft.banner_color = bannerInput.value;
+      if (bannerSwatch) bannerSwatch.style.background = draft.banner_color;
+      if (bannerFill)   bannerFill.style.background   = draft.banner_color;
+      if (prevBanner)   prevBanner.style.background   = draft.banner_color;
+      profCheckDirty();
+    });
+    aboutInput?.addEventListener('input', () => {
+      draft.about_me = aboutInput.value;
+      if (charsLeft) charsLeft.textContent = 190 - aboutInput.value.length;
+      if (prevAbout) prevAbout.innerHTML = aboutInput.value ? sanitizeHtml(mdRender(aboutInput.value)) : '';
+      profCheckDirty();
+    });
+    resetBtn?.addEventListener('click', () => {
+      draft = { banner_color: _profile.banner_color, about_me: _profile.about_me };
+      if (bannerInput)  bannerInput.value = _profile.banner_color;
+      if (bannerSwatch) bannerSwatch.style.background = _profile.banner_color;
+      if (bannerFill)   bannerFill.style.background   = _profile.banner_color;
+      if (aboutInput)   aboutInput.value = _profile.about_me || '';
+      if (charsLeft)    charsLeft.textContent = 190 - (_profile.about_me || '').length;
+      if (prevBanner)   prevBanner.style.background = _profile.banner_color;
+      if (prevAbout)    prevAbout.innerHTML = _profile.about_me ? sanitizeHtml(mdRender(_profile.about_me)) : '';
+      if (saveBar) saveBar.style.display = 'none';
+    });
+    saveBtn?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ banner_color: draft.banner_color, about_me: draft.about_me }),
+        });
+        if (res.ok) {
+          _profile = { ..._profile, ...await res.json() };
+          if (saveBar) saveBar.style.display = 'none';
+          toast('Профиль обновлён', 'var(--green)');
+        }
+      } catch { toast('Ошибка при сохранении', 'var(--red)'); }
+    });
   }
 }
 
@@ -2609,6 +2945,11 @@ function applyEdit(id, content) {
     <button class="settings-close-btn" id="btn-settings-close">✕</button>
     <span>ESC</span>
   </div>
+</div>
+
+<!-- Profile card popup -->
+<div id="profile-popup" style="display:none;position:fixed;z-index:2000;">
+  <div class="profile-card" id="profile-card-inner"></div>
 </div>
 
 </body>
