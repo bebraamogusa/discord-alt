@@ -1831,7 +1831,26 @@ function setup() {
 
   // Logout event
   window.addEventListener('da:logout', doLogout);
-}
+
+  // Strip browser-extension interference from auth inputs
+  // (e.g. Dashlane/DWL injects style, readonly, autocomplete=off)
+  function sanitizeAuthInputs() {
+    document.querySelectorAll('#auth-overlay input').forEach(el => {
+      el.removeAttribute('readonly');
+      el.removeAttribute('disabled');
+      el.style.pointerEvents = 'auto';
+      el.style.userSelect    = 'text';
+      // Remove injected background-image without wiping legit styles
+      if (el.style.backgroundImage) el.style.backgroundImage = '';
+    });
+  }
+  sanitizeAuthInputs();
+  // Watch for extension re-injections
+  const _extObserver = new MutationObserver(sanitizeAuthInputs);
+  document.querySelectorAll('#auth-overlay input').forEach(el => {
+    _extObserver.observe(el, { attributes: true, attributeFilter: ['readonly','disabled','style'] });
+  });
+} // end setup()
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init() {
