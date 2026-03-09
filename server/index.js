@@ -39,8 +39,12 @@ const adminTokens = new Set();
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
+
+// ── v1 schema bootstrap (only runs if legacy tables don't exist yet)
+// migrate.js renames existing v1 tables to *_legacy before creating v2 tables.
+// These creates are kept so a fresh install without migrate.js still works.
 db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
+  CREATE TABLE IF NOT EXISTS messages_legacy (
     id         TEXT PRIMARY KEY,
     room       TEXT NOT NULL,
     username   TEXT NOT NULL,
@@ -48,14 +52,14 @@ db.exec(`
     content    TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_msg_room ON messages(room, created_at);
-  CREATE TABLE IF NOT EXISTS reactions (
+  CREATE INDEX IF NOT EXISTS idx_msg_room ON messages_legacy(room, created_at);
+  CREATE TABLE IF NOT EXISTS reactions_legacy (
     msg_id   TEXT NOT NULL,
     username TEXT NOT NULL,
     emoji    TEXT NOT NULL,
     PRIMARY KEY (msg_id, username, emoji)
   );
-  CREATE TABLE IF NOT EXISTS users (
+  CREATE TABLE IF NOT EXISTS users_legacy (
     username     TEXT PRIMARY KEY,
     tag          TEXT NOT NULL DEFAULT '0000',
     avatar_color TEXT NOT NULL DEFAULT '#5865f2',
@@ -65,43 +69,42 @@ db.exec(`
     custom_status TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
   );
-  CREATE TABLE IF NOT EXISTS blocks (
+  CREATE TABLE IF NOT EXISTS blocks_legacy (
     blocker  TEXT NOT NULL,
     blocked  TEXT NOT NULL,
     PRIMARY KEY (blocker, blocked)
   );
 `);
-// Migrate: add avatar_url column if it doesn't exist (for existing DBs)
-try { db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE users_legacy ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''"); } catch {}
 
-const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
-const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
-const stmtSelectBefore = db.prepare('SELECT * FROM messages WHERE room = ? AND created_at < (SELECT created_at FROM messages WHERE id = ?) ORDER BY created_at DESC LIMIT ?');
-const stmtDelete    = db.prepare('DELETE FROM messages WHERE id = ?');
-const stmtClearRoom = db.prepare('DELETE FROM messages WHERE room = ?');
-const stmtUpdate      = db.prepare('UPDATE messages SET content = ? WHERE id = ? AND username = ? AND type = \'text\'');
-const stmtReactAdd    = db.prepare('INSERT OR IGNORE INTO reactions (msg_id, username, emoji) VALUES (?,?,?)');
-const stmtReactRemove = db.prepare('DELETE FROM reactions WHERE msg_id=? AND username=? AND emoji=?');
+const stmtInsert    = db.prepare('INSERT INTO messages_legacy (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
+const stmtSelect    = db.prepare('SELECT * FROM messages_legacy WHERE room = ? ORDER BY created_at DESC LIMIT ?');
+const stmtSelectBefore = db.prepare('SELECT * FROM messages_legacy WHERE room = ? AND created_at < (SELECT created_at FROM messages_legacy WHERE id = ?) ORDER BY created_at DESC LIMIT ?');
+const stmtDelete    = db.prepare('DELETE FROM messages_legacy WHERE id = ?');
+const stmtClearRoom = db.prepare('DELETE FROM messages_legacy WHERE room = ?');
+const stmtUpdate      = db.prepare("UPDATE messages_legacy SET content = ? WHERE id = ? AND username = ? AND type = 'text'");
+const stmtReactAdd    = db.prepare('INSERT OR IGNORE INTO reactions_legacy (msg_id, username, emoji) VALUES (?,?,?)');
+const stmtReactRemove = db.prepare('DELETE FROM reactions_legacy WHERE msg_id=? AND username=? AND emoji=?');
 const stmtReactForRoom = db.prepare(`
   SELECT r.msg_id, r.emoji, r.username
-  FROM reactions r INNER JOIN messages m ON r.msg_id = m.id
+  FROM reactions_legacy r INNER JOIN messages_legacy m ON r.msg_id = m.id
   WHERE m.room = ?
 `);
-const stmtReactForMsg = db.prepare('SELECT emoji, username FROM reactions WHERE msg_id=?');
+const stmtReactForMsg = db.prepare('SELECT emoji, username FROM reactions_legacy WHERE msg_id=?');
 
-// ── Users ──────────────────────────────────────────────────────────────────────
+// ── Users (v1 legacy) ──────────────────────────────────────────────────────────
 const stmtUpsertUser   = db.prepare(`
-  INSERT INTO users (username, tag, avatar_color, banner_color, about_me, custom_status, created_at)
+  INSERT INTO users_legacy (username, tag, avatar_color, banner_color, about_me, custom_status, created_at)
   VALUES (?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(username) DO NOTHING
 `);
-const stmtGetUser      = db.prepare('SELECT * FROM users WHERE username = ?');
+const stmtGetUser      = db.prepare('SELECT * FROM users_legacy WHERE username = ?');
 const stmtUpdateUser   = db.prepare(`
-  UPDATE users SET avatar_color=?, avatar_url=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
+  UPDATE users_legacy SET avatar_color=?, avatar_url=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
 `);
-const stmtBlock         = db.prepare('INSERT OR IGNORE INTO blocks (blocker, blocked) VALUES (?,?)');
-const stmtUnblock       = db.prepare('DELETE FROM blocks WHERE blocker=? AND blocked=?');
-const stmtBlockedList   = db.prepare('SELECT blocked FROM blocks WHERE blocker=?');
+const stmtBlock         = db.prepare('INSERT OR IGNORE INTO blocks_legacy (blocker, blocked) VALUES (?,?)');
+const stmtUnblock       = db.prepare('DELETE FROM blocks_legacy WHERE blocker=? AND blocked=?');
+const stmtBlockedList   = db.prepare('SELECT blocked FROM blocks_legacy WHERE blocker=?');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });

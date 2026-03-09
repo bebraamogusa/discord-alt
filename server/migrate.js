@@ -33,6 +33,45 @@ db.pragma('foreign_keys = ON');
 db.transaction(() => {
 
   /* ══════════════════════════════════════════════════════════════════════════
+     LEGACY COMPATIBILITY
+     Detect v1 tables by their old column names and rename them so the new
+     schema can be created without conflicts. Old data is preserved in *_legacy.
+  ══════════════════════════════════════════════════════════════════════════ */
+  const hasCol = (table, col) => {
+    try {
+      const cols = db.pragma(`table_info(${table})`);
+      return cols.some(c => c.name === col);
+    } catch { return false; }
+  };
+  const tableExists = (t) => !!db.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`
+  ).get(t);
+
+  // messages v1: had (room, username) instead of (channel_id, author_id)
+  if (tableExists('messages') && !hasCol('messages', 'channel_id')) {
+    db.exec('ALTER TABLE messages RENAME TO messages_legacy;');
+    console.log('  ⚠  messages → messages_legacy (v1 schema preserved)');
+  }
+
+  // reactions v1: had (msg_id, username) instead of (message_id, user_id)
+  if (tableExists('reactions') && !hasCol('reactions', 'message_id')) {
+    db.exec('ALTER TABLE reactions RENAME TO reactions_legacy;');
+    console.log('  ⚠  reactions → reactions_legacy (v1 schema preserved)');
+  }
+
+  // blocks v1: had (blocker, blocked) instead of (user_id, blocked_user_id)
+  if (tableExists('blocks') && !hasCol('blocks', 'user_id')) {
+    db.exec('ALTER TABLE blocks RENAME TO blocks_legacy;');
+    console.log('  ⚠  blocks → blocks_legacy (v1 schema preserved)');
+  }
+
+  // users v1: had username as PRIMARY KEY, no id column
+  if (tableExists('users') && !hasCol('users', 'id')) {
+    db.exec('ALTER TABLE users RENAME TO users_legacy;');
+    console.log('  ⚠  users → users_legacy (v1 schema preserved)');
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
      USERS
   ══════════════════════════════════════════════════════════════════════════ */
   db.exec(/* sql */`
