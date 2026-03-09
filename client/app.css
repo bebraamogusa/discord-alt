@@ -71,6 +71,10 @@ body {
   flex-direction: column;
   user-select: none;
 }
+input, textarea, [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
+}
 
 /* ── Auth overlay ─────────────────────────────────────────────── */
 #auth-overlay {
