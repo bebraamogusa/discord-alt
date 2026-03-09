@@ -644,8 +644,7 @@ svg{flex-shrink:0;pointer-events:none}
 .sett-about-version{font-size:13px;color:var(--text-3);text-align:center;margin-bottom:20px;}
 
 /* ── Stage 2: Profile card + account form ── */
-.profile-card{
-  width:300px;background:var(--bg-2);border-radius:8px;
+.profile-card{  width:300px;background:var(--bg-2);border-radius:8px;
   box-shadow:0 8px 32px rgba(0,0,0,.55);overflow:hidden;
 }
 .profile-card-banner{height:60px;}
@@ -731,6 +730,117 @@ textarea.sett-input{resize:vertical;min-height:80px;}
 .sett-color-btn-fill{width:100%;height:100%;}
 .sett-msg-avatar{cursor:pointer;transition:transform .1s;}
 .sett-msg-avatar:hover{transform:scale(1.15);}
+
+/* ── Stages 3–7 ──────────────────────────────────────────────── */
+/* Avatar image support */
+:root { --avatar-size: 40px; }
+.msg-avatar { width:var(--avatar-size);height:var(--avatar-size); }
+.msg-avatar img,.profile-card-avatar img,.sett-preview-avatar img,.ua-avatar img {
+  width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;
+}
+.sett-preview-avatar { width:var(--avatar-size);height:var(--avatar-size); }
+
+/* Compact mode */
+body.compact .msg { padding:1px 16px; }
+body.compact .msg-avatar { display:none; }
+body.compact .msg-body { padding-left:0; }
+body.compact .msg-grouped { margin-top:0; }
+
+/* Theme grid */
+.theme-grid { display:flex;gap:12px;flex-wrap:wrap;margin:12px 0; }
+.theme-card {
+  width:100px;border-radius:8px;overflow:hidden;cursor:pointer;
+  border:2px solid transparent;transition:border-color .15s,transform .1s;
+}
+.theme-card:hover { transform:scale(1.04); }
+.theme-card.selected { border-color:var(--accent); }
+.theme-card-label { font-size:12px;text-align:center;padding:6px 4px;background:var(--bg-3);color:var(--text-2); }
+.theme-preview { height:52px;display:flex;gap:4px;padding:6px; }
+.theme-preview-dark   .tp-2 { background:#2b2d31; }
+.theme-preview-dark   .tp-3 { background:#313338; }
+.theme-preview-light  .tp-2 { background:#f2f3f5; }
+.theme-preview-light  .tp-3 { background:#ffffff; }
+.theme-preview-amoled .tp-2 { background:#070707; }
+.theme-preview-amoled .tp-3 { background:#000000; }
+.theme-preview-custom .tp-2 { background:var(--bg-2); }
+.theme-preview-custom .tp-3 { background:var(--bg); }
+.tp-2 { width:32px;border-radius:4px;background:var(--bg-2); }
+.tp-3 { flex:1;border-radius:4px;background:var(--bg); }
+
+/* Sliders */
+.sett-slider-wrap { padding:4px 0 12px; }
+.sett-range {
+  width:100%;-webkit-appearance:none;appearance:none;height:4px;
+  border-radius:2px;background:var(--bg-3);outline:none;cursor:pointer;margin:8px 0 4px;
+}
+.sett-range::-webkit-slider-thumb {
+  -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:2px solid #fff;
+}
+.sett-slider-labels { display:flex;justify-content:space-between;font-size:11px;color:var(--text-3); }
+.sett-font-preview {
+  padding:10px 12px;background:var(--bg-3);border-radius:6px;
+  color:var(--text-2);margin-top:8px;border-left:3px solid var(--accent);
+}
+.sett-scale-display,.sett-notif-vol-display {
+  text-align:center;font-size:13px;color:var(--text-2);padding:4px 0;
+}
+
+/* Chat BG presets */
+.bg-presets { display:flex;gap:8px;flex-wrap:wrap;margin:8px 0; }
+.bg-preset {
+  width:52px;height:36px;border-radius:6px;cursor:pointer;
+  border:2px solid transparent;display:flex;align-items:center;
+  justify-content:center;font-size:10px;font-weight:700;color:rgba(255,255,255,.8);
+  transition:border-color .15s,transform .1s;
+}
+.bg-preset:hover { transform:scale(1.08); }
+.bg-preset.selected { border-color:var(--accent); }
+
+/* Notification sounds */
+.notif-sounds { display:flex;gap:8px;flex-wrap:wrap;margin:8px 0; }
+.notif-sound-item {
+  padding:8px 16px;border-radius:6px;cursor:pointer;
+  background:var(--bg-3);border:2px solid transparent;
+  font-size:13px;color:var(--text-2);transition:border-color .15s;
+}
+.notif-sound-item:hover { background:var(--hover); }
+.notif-sound-item.selected { border-color:var(--accent);color:var(--text); }
+
+/* Mic level bar */
+.mic-level-bar { height:8px;border-radius:4px;background:var(--bg-3);overflow:hidden; }
+.mic-level-fill { height:100%;width:0%;background:var(--green);border-radius:4px;transition:width .05s; }
+
+/* Keybind listening box */
+#kb-listening { 
+  display:none;margin-top:16px;padding:16px;
+  border:2px dashed var(--accent);border-radius:8px;
+  text-align:center;color:var(--text-2);font-size:14px;
+}
+
+/* Blocked users list */
+.blocked-user-row {
+  display:flex;align-items:center;gap:12px;
+  padding:10px 0;border-bottom:1px solid var(--border);
+}
+.blocked-user-row:last-child { border-bottom:none; }
+.blocked-avatar {
+  width:36px;height:36px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;color:#fff;
+}
+
+/* selected-mode button */
+button.selected-mode { background:var(--accent) !important;color:#fff !important; }
+
+/* Avatar upload btn in settings */
+.sett-avatar-upload-btn {
+  width:52px;height:52px;border-radius:50%;border:2px dashed var(--text-3);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:20px;color:var(--text-3);flex-shrink:0;
+  transition:border-color .15s;
+}
+.sett-avatar-upload-btn:hover { border-color:var(--accent);color:var(--accent); }
 </style>
 </head>
 <body>
@@ -1094,8 +1204,14 @@ async function loadUserProfile() {
 function applyProfileToUI() {
   const uaAvatar = $('#ua-avatar');
   if (uaAvatar) {
-    uaAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
-    uaAvatar.style.background = _profile.avatar_color || avatarColor(username || '');
+    if (_profile.avatar_url) {
+      uaAvatar.innerHTML = `<img src="${esc(_profile.avatar_url)}" alt="${esc(username)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+      uaAvatar.style.background = 'transparent';
+    } else {
+      uaAvatar.innerHTML = '';
+      uaAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+      uaAvatar.style.background = _profile.avatar_color || avatarColor(username || '');
+    }
   }
   const uaStatus = $('#ua-status');
   if (uaStatus) uaStatus.textContent = _profile.custom_status || '';
@@ -1219,6 +1335,7 @@ function initIcons() {
    Init flow
    ================================================================ */
 (function init() {
+  loadAndApplyAllSettings();
   initIcons();
 
   // Tab-visibility: clear unread when user switches back
@@ -2059,8 +2176,136 @@ function setupSidebarToggle() {
 }
 
 /* ================================================================
-   Settings
+   Settings — Theme / scale / display systems
    ================================================================ */
+const THEMES = {
+  dark:   { '--bg':'#313338','--bg-2':'#2b2d31','--bg-3':'#1e1f22','--bg-4':'#232428','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#383a40','--border':'#3f4147','--hover':'rgba(255,255,255,.06)' },
+  light:  { '--bg':'#ffffff','--bg-2':'#f2f3f5','--bg-3':'#e3e5e8','--bg-4':'#ebedef','--text':'#060607','--text-2':'#4e5058','--text-3':'#80848e','--input-bg':'#e9eaec','--border':'#d4d7dc','--hover':'rgba(0,0,0,.06)' },
+  amoled: { '--bg':'#000000','--bg-2':'#080808','--bg-3':'#0f0f0f','--bg-4':'#141414','--text':'#f2f3f5','--text-2':'#b5bac1','--text-3':'#949ba4','--input-bg':'#1a1a1a','--border':'#252525','--hover':'rgba(255,255,255,.06)' },
+};
+
+function applyTheme(name) {
+  const root = document.documentElement;
+  const vars = THEMES[name];
+  if (vars) {
+    Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+    localStorage.setItem('sett_theme', name);
+  } else if (name === 'custom') {
+    // custom vars set individually by pickers
+    localStorage.setItem('sett_theme', 'custom');
+    try {
+      const custom = JSON.parse(localStorage.getItem('sett_customTheme') || '{}');
+      Object.entries(custom).forEach(([k, v]) => root.style.setProperty(k, v));
+    } catch {}
+  }
+}
+
+function applyFontSize(px) {
+  document.documentElement.style.setProperty('--msg-font-size', px + 'px');
+  const msgs = document.querySelector('#messages');
+  if (msgs) msgs.style.fontSize = px + 'px';
+  localStorage.setItem('sett_fontSize', String(px));
+}
+
+function applyScale(pct) {
+  const app = document.querySelector('#app');
+  if (app) app.style.zoom = (pct / 100).toString();
+  localStorage.setItem('sett_scale', String(pct));
+}
+
+function applyAvatarSize(px) {
+  document.documentElement.style.setProperty('--avatar-size', px + 'px');
+  localStorage.setItem('sett_avatarSize', String(px));
+}
+
+function applyCompact(on) {
+  document.body.classList.toggle('compact', !!on);
+  localStorage.setItem('sett_compact', on ? 'on' : 'off');
+}
+
+const CHAT_BG_MAP = {
+  none: '',
+  g1: 'linear-gradient(135deg,#667eea,#764ba2)',
+  g2: 'linear-gradient(135deg,#f093fb,#f5576c)',
+  g3: 'linear-gradient(135deg,#4facfe,#00f2fe)',
+  g4: 'linear-gradient(135deg,#43e97b,#38f9d7)',
+};
+function applyChatBg(key, opacity) {
+  const msgs = document.querySelector('#messages');
+  if (!msgs) return;
+  if (key === 'none') {
+    msgs.style.backgroundImage = '';
+  } else if (key === 'custom') {
+    const url = localStorage.getItem('sett_chatBgUrl') || '';
+    msgs.style.backgroundImage = url ? `url(${url})` : '';
+    msgs.style.backgroundSize = 'cover';
+    msgs.style.backgroundPosition = 'center';
+    msgs.style.backgroundRepeat = 'no-repeat';
+  } else if (CHAT_BG_MAP[key]) {
+    msgs.style.backgroundImage = CHAT_BG_MAP[key];
+    msgs.style.backgroundSize = '100%';
+  }
+  if (opacity !== undefined) msgs.style.opacity = opacity;
+  localStorage.setItem('sett_chatBg', key);
+}
+
+function loadAndApplyAllSettings() {
+  const theme   = localStorage.getItem('sett_theme') || 'dark';
+  const fs      = parseInt(localStorage.getItem('sett_fontSize') || '14');
+  const scale   = parseInt(localStorage.getItem('sett_scale') || '100');
+  const avSize  = parseInt(localStorage.getItem('sett_avatarSize') || '40');
+  const compact = localStorage.getItem('sett_compact') === 'on';
+  const chatBg  = localStorage.getItem('sett_chatBg') || 'none';
+  applyTheme(theme);
+  applyFontSize(fs);
+  applyScale(scale);
+  applyAvatarSize(avSize);
+  applyCompact(compact);
+  applyChatBg(chatBg);
+}
+
+// Keybinds
+const DEFAULT_KEYBINDS = {
+  mute:     { label: 'Вкл/выкл микрофон',      keys: ['m'] },
+  cam:      { label: 'Вкл/выкл камеру',         keys: ['v'] },
+  screen:   { label: 'Шаринг экрана',            keys: ['ctrl','shift','s'] },
+  settings: { label: 'Открыть настройки',        keys: ['ctrl',','] },
+  roomNext: { label: 'Следующая комната',        keys: ['alt','arrowdown'] },
+  roomPrev: { label: 'Предыдущая комната',       keys: ['alt','arrowup'] },
+  esc:      { label: 'Закрыть / отмена',         keys: ['escape'] },
+};
+function loadKeybinds() {
+  try { return Object.assign({}, DEFAULT_KEYBINDS, JSON.parse(localStorage.getItem('keybindings') || '{}')); }
+  catch { return Object.assign({}, DEFAULT_KEYBINDS); }
+}
+function saveKeybinds(kb) { localStorage.setItem('keybindings', JSON.stringify(kb)); }
+function keysDisplay(keys) {
+  const map = { ctrl:'Ctrl', shift:'Shift', alt:'Alt', meta:'⌘', arrowdown:'↓', arrowup:'↑', arrowleft:'←', arrowright:'→', ' ':'Space', escape:'Esc', enter:'Enter' };
+  return keys.map(k => `<kbd>${map[k.toLowerCase()] || k.toUpperCase()}</kbd>`).join('');
+}
+function notifSound(type) {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    const vol = (parseInt(localStorage.getItem('sett_notifVol') || '80')) / 100 * 0.3;
+    gain.gain.value = vol;
+    const play = (freq, start, dur) => {
+      const o = ctx.createOscillator();
+      o.connect(gain);
+      o.frequency.value = freq;
+      o.type = 'sine';
+      gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      o.start(ctx.currentTime + start);
+      o.stop(ctx.currentTime + start + dur);
+    };
+    if (type === 'soft')    { play(880, 0, 0.3); }
+    else if (type === 'classic') { play(660, 0, 0.1); play(880, 0.12, 0.25); }
+    else if (type === 'loud')    { play(1100, 0, 0.4); }
+  } catch {}
+}
+
 const _settingsPages = {
   account: {
     title: 'Мой аккаунт',
@@ -2073,6 +2318,12 @@ const _settingsPages = {
       return `<h2>Мой аккаунт</h2>
         <div class="sett-section-title">Аватар</div>
         <div class="sett-avatar-grid" id="avatar-grid">${avatarGrid}</div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px;">
+          <label class="sett-avatar-upload-btn" title="Загрузить своё фото">
+            📁 Загрузить фото<input type="file" id="avatar-file-input" accept="image/*" style="display:none;">
+          </label>
+          ${_profile.avatar_url ? `<button class="btn-ghost" id="btn-remove-avatar" style="font-size:12px;padding:4px 10px;">✕ Удалить фото</button>` : ''}
+        </div>
         <div class="sett-section-title">Никнейм</div>
         <div style="font-size:16px;font-weight:600;color:var(--text);padding:8px 0;">${esc(username || '—')}</div>
         <div class="sett-nickname-row">
@@ -2143,74 +2394,196 @@ const _settingsPages = {
   appearance: {
     title: 'Внешний вид',
     render() {
-      const saved = localStorage.getItem('sett_theme') || 'dark';
+      const curTheme  = localStorage.getItem('sett_theme') || 'dark';
+      const curFs     = localStorage.getItem('sett_fontSize') || '14';
+      const curScale  = localStorage.getItem('sett_scale') || '100';
+      const curAvSize = localStorage.getItem('sett_avatarSize') || '40';
+      const curBg     = localStorage.getItem('sett_chatBg') || 'none';
+      const compact   = localStorage.getItem('sett_compact') === 'on';
       return `<h2>Внешний вид</h2>
-        <div class="sett-section-title">Тема</div>
-        <div class="sett-row">
-          <div class="sett-label">Тёмная тема</div>
-          <button class="sett-toggle ${saved === 'dark' ? 'on' : ''}" id="toggle-theme" title="Переключить тему"></button>
-        </div>
-        <div class="sett-section-title">Масштаб шрифта</div>
-        <div class="sett-row">
-          <div class="sett-label">Размер текста сообщений</div>
-          <select id="sel-font-size" style="background:var(--bg-3);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:13px;">
-            <option value="13" ${(localStorage.getItem('sett_fontSize')||'14')==='13'?'selected':''}>Маленький</option>
-            <option value="14" ${(localStorage.getItem('sett_fontSize')||'14')==='14'?'selected':''}>Средний</option>
-            <option value="16" ${(localStorage.getItem('sett_fontSize')||'14')==='16'?'selected':''}>Большой</option>
-          </select>
-        </div>`;
+<div class="sett-section-title">Тема</div>
+<div class="theme-grid">
+  ${[['dark','Тёмная'],['light','Светлая'],['amoled','AMOLED'],['custom','Своя']].map(([id,label])=>`
+  <div class="theme-card ${curTheme===id?'active':''}" data-theme="${id}">
+    <div class="theme-preview-wrap">
+      <div class="theme-preview-bg tp-1"></div>
+      <div class="theme-preview-bg tp-2"></div>
+      <div class="theme-preview-bg tp-3"></div>
+    </div>
+    <div style="margin-top:6px;font-size:12px;color:var(--text-2)">${label}</div>
+  </div>`).join('')}
+</div>
+<div id="custom-color-rows" style="display:${curTheme==='custom'?'block':'none'};margin-top:12px;">
+  ${[['--bg','Фон'],['--bg-2','Панели'],['--bg-3','Боковая панель'],['--accent','Акцент'],['--text','Текст']].map(([v,l])=>`
+  <div class="sett-row"><div class="sett-label">${l}</div>
+  <input type="color" class="sett-color-pick" data-var="${v}" value="#313338" style="width:40px;height:28px;border:none;cursor:pointer;background:none;"></div>`).join('')}
+</div>
+
+<div class="sett-section-title" style="margin-top:20px;">Размер текста сообщений</div>
+<div style="display:flex;align-items:center;gap:12px;">
+  <span class="sett-slider-labels">12px</span>
+  <input id="sl-font" type="range" class="sett-range" min="12" max="20" step="1" value="${curFs}" style="flex:1;">
+  <span class="sett-slider-labels">20px</span>
+  <span class="sett-scale-display" id="sl-font-val">${curFs}px</span>
+</div>
+<div class="sett-font-preview" id="font-preview" style="font-size:${curFs}px;">Пример текста сообщения 👋</div>
+
+<div class="sett-section-title" style="margin-top:16px;">Масштаб интерфейса</div>
+<div style="display:flex;align-items:center;gap:12px;">
+  <span class="sett-slider-labels">80%</span>
+  <input id="sl-scale" type="range" class="sett-range" min="80" max="120" step="5" value="${curScale}" style="flex:1;">
+  <span class="sett-slider-labels">120%</span>
+  <span class="sett-scale-display" id="sl-scale-val">${curScale}%</span>
+</div>
+
+<div class="sett-section-title" style="margin-top:16px;">Размер аватарок</div>
+<div style="display:flex;align-items:center;gap:12px;">
+  <span class="sett-slider-labels">24px</span>
+  <input id="sl-avsize" type="range" class="sett-range" min="24" max="56" step="4" value="${curAvSize}" style="flex:1;">
+  <span class="sett-slider-labels">56px</span>
+  <span class="sett-scale-display" id="sl-avsize-val">${curAvSize}px</span>
+</div>
+
+<div class="sett-section-title" style="margin-top:16px;">Компактный режим</div>
+<div class="sett-row">
+  <div><div class="sett-label">Компактный режим</div><div class="sett-desc">Уменьшенные отступы и аватарки</div></div>
+  <button class="sett-toggle ${compact?'on':''}" id="toggle-compact"></button>
+</div>
+
+<div class="sett-section-title" style="margin-top:16px;">Фон области сообщений</div>
+<div class="bg-presets">
+  ${[['none','Нет'],['g1','Фиолетовый'],['g2','Розовый'],['g3','Голубой'],['g4','Зелёный']].map(([k,l])=>`
+  <div class="bg-preset ${curBg===k?'selected':''}" data-bg="${k}" title="${l}">
+    ${k==='none'?'✕':`<div style="width:100%;height:100%;background:${CHAT_BG_MAP[k]||''};border-radius:6px;"></div>`}
+  </div>`).join('')}
+  <label class="bg-preset" title="Своё фото" style="cursor:pointer;">
+    📂<input type="file" accept="image/*" id="bg-file-input" style="display:none;">
+  </label>
+</div>`;
     }
   },
   notifications: {
     title: 'Уведомления',
     render() {
-      const on = localStorage.getItem('sett_notif') !== 'off';
-      const snd = localStorage.getItem('sett_sound') !== 'off';
+      const g  = k  => localStorage.getItem(k);
+      const on  = g('sett_notif')  !== 'off';
+      const snd = g('sett_sound')  !== 'off';
+      const jl  = g('sett_jlsound') !== 'off';
+      const men = g('sett_mention') !== 'off';
+      const foc = g('sett_focnotif') === 'on';
+      const vol = g('sett_notifVol') || '80';
+      const stype = g('sett_soundType') || 'soft';
       return `<h2>Уведомления</h2>
-        <div class="sett-row">
-          <div><div class="sett-label">Push-уведомления</div><div class="sett-desc">Десктопные уведомления при новых сообщениях</div></div>
-          <button class="sett-toggle ${on?'on':''}" data-key="sett_notif" data-off="off"></button>
-        </div>
-        <div class="sett-row">
-          <div><div class="sett-label">Звук уведомления</div><div class="sett-desc">Звук при получении нового сообщения</div></div>
-          <button class="sett-toggle ${snd?'on':''}" data-key="sett_sound" data-off="off"></button>
-        </div>`;
+<div class="sett-row"><div><div class="sett-label">Push-уведомления</div><div class="sett-desc">Десктопные уведомления при новых сообщениях</div></div><button class="sett-toggle ${on?'on':''}" data-key="sett_notif" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Звук новых сообщений</div><div class="sett-desc">Звуковой сигнал при каждом новом сообщении</div></div><button class="sett-toggle ${snd?'on':''}" data-key="sett_sound" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Звук входа/выхода</div><div class="sett-desc">Звук при подключении/отключении участников</div></div><button class="sett-toggle ${jl?'on':''}" data-key="sett_jlsound" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Звук при @упоминании</div><div class="sett-desc">Отдельный сигнал, когда вас упоминают</div></div><button class="sett-toggle ${men?'on':''}" data-key="sett_mention" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Уведомления в фокусе</div><div class="sett-desc">Показывать уведомления, когда приложение активно</div></div><button class="sett-toggle ${foc?'on':''}" data-key="sett_focnotif"></button></div>
+
+<div class="sett-section-title" style="margin-top:16px;">Тип звука</div>
+<div class="notif-sounds">
+  ${[['soft','Мягкий'],['classic','Классический'],['loud','Громкий'],['none','Без звука']].map(([k,l])=>`
+  <div class="notif-sound-item ${stype===k?'selected':''}" data-sound="${k}">${l}</div>`).join('')}
+</div>
+
+<div class="sett-section-title" style="margin-top:16px;">Громкость уведомлений</div>
+<div style="display:flex;align-items:center;gap:12px;">
+  <span class="sett-slider-labels">0%</span>
+  <input id="sl-notif-vol" type="range" class="sett-range" min="0" max="100" step="5" value="${vol}" style="flex:1;">
+  <span class="sett-slider-labels">100%</span>
+  <span class="sett-scale-display" id="sl-notif-vol-val">${vol}%</span>
+</div>`;
     }
   },
   voice: {
     title: 'Звук и видео',
     render() {
-      const vad = localStorage.getItem('sett_vad') !== 'off';
+      const ns  = localStorage.getItem('sett_noiseSupp') !== 'off';
+      const ec  = localStorage.getItem('sett_echoCan')   !== 'off';
+      const ag  = localStorage.getItem('sett_autoGain')  !== 'off';
+      const vad = localStorage.getItem('sett_vad')       !== 'off';
+      const thr = localStorage.getItem('sett_vadThr')    || '20';
+      const pttKey = localStorage.getItem('sett_pttKey') || 'Space';
       return `<h2>Звук и видео</h2>
-        <div class="sett-row">
-          <div><div class="sett-label">Автоматическое определение речи (VAD)</div><div class="sett-desc">Микрофон автоматически включается при звуке голоса</div></div>
-          <button class="sett-toggle ${vad?'on':''}" data-key="sett_vad" data-off="off"></button>
-        </div>
-        <div class="sett-section-title">Горячие клавиши голоса</div>
-        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл микрофон</span><div class="sett-kbd"><kbd>M</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл камеру</span><div class="sett-kbd"><kbd>V</kbd></div></div>`;
+<div class="sett-section-title">Микрофон</div>
+<div class="sett-row"><div class="sett-label">Устройство ввода</div>
+<select id="sel-mic" style="background:var(--bg-3);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:13px;min-width:180px;"><option>Загрузка...</option></select></div>
+<div class="sett-row" style="margin-top:8px;"><div class="sett-label">Тест микрофона</div>
+<button class="btn-primary" id="btn-mic-test" style="padding:6px 14px;">▶ Тест</button></div>
+<div class="mic-level-bar" id="mic-level-bar" style="display:none;margin-top:8px;"><div class="mic-level-fill" id="mic-level-fill"></div></div>
+
+<div class="sett-section-title" style="margin-top:16px;">Обработка звука</div>
+<div class="sett-row"><div><div class="sett-label">Шумоподавление</div><div class="sett-desc">Фильтрация фонового шума</div></div><button class="sett-toggle ${ns?'on':''}" data-key="sett_noiseSupp" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Эхоподавление</div><div class="sett-desc">Устранение эха динамиков</div></div><button class="sett-toggle ${ec?'on':''}" data-key="sett_echoCan" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Автоусиление</div><div class="sett-desc">Автоматический контроль уровня</div></div><button class="sett-toggle ${ag?'on':''}" data-key="sett_autoGain" data-off="off"></button></div>
+
+<div class="sett-section-title" style="margin-top:16px;">Камера</div>
+<div class="sett-row"><div class="sett-label">Устройство видео</div>
+<select id="sel-cam" style="background:var(--bg-3);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:13px;min-width:180px;"><option>Загрузка...</option></select></div>
+<div class="sett-row" style="margin-top:8px;"><div class="sett-label">Превью камеры</div><button class="btn-primary" id="btn-cam-preview" style="padding:6px 14px;">▶ Превью</button></div>
+<video id="cam-preview-vid" autoplay muted style="display:none;width:240px;height:135px;border-radius:8px;margin-top:8px;background:#000;"></video>
+
+<div class="sett-section-title" style="margin-top:16px;">Режим активации голоса</div>
+<div style="display:flex;gap:8px;margin-top:6px;">
+  <button class="btn-primary ${vad?'selected-mode':''}" id="btn-mode-vad">VAD — По голосу</button>
+  <button class="btn-primary ${!vad?'selected-mode':''}" id="btn-mode-ptt">PTT — Кнопка</button>
+</div>
+<div id="vad-sensitivity" style="margin-top:12px;${vad?'':'display:none;'}">
+  <div class="sett-label" style="margin-bottom:6px;">Порог чувствительности</div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span class="sett-slider-labels">Низкий</span>
+    <input id="sl-vad-thr" type="range" class="sett-range" min="0" max="100" step="5" value="${thr}" style="flex:1;">
+    <span class="sett-slider-labels">Высокий</span>
+    <span class="sett-scale-display" id="sl-vad-thr-val">${thr}</span>
+  </div>
+</div>
+<div id="ptt-row" style="margin-top:12px;${vad?'display:none;':''}">
+  <div class="sett-row"><div class="sett-label">Клавиша PTT</div>
+  <div id="ptt-key-display" style="display:flex;align-items:center;gap:8px;">
+    <kbd>${pttKey}</kbd>
+    <button class="btn-primary" id="btn-ptt-rebind" style="padding:4px 10px;font-size:12px;">Изменить</button>
+  </div></div>
+  <div id="kb-listening" style="display:none;">Нажмите нужную клавишу…</div>
+</div>`;
     }
   },
   keybinds: {
     title: 'Горячие клавиши',
     render() {
+      const kb = loadKeybinds();
+      const rows = Object.entries(kb).map(([id, def]) =>
+        `<div class="sett-kbd-row" data-kb-id="${id}">
+          <span class="sett-label">${def.label}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="sett-kbd" id="kb-display-${id}">${keysDisplay(def.keys)}</div>
+            <button class="btn-primary btn-kb-edit" data-id="${id}" style="padding:4px 10px;font-size:12px;">✏</button>
+            <button class="btn-ghost btn-kb-reset" data-id="${id}" style="padding:4px 10px;font-size:12px;">↺</button>
+          </div>
+        </div>`
+      ).join('');
       return `<h2>Горячие клавиши</h2>
-        <div class="sett-kbd-row"><span class="sett-label">Открыть настройки</span><div class="sett-kbd"><kbd>Ctrl</kbd><kbd>,</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Закрыть настройки / модал</span><div class="sett-kbd"><kbd>Esc</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл микрофон (в звонке)</span><div class="sett-kbd"><kbd>M</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Вкл/выкл камеру (в звонке)</span><div class="sett-kbd"><kbd>V</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Редактировать последнее сообщение</span><div class="sett-kbd"><kbd>↑</kbd></div></div>
-        <div class="sett-kbd-row"><span class="sett-label">Отмена редактирования</span><div class="sett-kbd"><kbd>Esc</kbd></div></div>`;
+<div id="kb-listening" style="display:none;">Нажмите нужную клавишу…</div>
+${rows}`;
     }
   },
   privacy: {
     title: 'Приватность',
     render() {
+      const readRec   = localStorage.getItem('sett_priv_readReceipts') !== 'off';
+      const onlineVis = localStorage.getItem('sett_priv_onlineVis')     !== 'off';
+      const msgPrev   = localStorage.getItem('sett_priv_msgPreview')    !== 'off';
       return `<h2>Приватность</h2>
-        <p>Все сообщения хранятся только на выбранном сервере. Никаких аналитических или рекламных трекеров не используется.</p>
-        <div class="sett-section-title">Хранение данных</div>
-        <div class="sett-row"><div class="sett-label">История сообщений</div><div class="sett-desc" style="text-align:right">SQLite на сервере</div></div>
-        <div class="sett-row"><div class="sett-label">Пользовательские настройки</div><div class="sett-desc" style="text-align:right">localStorage браузера</div></div>`;
+<div class="sett-section-title">Видимость</div>
+<div class="sett-row"><div><div class="sett-label">Статус «в сети»</div><div class="sett-desc">Показывать своё присутствие другим пользователям</div></div><button class="sett-toggle ${onlineVis?'on':''}" data-key="sett_priv_onlineVis" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Превью сообщений</div><div class="sett-desc">Показывать содержимое в уведомлениях рабочего стола</div></div><button class="sett-toggle ${msgPrev?'on':''}" data-key="sett_priv_msgPreview" data-off="off"></button></div>
+<div class="sett-row"><div><div class="sett-label">Отчёт о прочтении</div><div class="sett-desc">Уведомлять отправителя об открытии сообщения</div></div><button class="sett-toggle ${readRec?'on':''}" data-key="sett_priv_readReceipts" data-off="off"></button></div>
+
+<div class="sett-section-title" style="margin-top:20px;">Хранение данных</div>
+<div class="sett-row"><div class="sett-label">История сообщений</div><div class="sett-desc" style="text-align:right">SQLite на сервере</div></div>
+<div class="sett-row"><div class="sett-label">Настройки интерфейса</div><div class="sett-desc" style="text-align:right">localStorage браузера</div></div>
+
+<div class="sett-section-title" style="margin-top:20px;">Заблокированные пользователи</div>
+<div id="blocked-list"><div class="sett-desc">Загрузка…</div></div>`;
     }
   },
   about: {
@@ -2262,20 +2635,92 @@ function renderSettingsPage(page) {
       localStorage.setItem(key, isOn ? 'on' : off);
     };
   });
-  // appearance-specific wiring
-  const themeBtn = $('#toggle-theme');
-  if (themeBtn) {
-    themeBtn.onclick = () => {
-      const isOn = themeBtn.classList.toggle('on');
-      localStorage.setItem('sett_theme', isOn ? 'dark' : 'light');
-    };
-  }
-  const fontSel = $('#sel-font-size');
-  if (fontSel) {
-    fontSel.onchange = () => {
-      localStorage.setItem('sett_fontSize', fontSel.value);
-      document.querySelector('#messages')?.style.setProperty('font-size', fontSel.value + 'px');
-    };
+  // ── appearance page wiring ──────────────────────────────────────
+  if (page === 'appearance') {
+    // theme cards
+    content.querySelectorAll('.theme-card').forEach(card => {
+      card.onclick = () => {
+        content.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        const th = card.dataset.theme;
+        applyTheme(th);
+        const crows = $('#custom-color-rows');
+        if (crows) crows.style.display = (th === 'custom') ? 'block' : 'none';
+      };
+    });
+    // custom theme color pickers
+    content.querySelectorAll('.sett-color-pick').forEach(inp => {
+      const varName = inp.dataset.var;
+      const cur = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+      inp.value = cur || '#313338';
+      inp.oninput = () => {
+        document.documentElement.style.setProperty(varName, inp.value);
+        const custom = JSON.parse(localStorage.getItem('sett_customTheme') || '{}');
+        custom[varName] = inp.value;
+        localStorage.setItem('sett_customTheme', JSON.stringify(custom));
+      };
+    });
+    // font size slider
+    const slFont = $('#sl-font'), slFontVal = $('#sl-font-val'), fontPrev = $('#font-preview');
+    if (slFont) {
+      slFont.oninput = () => {
+        const v = slFont.value;
+        if (slFontVal) slFontVal.textContent = v + 'px';
+        if (fontPrev) fontPrev.style.fontSize = v + 'px';
+        applyFontSize(parseInt(v));
+      };
+    }
+    // scale slider
+    const slScale = $('#sl-scale'), slScaleVal = $('#sl-scale-val');
+    if (slScale) {
+      slScale.oninput = () => {
+        const v = slScale.value;
+        if (slScaleVal) slScaleVal.textContent = v + '%';
+        applyScale(parseInt(v));
+      };
+    }
+    // avatar size slider
+    const slAv = $('#sl-avsize'), slAvVal = $('#sl-avsize-val');
+    if (slAv) {
+      slAv.oninput = () => {
+        const v = slAv.value;
+        if (slAvVal) slAvVal.textContent = v + 'px';
+        applyAvatarSize(parseInt(v));
+      };
+    }
+    // compact toggle
+    const compBtn = $('#toggle-compact');
+    if (compBtn) {
+      compBtn.onclick = () => {
+        const on = compBtn.classList.toggle('on');
+        applyCompact(on);
+      };
+    }
+    // bg presets
+    content.querySelectorAll('.bg-preset[data-bg]').forEach(el => {
+      el.onclick = () => {
+        content.querySelectorAll('.bg-preset').forEach(b => b.classList.remove('selected'));
+        el.classList.add('selected');
+        applyChatBg(el.dataset.bg);
+      };
+    });
+    // bg file upload
+    const bgFile = $('#bg-file-input');
+    if (bgFile) {
+      bgFile.onchange = () => {
+        const f = bgFile.files?.[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+          const url = e.target.result;
+          localStorage.setItem('sett_chatBgUrl', url);
+          localStorage.setItem('sett_chatBg', 'custom');
+          const msgs = document.querySelector('#messages');
+          if (msgs) { msgs.style.backgroundImage = `url(${url})`; msgs.style.backgroundSize = 'cover'; msgs.style.backgroundPosition = 'center'; }
+        };
+        reader.readAsDataURL(f);
+      };
+    }
   }
   // ── account page wiring ──────────────────────────────────────────
   if (page === 'account') {
@@ -2286,20 +2731,60 @@ function renderSettingsPage(page) {
     const resetBtn    = $('#acct-reset-btn');
     const prevAvatar  = $('#preview-avatar');
     const prevStatus  = $('#preview-status-text');
-    let draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status };
+    const avatarFileInput  = $('#avatar-file-input');
+    const btnRemoveAvatar  = $('#btn-remove-avatar');
+    let draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status, avatar_url: _profile.avatar_url };
 
     function acctCheckDirty() {
       const dirty = draft.avatar_color !== _profile.avatar_color ||
-                    draft.custom_status !== _profile.custom_status;
+                    draft.custom_status !== _profile.custom_status ||
+                    draft.avatar_url !== _profile.avatar_url;
       if (saveBar) saveBar.style.display = dirty ? '' : 'none';
     }
+
+    // custom avatar upload via base64 (small images only; large ones go to /api/upload)
+    if (avatarFileInput) {
+      avatarFileInput.onchange = () => {
+        const f = avatarFileInput.files?.[0];
+        if (!f) return;
+        if (f.size > 3 * 1024 * 1024) { toast('Файл слишком большой (макс. 3 МБ)', 'var(--red)'); return; }
+        const reader = new FileReader();
+        reader.onload = e => {
+          draft.avatar_url = e.target.result;
+          if (prevAvatar) {
+            prevAvatar.innerHTML = `<img src="${draft.avatar_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+            prevAvatar.style.background = 'transparent';
+          }
+          acctCheckDirty();
+        };
+        reader.readAsDataURL(f);
+      };
+    }
+    if (btnRemoveAvatar) {
+      btnRemoveAvatar.onclick = () => {
+        draft.avatar_url = '';
+        if (prevAvatar) {
+          prevAvatar.innerHTML = '';
+          prevAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+          prevAvatar.style.background = draft.avatar_color;
+        }
+        acctCheckDirty();
+      };
+    }
+
     grid?.addEventListener('click', e => {
       const opt = e.target.closest('.sett-avatar-option');
       if (!opt) return;
       grid.querySelectorAll('.sett-avatar-option').forEach(el => el.classList.remove('selected'));
       opt.classList.add('selected');
       draft.avatar_color = opt.dataset.color;
-      if (prevAvatar) prevAvatar.style.background = draft.avatar_color;
+      if (prevAvatar) {
+        if (!draft.avatar_url) {
+          prevAvatar.innerHTML = '';
+          prevAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+          prevAvatar.style.background = draft.avatar_color;
+        }
+      }
       acctCheckDirty();
     });
     statusInput?.addEventListener('input', () => {
@@ -2308,10 +2793,19 @@ function renderSettingsPage(page) {
       acctCheckDirty();
     });
     resetBtn?.addEventListener('click', () => {
-      draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status };
+      draft = { avatar_color: _profile.avatar_color, custom_status: _profile.custom_status, avatar_url: _profile.avatar_url };
       if (statusInput) statusInput.value = _profile.custom_status || '';
-      if (prevAvatar)  prevAvatar.style.background = _profile.avatar_color;
-      if (prevStatus)  prevStatus.textContent = _profile.custom_status || '';
+      if (prevAvatar) {
+        if (_profile.avatar_url) {
+          prevAvatar.innerHTML = `<img src="${_profile.avatar_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+          prevAvatar.style.background = 'transparent';
+        } else {
+          prevAvatar.innerHTML = '';
+          prevAvatar.textContent = username ? username.charAt(0).toUpperCase() : '?';
+          prevAvatar.style.background = _profile.avatar_color;
+        }
+      }
+      if (prevStatus) prevStatus.textContent = _profile.custom_status || '';
       grid?.querySelectorAll('.sett-avatar-option').forEach(el => {
         if (el.dataset.color === _profile.avatar_color) { el.classList.add('selected'); }
         else { el.classList.remove('selected'); }
@@ -2323,7 +2817,7 @@ function renderSettingsPage(page) {
         const res = await fetch(`/api/users/${encodeURIComponent(username)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ avatar_color: draft.avatar_color, custom_status: draft.custom_status }),
+          body: JSON.stringify({ avatar_color: draft.avatar_color, avatar_url: draft.avatar_url || '', custom_status: draft.custom_status }),
         });
         if (res.ok) {
           _profile = { ..._profile, ...await res.json() };
@@ -2391,6 +2885,207 @@ function renderSettingsPage(page) {
         }
       } catch { toast('Ошибка при сохранении', 'var(--red)'); }
     });
+  }
+  // ── notifications page wiring ────────────────────────────────────
+  if (page === 'notifications') {
+    // sound type selector
+    content.querySelectorAll('.notif-sound-item').forEach(el => {
+      el.onclick = () => {
+        content.querySelectorAll('.notif-sound-item').forEach(i => i.classList.remove('selected'));
+        el.classList.add('selected');
+        const stype = el.dataset.sound;
+        localStorage.setItem('sett_soundType', stype);
+        notifSound(stype);
+      };
+    });
+    // volume slider
+    const slVol = $('#sl-notif-vol'), slVolVal = $('#sl-notif-vol-val');
+    if (slVol) {
+      slVol.oninput = () => {
+        if (slVolVal) slVolVal.textContent = slVol.value + '%';
+        localStorage.setItem('sett_notifVol', slVol.value);
+      };
+    }
+  }
+  // ── voice page wiring ─────────────────────────────────────────────
+  if (page === 'voice') {
+    // populate device dropdowns
+    (async () => {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics  = devices.filter(d => d.kind === 'audioinput');
+        const cams  = devices.filter(d => d.kind === 'videoinput');
+        const savedMic = localStorage.getItem('sett_micId') || '';
+        const savedCam = localStorage.getItem('sett_camId') || '';
+        const selMic = $('#sel-mic'), selCam = $('#sel-cam');
+        if (selMic) {
+          selMic.innerHTML = mics.map(d => `<option value="${d.deviceId}" ${d.deviceId===savedMic?'selected':''}>${d.label||'Микрофон '+d.deviceId.slice(0,6)}</option>`).join('') || '<option>Устройства не найдены</option>';
+          selMic.onchange = () => localStorage.setItem('sett_micId', selMic.value);
+        }
+        if (selCam) {
+          selCam.innerHTML = cams.map(d => `<option value="${d.deviceId}" ${d.deviceId===savedCam?'selected':''}>${d.label||'Камера '+d.deviceId.slice(0,6)}</option>`).join('') || '<option>Устройства не найдены</option>';
+          selCam.onchange = () => localStorage.setItem('sett_camId', selCam.value);
+        }
+      } catch {}
+    })();
+    // mic test
+    let _micTestStream = null, _micTestAnim = null;
+    const btnMicTest = $('#btn-mic-test'), micBar = $('#mic-level-bar'), micFill = $('#mic-level-fill');
+    if (btnMicTest) {
+      btnMicTest.onclick = async () => {
+        if (_micTestStream) {
+          _micTestStream.getTracks().forEach(t => t.stop());
+          _micTestStream = null;
+          cancelAnimationFrame(_micTestAnim);
+          if (micBar) micBar.style.display = 'none';
+          btnMicTest.textContent = '▶ Тест';
+          return;
+        }
+        try {
+          _micTestStream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: localStorage.getItem('sett_micId') || undefined } });
+          const actx = new (window.AudioContext || window.webkitAudioContext)();
+          const src  = actx.createMediaStreamSource(_micTestStream);
+          const analyser = actx.createAnalyser();
+          analyser.fftSize = 256;
+          src.connect(analyser);
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          if (micBar) micBar.style.display = '';
+          btnMicTest.textContent = '⏹ Стоп';
+          (function frame() {
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            data.forEach(v => { const d = v - 128; sum += d * d; });
+            const rms = Math.sqrt(sum / data.length);
+            if (micFill) micFill.style.width = Math.min(100, rms * 4) + '%';
+            _micTestAnim = requestAnimationFrame(frame);
+          })();
+        } catch { toast('Нет доступа к микрофону', 'var(--red)'); }
+      };
+    }
+    // camera preview
+    let _camStream = null;
+    const btnCam = $('#btn-cam-preview'), camVid = $('#cam-preview-vid');
+    if (btnCam) {
+      btnCam.onclick = async () => {
+        if (_camStream) {
+          _camStream.getTracks().forEach(t => t.stop());
+          _camStream = null;
+          if (camVid) { camVid.srcObject = null; camVid.style.display = 'none'; }
+          btnCam.textContent = '▶ Превью';
+          return;
+        }
+        try {
+          _camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: localStorage.getItem('sett_camId') || undefined } });
+          if (camVid) { camVid.srcObject = _camStream; camVid.style.display = ''; }
+          btnCam.textContent = '⏹ Стоп';
+        } catch { toast('Нет доступа к камере', 'var(--red)'); }
+      };
+    }
+    // VAD/PTT mode
+    const btnVad = $('#btn-mode-vad'), btnPtt = $('#btn-mode-ptt');
+    const vadSens = $('#vad-sensitivity'), pttRow = $('#ptt-row');
+    function setVoiceMode(useVad) {
+      localStorage.setItem('sett_vad', useVad ? 'on' : 'off');
+      if (btnVad) { btnVad.classList.toggle('selected-mode', useVad); }
+      if (btnPtt) { btnPtt.classList.toggle('selected-mode', !useVad); }
+      if (vadSens) vadSens.style.display = useVad ? '' : 'none';
+      if (pttRow)  pttRow.style.display  = useVad ? 'none' : '';
+    }
+    if (btnVad) btnVad.onclick = () => setVoiceMode(true);
+    if (btnPtt) btnPtt.onclick = () => setVoiceMode(false);
+    // VAD threshold slider
+    const slThr = $('#sl-vad-thr'), slThrVal = $('#sl-vad-thr-val');
+    if (slThr) {
+      slThr.oninput = () => {
+        if (slThrVal) slThrVal.textContent = slThr.value;
+        localStorage.setItem('sett_vadThr', slThr.value);
+      };
+    }
+    // PTT rebind
+    const btnPttRebind = $('#btn-ptt-rebind'), kbListen = $('#kb-listening');
+    if (btnPttRebind && kbListen) {
+      btnPttRebind.onclick = () => {
+        kbListen.style.display = '';
+        const handler = e => {
+          e.preventDefault();
+          const key = e.key;
+          localStorage.setItem('sett_pttKey', key);
+          const disp = $('#ptt-key-display');
+          if (disp) { const kbd = disp.querySelector('kbd'); if (kbd) kbd.textContent = key; }
+          kbListen.style.display = 'none';
+          document.removeEventListener('keydown', handler, true);
+        };
+        document.addEventListener('keydown', handler, true);
+      };
+    }
+  }
+  // ── keybinds page wiring ──────────────────────────────────────────
+  if (page === 'keybinds') {
+    let _listeningId = null;
+    const kbListenBox = $('#kb-listening');
+    content.querySelectorAll('.btn-kb-edit').forEach(btn => {
+      btn.onclick = () => {
+        _listeningId = btn.dataset.id;
+        if (kbListenBox) kbListenBox.style.display = '';
+        const handler = e => {
+          if (e.key === 'Escape') { if (kbListenBox) kbListenBox.style.display = 'none'; document.removeEventListener('keydown', handler, true); return; }
+          e.preventDefault();
+          const parts = [];
+          if (e.ctrlKey) parts.push('ctrl');
+          if (e.shiftKey) parts.push('shift');
+          if (e.altKey) parts.push('alt');
+          if (e.metaKey) parts.push('meta');
+          const k = e.key.toLowerCase();
+          if (!['control','shift','alt','meta'].includes(k)) parts.push(k);
+          const kb = loadKeybinds();
+          kb[_listeningId] = { ...kb[_listeningId], keys: parts };
+          saveKeybinds(kb);
+          const disp = $(`#kb-display-${_listeningId}`);
+          if (disp) disp.innerHTML = keysDisplay(parts);
+          if (kbListenBox) kbListenBox.style.display = 'none';
+          document.removeEventListener('keydown', handler, true);
+        };
+        document.addEventListener('keydown', handler, true);
+      };
+    });
+    content.querySelectorAll('.btn-kb-reset').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.id;
+        const def = DEFAULT_KEYBINDS[id];
+        if (!def) return;
+        const kb = loadKeybinds();
+        kb[id] = { ...def };
+        saveKeybinds(kb);
+        const disp = $(`#kb-display-${id}`);
+        if (disp) disp.innerHTML = keysDisplay(def.keys);
+      };
+    });
+  }
+  // ── privacy page wiring ───────────────────────────────────────────
+  if (page === 'privacy') {
+    const blockedList = $('#blocked-list');
+    if (blockedList && username) {
+      fetch(`/api/users/${encodeURIComponent(username)}/blocks`)
+        .then(r => r.ok ? r.json() : [])
+        .then(list => {
+          if (!list.length) { blockedList.innerHTML = '<div class="sett-desc">Нет заблокированных пользователей</div>'; return; }
+          blockedList.innerHTML = list.map(u => `
+            <div class="blocked-user-row">
+              <div class="blocked-avatar" style="background:${u.avatar_color||'#5865f2'};">${(u.username||'?')[0].toUpperCase()}</div>
+              <span class="sett-label" style="flex:1;">${u.username}</span>
+              <button class="btn-ghost btn-unblock" data-user="${u.username}" style="padding:4px 12px;font-size:12px;">Разблокировать</button>
+            </div>`).join('');
+          blockedList.querySelectorAll('.btn-unblock').forEach(btn => {
+            btn.onclick = async () => {
+              const target = btn.dataset.user;
+              const r = await fetch(`/api/users/${encodeURIComponent(username)}/block/${encodeURIComponent(target)}`, { method: 'DELETE' });
+              if (r.ok) { btn.closest('.blocked-user-row').remove(); toast(`${target} разблокирован`, 'var(--green)'); }
+            };
+          });
+        })
+        .catch(() => { blockedList.innerHTML = '<div class="sett-desc">Ошибка загрузки</div>'; });
+    }
   }
 }
 

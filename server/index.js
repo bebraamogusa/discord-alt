@@ -50,12 +50,20 @@ db.exec(`
     username     TEXT PRIMARY KEY,
     tag          TEXT NOT NULL DEFAULT '0000',
     avatar_color TEXT NOT NULL DEFAULT '#5865f2',
+    avatar_url   TEXT NOT NULL DEFAULT '',
     banner_color TEXT NOT NULL DEFAULT '#5865f2',
     about_me     TEXT NOT NULL DEFAULT '',
     custom_status TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
   );
+  CREATE TABLE IF NOT EXISTS blocks (
+    blocker  TEXT NOT NULL,
+    blocked  TEXT NOT NULL,
+    PRIMARY KEY (blocker, blocked)
+  );
 `);
+// Migrate: add avatar_url column if it doesn't exist (for existing DBs)
+try { db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''"); } catch {}
 
 const stmtInsert    = db.prepare('INSERT INTO messages (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
 const stmtSelect    = db.prepare('SELECT * FROM messages WHERE room = ? ORDER BY created_at DESC LIMIT ?');
@@ -80,8 +88,11 @@ const stmtUpsertUser   = db.prepare(`
 `);
 const stmtGetUser      = db.prepare('SELECT * FROM users WHERE username = ?');
 const stmtUpdateUser   = db.prepare(`
-  UPDATE users SET avatar_color=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
+  UPDATE users SET avatar_color=?, avatar_url=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
 `);
+const stmtBlock         = db.prepare('INSERT OR IGNORE INTO blocks (blocker, blocked) VALUES (?,?)');
+const stmtUnblock       = db.prepare('DELETE FROM blocks WHERE blocker=? AND blocked=?');
+const stmtBlockedList   = db.prepare('SELECT blocked FROM blocks WHERE blocker=?');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -248,12 +259,31 @@ app.patch('/api/users/:username', async (req, reply) => {
   const existing = stmtGetUser.get(uname);
   if (!existing) return reply.code(404).send({ error: 'User not found' });
   const body = req.body || {};
-  const avatar_color  = typeof body.avatar_color  === 'string' ? body.avatar_color  : existing.avatar_color;
-  const banner_color  = typeof body.banner_color  === 'string' ? body.banner_color  : existing.banner_color;
-  const about_me      = typeof body.about_me      === 'string' ? body.about_me.slice(0, 190) : existing.about_me;
+  const avatar_color  = typeof body.avatar_color  === 'string' ? body.avatar_color.slice(0, 32)   : existing.avatar_color;
+  const avatar_url    = typeof body.avatar_url    === 'string' ? body.avatar_url.slice(0, 2048)   : existing.avatar_url;
+  const banner_color  = typeof body.banner_color  === 'string' ? body.banner_color.slice(0, 32)   : existing.banner_color;
+  const about_me      = typeof body.about_me      === 'string' ? body.about_me.slice(0, 190)      : existing.about_me;
   const custom_status = typeof body.custom_status === 'string' ? body.custom_status.slice(0, 128) : existing.custom_status;
-  stmtUpdateUser.run(avatar_color, banner_color, about_me, custom_status, uname);
+  stmtUpdateUser.run(avatar_color, avatar_url, banner_color, about_me, custom_status, uname);
   return stmtGetUser.get(uname);
+});
+
+// ── Blocks endpoints ─────────────────────────────────────────────────────────
+app.post('/api/users/:username/block', (req, reply) => {
+  const { username: blocker } = req.params;
+  const { target } = req.body || {};
+  if (!target || target === blocker) return reply.code(400).send({ error: 'Invalid target' });
+  stmtBlock.run(blocker, target);
+  return { ok: true };
+});
+
+app.delete('/api/users/:username/block/:target', (req, reply) => {
+  stmtUnblock.run(req.params.username, req.params.target);
+  return { ok: true };
+});
+
+app.get('/api/users/:username/blocks', (req) => {
+  return stmtBlockedList.all(req.params.username).map(r => r.blocked);
 });
 
 // ── Admin auth helper ─────────────────────────────────────────────────────────
