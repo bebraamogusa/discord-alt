@@ -264,7 +264,7 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     if (!rooms.has(roomId)) rooms.set(roomId, new Map());
-    rooms.get(roomId).set(socket.id, { socketId: socket.id, username, inCall: false });
+    rooms.get(roomId).set(socket.id, { socketId: socket.id, username, inCall: false, status: 'online', lastSeen: Date.now() });
 
     socket.to(roomId).emit('user-joined', { socketId: socket.id, username });
     io.to(roomId).emit('room-users', getRoomUsers(roomId));
@@ -314,6 +314,20 @@ io.on('connection', (socket) => {
     if (!roomId || !username || !msgId || !emoji) return;
     stmtReactRemove.run(msgId, username, emoji);
     broadcastReactions(msgId);
+  });
+
+  // ── Heartbeat (status: online / away) ────────────────
+  socket.on('heartbeat', () => {
+    if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (room && room.has(socket.id)) {
+      const u = room.get(socket.id);
+      u.lastSeen = Date.now();
+      if (u.status === 'away') {
+        u.status = 'online';
+        io.to(roomId).emit('room-users', getRoomUsers(roomId));
+      }
+    }
   });
 
   // ── Edit own message ─────────────────────────────────
@@ -380,6 +394,21 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', leaveRoom);
 });
+
+// ── Away-status checker (runs every 15 s) ───────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  rooms.forEach((room, rId) => {
+    let changed = false;
+    room.forEach(u => {
+      if (u.inCall) return;
+      const age = now - (u.lastSeen || now);
+      const next = age > 35000 ? 'away' : 'online';
+      if (u.status !== next) { u.status = next; changed = true; }
+    });
+    if (changed) io.to(rId).emit('room-users', Array.from(room.values()));
+  });
+}, 15000);
 
 // ── Start ───────────────────────────────────────────────────────────────────
 app.listen({ port: PORT, host: '0.0.0.0' }, (err) => {

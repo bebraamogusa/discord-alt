@@ -343,8 +343,19 @@ svg{flex-shrink:0;pointer-events:none}
   position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;
   border-radius:50%;border:2px solid var(--bg-2);background:var(--green);
 }
+.status-dot.away   {background:#faa61a}
+.status-dot.offline{background:#72767d}
 .status-dot.in-call{background:var(--accent)}
 .user-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Unread badge on room list items ─────────────────────────── */
+.unread-badge{
+  min-width:18px;height:18px;padding:0 5px;
+  background:var(--red);color:#fff;
+  border-radius:9px;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+  margin-left:auto;flex-shrink:0;line-height:1;
+}
 .btn-kick{
   margin-left:auto;font-size:11px;padding:2px 7px;border-radius:4px;
   background:var(--red);color:#fff;display:none;flex-shrink:0;
@@ -661,7 +672,12 @@ let currentUsers = [];
 let mentionIdx   = -1;
 
 // Emoji picker
-let emojiPickerTarget = null; // null = input-mode, string = msg-id react-mode
+let emojiPickerTarget = null;
+
+// Notifications / unread
+const unreadCounts   = {}; // roomId → number
+let _heartbeatTimer  = null;
+let _tabTitle        = document.title;
 
 const EMOJI_DATA = {
   '😀 Smileys': ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','😉','😌','😍','🥰','🤩','😘','😗','😙','😚','🤗','🤔','🤭','🤫','😶','😐','😑','😬','🙄','😯','😧','😦','😮','😲','😵','🥴','😴','🤤','😪','😷','🤧','🥵','🥶','😱','😈','💀','👻','🤡'],
@@ -816,7 +832,9 @@ function renderRoomList() {
     const li = document.createElement('li');
     li.className = 'room-item' + (id === roomId ? ' active' : '');
     li.dataset.room = id;
-    li.innerHTML = `${ic('hash', 18)}<span class="room-id">${esc(id)}</span>`;
+    const unread = unreadCounts[id] || 0;
+    const badge  = unread > 0 ? `<span class="unread-badge">${unread > 99 ? '99+' : unread}</span>` : '';
+    li.innerHTML = `${ic('hash', 18)}<span class="room-id">${esc(id)}</span>${badge}`;
     li.title = id;
     li.onclick = () => { if (id !== roomId) switchRoom(id); };
     ul.appendChild(li);
@@ -862,6 +880,16 @@ function initIcons() {
    ================================================================ */
 (function init() {
   initIcons();
+
+  // Tab-visibility: clear unread when user switches back
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && roomId) {
+      unreadCounts[roomId] = 0;
+      renderRoomList();
+      _updateDocTitle();
+    }
+  });
+
   const path   = location.pathname;
   const stored = sessionStorage.getItem('username');
 
@@ -937,6 +965,10 @@ function enterRoom() {
   setupMentionAutocomplete();
   setupEmojiPicker();
   setupDragDrop();
+  // Request desktop notification permission
+  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
   setupCallControls();
   setupAdminPanel();
   updateAdminUI();
@@ -962,13 +994,27 @@ function connectSocket() {
   socket.on('connect', () => {
     socket.emit('join-room', { roomId, username });
     loadHistory();
+    if (_heartbeatTimer) clearInterval(_heartbeatTimer);
+    _heartbeatTimer = setInterval(() => socket?.emit('heartbeat'), 30000);
   });
   socket.on('room-users', updateUserList);
   socket.on('reaction-update', ({ msgId, reactions }) => renderReactions(msgId, reactions));
   socket.on('message-edited', ({ id, content }) => {
     if (id !== editingMsgId) applyEdit(id, content);
   });
-  socket.on('chat-message', msg => renderMessage(msg, true));
+  socket.on('chat-message', msg => {
+    renderMessage(msg, true);
+    if (msg.username !== 'system' && msg.username !== username) {
+      if (document.hidden) {
+        unreadCounts[roomId] = (unreadCounts[roomId] || 0) + 1;
+        renderRoomList();
+        _updateDocTitle();
+        _playNotifSound();
+      }
+      _showDesktopNotif(msg.username,
+        msg.type === 'text' ? msg.content : `[${msg.type}]`);
+    }
+  });
   socket.on('message-deleted', ({ id }) => document.getElementById('msg-' + id)?.remove());
   socket.on('room-cleared', () => {
     $('#messages').innerHTML = '';
@@ -998,7 +1044,10 @@ function connectSocket() {
   socket.on('webrtc-ice-candidate', ({ from, candidate }) => {
     const p = peers.get(from); if (p) p.pc.addIceCandidate(candidate).catch(()=>{});
   });
-  socket.on('disconnect', () => toast('Connection lost, reconnecting...'));
+  socket.on('disconnect', () => {
+    if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+    toast('Connection lost, reconnecting...');
+  });
   socket.io.on('reconnect', () => {
     socket.emit('join-room', { roomId, username });
     toast('Reconnected');
@@ -1271,7 +1320,7 @@ function updateUserList(users) {
   users.forEach(u => {
     const li   = document.createElement('li');
     li.className = 'user-item';
-    const dotCls = u.inCall ? 'status-dot in-call' : 'status-dot';
+    const dotCls = u.inCall ? 'status-dot in-call' : `status-dot ${u.status || 'online'}`;
     const color  = avatarColor(u.username);
     const initial = u.username.charAt(0).toUpperCase();
     const kickBtn = adminToken && u.username !== username
@@ -1770,8 +1819,45 @@ function renderReactions(msgId, reactions) {
 }
 
 /* ================================================================
-   Inline message editing
+   Notifications, unread, sound
    ================================================================ */
+function _updateDocTitle() {
+  const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  document.title = total > 0 ? `(${total}) ${_tabTitle}` : _tabTitle;
+}
+
+function _playNotifSound() {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (_) {}
+}
+
+function _showDesktopNotif(user, text) {
+  const body = text.slice(0, 120);
+  // Tauri v2 notification plugin
+  if (window.__TAURI_INTERNALS__) {
+    window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', {
+      title: user, body
+    }).catch(() => {});
+    return;
+  }
+  // Web Notifications API
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try { new Notification(user, { body, icon: '/favicon.ico' }); } catch (_) {}
+  }
+}
+
+
 function startEdit(msgEl, msgId, content) {
   if (editingMsgId) cancelEdit();
   editingMsgId    = msgId;
