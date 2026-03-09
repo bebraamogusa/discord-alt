@@ -89,16 +89,18 @@ app.get('/room/:roomId', (_req, reply) => reply.sendFile('index.html'));
 const ALLOWED_EXTS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.bmp',
   '.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.ogv', '.3gp', '.ts', '.mts',
-  '.mp3', '.ogg', '.wav', '.flac', '.aac', '.m4a', '.opus', '.wma',
+  '.mp3', '.ogg', '.wav', '.flac', '.aac', '.m4a', '.opus', '.wma', '.weba',
   '.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
   '.zip', '.7z', '.rar', '.tar', '.gz',
 ]);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.bmp']);
 const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.ogv', '.3gp', '.ts', '.mts']);
+const AUDIO_EXTS = new Set(['.mp3', '.ogg', '.wav', '.flac', '.aac', '.m4a', '.opus', '.wma', '.weba']);
 function getMessageType(ext) {
   const e = ext.toLowerCase();
   if (IMAGE_EXTS.has(e)) return 'image';
   if (VIDEO_EXTS.has(e)) return 'video';
+  if (AUDIO_EXTS.has(e)) return 'audio';
   return 'file';
 }
 
