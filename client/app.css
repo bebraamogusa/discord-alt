@@ -70,7 +70,16 @@ body {
   display: flex;
   flex-direction: column;
 }
-/* Prevent accidental text selection on UI chrome, keep inputs typeable */
+/* Force all inputs/textareas to be fully interactive regardless of any inherited rules */
+input, textarea, select {
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text;
+}
+button { cursor: pointer; }
+
+/* Prevent accidental text selection on UI chrome only */
 #server-list, #sidebar-header, #sidebar-channel-list, #sidebar-user,
 #chat-header, #members-panel, .server-icon, .channel-item, .dm-item,
 .member-item, .category-row, .msg-meta, .msg-username, .msg-time,
@@ -99,6 +108,10 @@ body {
   width: 100%; padding: 10px; border: 1px solid var(--border);
   background: var(--input-bg); color: var(--text); border-radius: var(--radius-sm);
   font-size: 16px; outline: none; margin-bottom: 16px;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  position: relative; z-index: 1;
 }
 .auth-card input:focus { border-color: var(--accent); }
 .btn-primary {
