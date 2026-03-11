@@ -594,6 +594,54 @@ button { cursor: pointer; }
 .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
 .form-group textarea { resize: vertical; min-height: 80px; }
 .form-hint { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-accent:hover { background: var(--accent-h); }
+.btn-danger-solid { background: var(--danger); color: #fff; }
+.btn-danger-solid:hover { background: var(--danger-h); }
+
+/* ── Custom Confirm Dialog ───────────────────────────────────── */
+.da-dialog-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+  animation: daFadeIn .12s ease;
+}
+@keyframes daFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.da-dialog-box {
+  background: var(--bg-2); border-radius: 5px;
+  box-shadow: 0 20px 64px rgba(0,0,0,.6);
+  width: 440px; max-width: 92vw;
+  animation: daScaleIn .15s cubic-bezier(.34,1.4,.64,1);
+  overflow: hidden;
+}
+@keyframes daScaleIn {
+  from { transform: scale(.88); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+.da-dialog-head {
+  padding: 20px 24px 0;
+}
+.da-dialog-head h3 {
+  font-size: 20px; font-weight: 700; color: var(--text); margin: 0;
+}
+.da-dialog-body {
+  padding: 12px 24px 20px;
+  font-size: 16px; color: var(--text-2); line-height: 1.5;
+}
+.da-dialog-body p { margin: 0; }
+.da-dialog-input {
+  margin-top: 12px;
+  width: 100%; padding: 10px 12px;
+  background: var(--input-bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-size: 14px; font-family: var(--font); outline: none;
+}
+.da-dialog-input:focus { border-color: var(--accent); }
+.da-dialog-foot {
+  padding: 16px 24px;
+  display: flex; justify-content: flex-end; gap: 8px;
+  background: var(--bg-3);
+}
 
 /* ── Server settings (full screen) ──────────────────────────── */
 .settings-overlay {

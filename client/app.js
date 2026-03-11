@@ -38,6 +38,67 @@ function showToast(msg, type = '') {
   t._to = setTimeout(() => t.classList.remove('visible'), 3000);
 }
 
+// ─── CUSTOM DIALOGS ───────────────────────────────────────────────────────────
+function daConfirm(message, { title = 'Подтвердите действие', danger = false, confirmText, cancelText = 'Отмена' } = {}) {
+  const okText   = confirmText || (danger ? 'Удалить' : 'Подтвердить');
+  const okClass  = danger ? 'btn btn-danger-solid' : 'btn btn-accent';
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'da-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="da-dialog-box" role="dialog" aria-modal="true">
+        <div class="da-dialog-head"><h3>${escHtml(title)}</h3></div>
+        <div class="da-dialog-body"><p>${escHtml(message)}</p></div>
+        <div class="da-dialog-foot">
+          <button class="btn btn-outline" id="dac-cancel">${escHtml(cancelText)}</button>
+          <button class="${okClass}" id="dac-ok">${escHtml(okText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = res => { overlay.remove(); window.removeEventListener('keydown', onKey); resolve(res); };
+    overlay.querySelector('#dac-cancel').onclick = () => cleanup(false);
+    overlay.querySelector('#dac-ok').onclick     = () => cleanup(true);
+    overlay.onclick = e => { if (e.target === overlay) cleanup(false); };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+      if (e.key === 'Enter')  { e.preventDefault(); cleanup(true);  }
+    };
+    window.addEventListener('keydown', onKey);
+    setTimeout(() => overlay.querySelector('#dac-ok').focus(), 40);
+  });
+}
+
+function daPrompt(message, { title = 'Введите значение', placeholder = '', confirmText = 'OK', cancelText = 'Отмена' } = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'da-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="da-dialog-box" role="dialog" aria-modal="true">
+        <div class="da-dialog-head"><h3>${escHtml(title)}</h3></div>
+        <div class="da-dialog-body">
+          <p>${escHtml(message)}</p>
+          <input class="da-dialog-input" id="dap-input" type="text" placeholder="${escHtml(placeholder)}" autocomplete="off">
+        </div>
+        <div class="da-dialog-foot">
+          <button class="btn btn-outline" id="dap-cancel">${escHtml(cancelText)}</button>
+          <button class="btn btn-accent" id="dap-ok">${escHtml(confirmText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#dap-input');
+    const cleanup = res => { overlay.remove(); window.removeEventListener('keydown', onKey); resolve(res); };
+    overlay.querySelector('#dap-cancel').onclick = () => cleanup(null);
+    overlay.querySelector('#dap-ok').onclick     = () => cleanup(input.value);
+    overlay.onclick = e => { if (e.target === overlay) cleanup(null); };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
+      if (e.key === 'Enter')  { e.preventDefault(); cleanup(input.value); }
+    };
+    window.addEventListener('keydown', onKey);
+    setTimeout(() => input.focus(), 40);
+  });
+}
+
 function escHtml(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -182,6 +243,7 @@ function connectGateway() {
 
   socket.on('MESSAGE_CREATE', (msg) => {
     if (!S.messages[msg.channel_id]) S.messages[msg.channel_id] = [];
+    if (S.messages[msg.channel_id].some(m => m.id === msg.id)) return; // dedup
     S.messages[msg.channel_id].push(msg);
     if (msg.channel_id === S.activeChannelId) {
       appendMessage(msg);
@@ -941,7 +1003,7 @@ function startEditMessage(msgId) {
 }
 
 async function confirmDeleteMessage(msgId) {
-  if (!confirm('Удалить сообщение?')) return;
+  if (!await daConfirm('Вы уверены, что хотите удалить это сообщение? Это действие необратимо.', { title: 'Удалить сообщение', danger: true })) return;
   try {
     await API.del(`/api/messages/${msgId}`);
   } catch (e) {
@@ -1107,7 +1169,7 @@ async function renameChannel(ch) {
 }
 
 async function deleteChannel(channelId) {
-  if (!confirm('Удалить этот канал? Все сообщения будут потеряны.')) return;
+  if (!await daConfirm('Все сообщения в этом канале будут безвозвратно удалены.', { title: 'Удалить канал', danger: true })) return;
   try { await API.del(`/api/channels/${channelId}`); }
   catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
 }
@@ -1156,7 +1218,8 @@ async function createInvite(serverId) {
 }
 
 async function leaveServer(serverId) {
-  if (!confirm('Покинуть сервер?')) return;
+  const srv = getServer(serverId);
+  if (!await daConfirm(`Вы покинете сервер «${srv?.name || 'сервер'}». Вернуться можно только по приглашению.`, { title: 'Покинуть сервер', danger: true, confirmText: 'Покинуть' })) return;
   try {
     await API.post(`/api/servers/${serverId}/leave`);
     S.servers = S.servers.filter(s => s.id !== serverId);
@@ -1166,8 +1229,8 @@ async function leaveServer(serverId) {
 }
 
 async function deleteServer(serverId) {
-  if (!prompt('Введите название сервера для подтверждения удаления:') === getServer(serverId)?.name) return;
-  if (!confirm('Удалить сервер? Это действие необратимо.')) return;
+  const srv = getServer(serverId);
+  if (!await daConfirm(`Сервер «${srv?.name || 'сервер'}» и все его каналы и сообщения будут удалены навсегда. Это действие необратимо.`, { title: 'Удалить сервер', danger: true })) return;
   try {
     await API.del(`/api/servers/${serverId}`);
     S.servers = S.servers.filter(s => s.id !== serverId);
@@ -1378,7 +1441,7 @@ async function renderServerSettingsPage(serverId, page) {
     });
     body.querySelectorAll('.delete-role-btn').forEach(btn => {
       btn.onclick = async () => {
-        if (!confirm('Удалить роль?')) return;
+        if (!await daConfirm('Роль будет удалена у всех участников сервера.', { title: 'Удалить роль', danger: true })) return;
         try {
           await API.del(`/api/servers/${serverId}/roles/${btn.dataset.roleId}`);
           renderServerSettingsPage(serverId, 'roles');
@@ -1418,7 +1481,7 @@ async function renderServerSettingsPage(serverId, page) {
     `;
     body.querySelectorAll('.kick-btn').forEach(btn => {
       btn.onclick = async () => {
-        if (!confirm('Кикнуть пользователя?')) return;
+        if (!await daConfirm('Пользователь будет исключён с сервера. Он сможет вернуться по новому приглашению.', { title: 'Кикнуть участника', danger: true, confirmText: 'Кикнуть' })) return;
         try { await API.del(`/api/servers/${serverId}/members/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'members'); }
         catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
       };
@@ -1838,7 +1901,7 @@ function setup() {
     window.addEventListener('da:authenticated', async () => {
       try {
         const inv = await API.get(`/api/invites/${invCode}`);
-        if (confirm(`Вступить на сервер "${inv.server.name}"?`)) {
+        if (await daConfirm(`Вы хотите вступить на сервер «${inv.server.name}»?`, { title: 'Принять приглашение', confirmText: 'Вступить' })) {
           const srv = await API.post(`/api/servers/${inv.server.id}/join`, { invite_code: invCode });
           if (!S.servers.find(s => s.id === srv.id)) S.servers.push(srv);
           renderServerIcons();
