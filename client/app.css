@@ -1183,7 +1183,7 @@ button { cursor: pointer; }
 .channel-item.voice-active .ch-icon { color: var(--success); }
 
 /* ── Message appear animation ─────────────────────────────────────── */
-.msg-group { animation: msgSlideIn .2s ease-out; }
+.msg-group.msg-new { animation: msgSlideIn .2s ease-out; }
 @keyframes msgSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Server icon transition improvement ───────────────────────────── */

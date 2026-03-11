@@ -287,7 +287,16 @@ function connectGateway() {
       const idx = S.messages[msg.channel_id].findIndex(m => m.id === msg.id);
       if (idx !== -1) S.messages[msg.channel_id][idx] = msg;
     }
-    if (msg.channel_id === S.activeChannelId) renderMessages();
+    if (msg.channel_id === S.activeChannelId) {
+      // Patch just the changed message element instead of full re-render
+      const el = document.querySelector(`[data-msg-id="${msg.id}"] .msg-content`);
+      if (el) {
+        const editedMark = msg.is_edited ? `<span class="msg-edited">${t('edited_short')}</span>` : '';
+        el.innerHTML = parseMarkdown(msg.content || '') + editedMark;
+      } else {
+        renderMessages();
+      }
+    }
   });
 
   socket.on('MESSAGE_DELETE', ({ message_id, channel_id }) => {
@@ -300,11 +309,11 @@ function connectGateway() {
     }
   });
 
-  socket.on('REACTION_ADD', ({ message_id, channel_id, reactions }) => {
-    updateReactions(message_id, channel_id, reactions);
+  socket.on('REACTION_ADD', ({ message_id, channel_id, user_id, reactions }) => {
+    updateReactions(message_id, channel_id, reactions, user_id);
   });
-  socket.on('REACTION_REMOVE', ({ message_id, channel_id, reactions }) => {
-    updateReactions(message_id, channel_id, reactions);
+  socket.on('REACTION_REMOVE', ({ message_id, channel_id, user_id, reactions }) => {
+    updateReactions(message_id, channel_id, reactions, user_id);
   });
 
   socket.on('TYPING_START', ({ channel_id, user_id, username }) => {
@@ -948,7 +957,10 @@ async function loadMessages(channelId, before = null) {
       renderMessages();
       scrollToBottom();
     } else {
-      S.messages[channelId] = [...msgs, ...(S.messages[channelId] || [])];
+      // Dedup: merge new batch with existing, avoiding duplicates
+      const existing = new Set((S.messages[channelId] || []).map(m => m.id));
+      const unique = msgs.filter(m => !existing.has(m.id));
+      S.messages[channelId] = [...unique, ...(S.messages[channelId] || [])];
       renderMessages();
     }
     $('messages-load-more').classList.toggle('hidden', msgs.length < 50);
@@ -960,7 +972,11 @@ async function loadMessages(channelId, before = null) {
 function renderMessages() {
   const container = $('messages-container');
   container.innerHTML = '';
-  const msgs = S.messages[S.activeChannelId] || [];
+  // Dedup safety net: remove any duplicate IDs
+  const raw = S.messages[S.activeChannelId] || [];
+  const seen = new Set();
+  const msgs = raw.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+  S.messages[S.activeChannelId] = msgs;
   let lastAuthor = null, lastTs = 0;
   for (const msg of msgs) {
     const ts = typeof msg.created_at === 'number' && msg.created_at < 1e12
@@ -975,6 +991,8 @@ function renderMessages() {
 
 function appendMessage(msg) {
   const container = $('messages-container');
+  // Dedup: if already rendered, skip
+  if (container.querySelector(`[data-msg-id="${msg.id}"]`)) return;
   const msgs = S.messages[S.activeChannelId] || [];
   const prev = msgs[msgs.length - 2];
   const ts = typeof msg.created_at === 'number' && msg.created_at < 1e12
@@ -982,11 +1000,11 @@ function appendMessage(msg) {
   const prevTs = prev ? (typeof prev.created_at === 'number' && prev.created_at < 1e12
     ? prev.created_at * 1000 : prev.created_at) : 0;
   const isFirst = !prev || prev.author_id !== msg.author_id || (ts - prevTs) > 5 * 60 * 1000;
-  container.insertAdjacentHTML('beforeend', msgHtml(msg, isFirst));
+  container.insertAdjacentHTML('beforeend', msgHtml(msg, isFirst, true));
   attachMsgHandlers(container);
 }
 
-function msgHtml(msg, isFirst) {
+function msgHtml(msg, isFirst, isNew = false) {
   if (msg.type === 'system' || msg.type === 'server_join') {
     return `<div class="msg-system" data-msg-id="${msg.id}">👋 ${escHtml(msg.content)}</div>`;
   }
@@ -1060,7 +1078,7 @@ function msgHtml(msg, isFirst) {
   const closeHeader = isFirst ? `</div></div>` : `</div>`;
 
   return `
-    <div class="msg-group ${isFirst ? 'first-in-group' : 'continued'}" data-msg-id="${msg.id}">
+    <div class="msg-group ${isFirst ? 'first-in-group' : 'continued'}${isNew ? ' msg-new' : ''}" data-msg-id="${msg.id}">
       ${actionsHtml}
       ${replyHtml}
       ${headerHtml}
@@ -1114,11 +1132,27 @@ function attachMsgHandlers(container) {
   });
 }
 
-function updateReactions(msgId, channelId, reactions) {
+function updateReactions(msgId, channelId, reactions, actorId) {
+  // Server sends `me` from the actor's perspective; fix it for the current user
+  const msgs = S.messages[channelId];
+  const oldMsg = msgs?.find(m => m.id === msgId);
+  const oldReactions = oldMsg?.reactions || [];
+
+  // If this event is from someone else, preserve our own `me` state
+  if (actorId && actorId !== S.me?.id) {
+    const oldMe = {};
+    for (const r of oldReactions) oldMe[r.emoji] = !!r.me;
+    reactions = reactions.map(r => ({ ...r, me: oldMe[r.emoji] ?? false }));
+  }
+
+  // Update data model so re-renders show correct reactions
+  if (oldMsg) oldMsg.reactions = reactions;
+
   if (channelId !== S.activeChannelId) return;
   const group = document.querySelector(`[data-msg-id="${msgId}"].msg-group`);
   if (!group) return;
   let reactDiv = group.querySelector('.msg-reactions');
+  if (!reactions.length) { reactDiv?.remove(); return; }
   if (!reactDiv) {
     group.querySelector('.msg-body, .msg-content')?.insertAdjacentHTML('afterend', '<div class="msg-reactions"></div>');
     reactDiv = group.querySelector('.msg-reactions');
@@ -1135,10 +1169,19 @@ function updateReactions(msgId, channelId, reactions) {
 }
 
 async function toggleReaction(msgId, emoji) {
+  // Check if user already reacted with this emoji
+  const msgs = S.messages[S.activeChannelId] || [];
+  const msg = msgs.find(m => m.id === msgId);
+  const existing = msg?.reactions?.find(r => r.emoji === emoji);
+  const hasMyReaction = existing?.me;
   try {
-    await API.post(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
-  } catch {
-    await API.del(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
+    if (hasMyReaction) {
+      await API.del(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
+    } else {
+      await API.post(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
+    }
+  } catch (e) {
+    // Ignore — server socket event will correct the UI
   }
 }
 
