@@ -748,22 +748,14 @@ button { cursor: pointer; }
 .profile-card .pc-actions { display: flex; gap: 8px; margin-top: 12px; }
 .profile-card .pc-actions .btn { flex: 1; }
 
-/* Context menu */
+/* Context menu — base (details overridden below) */
 .ctx-menu {
   position: fixed; z-index: 400;
   background: var(--bg-3); border-radius: var(--radius-sm);
-  box-shadow: var(--shadow); min-width: 180px;
+  box-shadow: var(--shadow);
   border: 1px solid var(--border);
-  padding: 4px 0;
 }
-.ctx-item {
-  padding: 8px 12px; font-size: 14px; cursor: pointer; color: var(--text-2);
-  display: flex; align-items: center; gap: 8px;
-}
-.ctx-item:hover { background: var(--accent); color: #fff; }
-.ctx-item.danger { color: var(--danger); }
-.ctx-item.danger:hover { background: var(--danger); color: #fff; }
-.ctx-divider { height: 1px; background: var(--border); margin: 4px 0; }
+/* old ctx-item overridden by new rules at bottom of file */
 
 /* ── Emoji picker (simple) ────────────────────────────────────── */
 .emoji-picker {
@@ -999,3 +991,82 @@ button { cursor: pointer; }
 .lang-flag { font-size: 22px; }
 .lang-name { font-size: 15px; font-weight: 500; flex: 1; }
 .lang-check { color: var(--accent); font-size: 18px; font-weight: 700; }
+
+/* ── Context menu improvements ────────────────────────────────────── */
+.ctx-item { padding: 6px 10px; font-size: 13.5px; cursor: pointer; color: var(--text-2); display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 6px; border-radius: 3px; margin: 1px 4px; }
+.ctx-item:hover { background: var(--accent); color: #fff; }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover { background: var(--danger); color: #fff; }
+.ctx-item.disabled { opacity: .4; cursor: default; pointer-events: none; }
+.ctx-icon { font-size: 15px; display: flex; align-items: center; justify-content: center; }
+.ctx-label { white-space: nowrap; }
+.ctx-hint { font-size: 11px; opacity: .65; }
+.ctx-header { padding: 8px 14px 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); }
+.ctx-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.ctx-menu { padding: 6px 0; min-width: 200px; }
+
+/* ── Voice connected bar ──────────────────────────────────────────── */
+#voice-connected-bar {
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-2));
+  border-top: 1px solid color-mix(in srgb, var(--success) 20%, var(--border));
+  padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+}
+.vcb-info { flex: 1; min-width: 0; }
+.vcb-status { display: flex; align-items: center; gap: 6px; }
+.vcb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+.vcb-name { font-size: 12.5px; font-weight: 600; color: var(--success); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vcb-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.vcb-actions { display: flex; gap: 4px; }
+.vcb-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-2); padding: 5px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; transition: background .12s, color .12s;
+}
+.vcb-btn:hover { background: var(--bg-hover); color: var(--text); }
+.vcb-btn.active { color: var(--danger); }
+.vcb-btn.danger { color: var(--danger); }
+.vcb-btn.danger:hover { background: var(--danger); color: #fff; }
+
+/* ── Voice panel ──────────────────────────────────────────────────── */
+.voice-panel {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 32px; gap: 24px;
+}
+.vp-header { text-align: center; }
+.vp-icon { font-size: 48px; margin-bottom: 8px; }
+.vp-header h2 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+.vp-sub { color: var(--text-3); font-size: 14px; }
+.vp-participants { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; max-width: 640px; }
+.vp-participant { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.vp-av {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 700; color: #fff;
+  position: relative; border: 3px solid transparent;
+}
+.vp-av.speaking { border-color: var(--success); }
+.vp-muted-badge { position: absolute; bottom: -4px; right: -4px; background: var(--danger); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.vp-name { font-size: 12px; color: var(--text-2); max-width: 72px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-you { font-size: 11px; color: var(--text-3); }
+.vp-join-btn { margin-top: 8px; font-size: 15px; padding: 12px 28px; }
+.vp-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* ── Channel list: voice participants ─────────────────────────────── */
+.ch-voice-count {
+  margin-left: auto; font-size: 11px; background: var(--bg-1);
+  color: var(--text-3); padding: 1px 6px; border-radius: 8px;
+}
+.ch-voice-users { padding: 2px 8px 4px 28px; }
+.ch-voice-user {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-3); padding: 2px 0;
+}
+.ch-voice-user.muted { color: var(--danger); }
+.ch-voice-av {
+  width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #fff; font-weight: 700; flex-shrink: 0;
+}
+.ch-voice-muted { font-size: 10px; }
+.channel-item.voice-active { background: color-mix(in srgb, var(--success) 10%, transparent); }
+.channel-item.voice-active .ch-icon { color: var(--success); }

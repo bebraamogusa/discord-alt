@@ -31,6 +31,29 @@ import jwt from 'jsonwebtoken';
 // In-memory presence: userId → { status, custom_status, socket_count }
 const presence = new Map();
 
+// In-memory voice states: channelId → Map<userId, participant>
+const voiceStates = new Map();
+
+function getVoiceList(channelId) {
+  if (!voiceStates.has(channelId)) return [];
+  return [...voiceStates.get(channelId).values()];
+}
+
+// Build { server_id → [ voiceState, ... ] } for all servers
+function buildVoiceStatesPayload(db, userId) {
+  const out = {};
+  const serverRows = db.prepare('SELECT server_id FROM server_members WHERE user_id = ?').all(userId);
+  for (const { server_id } of serverRows) {
+    const chans = db.prepare("SELECT id FROM channels WHERE server_id = ? AND type = 'voice'").all(server_id);
+    for (const { id } of chans) {
+      if (voiceStates.has(id) && voiceStates.get(id).size > 0) {
+        out[id] = getVoiceList(id);
+      }
+    }
+  }
+  return out;
+}
+
 function getSecret() {
   return process.env.JWT_SECRET;
 }
@@ -147,7 +170,7 @@ export function setupGateway(io, db) {
 
       // Send READY
       const user = db.prepare('SELECT id, username, discriminator, avatar_url, avatar_color, banner_url, banner_color, about_me, custom_status, last_seen FROM users WHERE id = ?').get(userId);
-      socket.emit('READY', { user, ...buildReadyPayload(db, userId) });
+      socket.emit('READY', { user, ...buildReadyPayload(db, userId), voice_states: buildVoiceStatesPayload(db, userId) });
 
       // Broadcast online presence to members of same servers
       broadcastPresence(userId, 'online');
@@ -201,9 +224,99 @@ export function setupGateway(io, db) {
       `).run(userId, channel_id, message_id);
     });
 
+    // ── VOICE ─────────────────────────────────────────────────────────────────
+    let voiceChannelId = null;
+
+    function leaveVoice() {
+      if (!voiceChannelId) return;
+      const chMap = voiceStates.get(voiceChannelId);
+      if (chMap) {
+        chMap.delete(userId);
+        if (chMap.size === 0) voiceStates.delete(voiceChannelId);
+      }
+      const prev = voiceChannelId;
+      socket.leave(`voice:${prev}`);
+      voiceChannelId = null;
+      gw.to(`channel:${prev}`).emit('VOICE_STATE_UPDATE', {
+        channel_id: prev,
+        user_id: userId,
+        action: 'leave',
+        voice_states: getVoiceList(prev),
+      });
+    }
+
+    socket.on('VOICE_JOIN', ({ channel_id } = {}) => {
+      if (!userId || !channel_id) return;
+      const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(channel_id);
+      if (!channel || channel.type !== 'voice') return;
+      const member = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, userId);
+      if (!member) return;
+
+      if (voiceChannelId === channel_id) return; // already in
+      if (voiceChannelId) leaveVoice();
+
+      voiceChannelId = channel_id;
+      if (!voiceStates.has(channel_id)) voiceStates.set(channel_id, new Map());
+      const user = db.prepare('SELECT username, avatar_url, avatar_color FROM users WHERE id = ?').get(userId);
+      const participant = {
+        user_id: userId,
+        username: user.username,
+        avatar_url: user.avatar_url,
+        avatar_color: user.avatar_color,
+        socket_id: socket.id,
+        muted: false,
+        deafened: false,
+      };
+      voiceStates.get(channel_id).set(userId, participant);
+      socket.join(`voice:${channel_id}`);
+
+      // Tell everyone about the new participant
+      gw.to(`channel:${channel_id}`).emit('VOICE_STATE_UPDATE', {
+        channel_id,
+        user_id: userId,
+        action: 'join',
+        voice_states: getVoiceList(channel_id),
+      });
+
+      // Tell joining user about existing peers → they will initiate offers
+      const existing = getVoiceList(channel_id).filter(p => p.user_id !== userId);
+      socket.emit('VOICE_READY', { channel_id, peers: existing });
+    });
+
+    socket.on('VOICE_LEAVE', () => { if (userId) leaveVoice(); });
+
+    socket.on('VOICE_MUTE', ({ muted } = {}) => {
+      if (!userId || !voiceChannelId) return;
+      const chMap = voiceStates.get(voiceChannelId);
+      if (chMap && chMap.has(userId)) {
+        chMap.get(userId).muted = !!muted;
+        gw.to(`channel:${voiceChannelId}`).emit('VOICE_STATE_UPDATE', {
+          channel_id: voiceChannelId,
+          user_id: userId,
+          action: 'mute',
+          voice_states: getVoiceList(voiceChannelId),
+        });
+      }
+    });
+
+    // WebRTC signaling (routed through /gateway so no extra socket needed)
+    socket.on('WEBRTC_OFFER', ({ to_user_id, offer } = {}) => {
+      if (!userId || !to_user_id || !offer) return;
+      gw.to(`user:${to_user_id}`).emit('WEBRTC_OFFER', { from_user_id: userId, offer });
+    });
+    socket.on('WEBRTC_ANSWER', ({ to_user_id, answer } = {}) => {
+      if (!userId || !to_user_id || !answer) return;
+      gw.to(`user:${to_user_id}`).emit('WEBRTC_ANSWER', { from_user_id: userId, answer });
+    });
+    socket.on('WEBRTC_ICE', ({ to_user_id, candidate } = {}) => {
+      if (!userId || !to_user_id) return;
+      gw.to(`user:${to_user_id}`).emit('WEBRTC_ICE', { from_user_id: userId, candidate });
+    });
+
     // ── DISCONNECT ────────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
       if (!userId) return;
+      leaveVoice();
       db.prepare('UPDATE users SET last_seen = unixepoch() WHERE id = ?').run(userId);
 
       const info = presence.get(userId);

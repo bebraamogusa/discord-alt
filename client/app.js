@@ -7,25 +7,42 @@ import { t, setLang, getLang, LANG_NAMES } from '/i18n.js';
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const S = {
-  me: null,                // { id, username, discriminator, avatar_url, ... }
-  servers: [],             // [{ id, name, icon_url, channels, categories, roles, ... }]
-  dmChannels: [],          // [{ id, type, recipient?, members?, last_message }]
-  activeServerId: null,    // '@me' or server id
+  me: null,
+  servers: [],
+  dmChannels: [],
+  activeServerId: null,
   activeChannelId: null,
-  messages: {},            // { channelId: [{...}] }
-  members: {},             // { serverId: [{...}] }
-  presences: {},           // { userId: { status, custom_status } }
-  typingUsers: {},         // { channelId: { userId: timeoutId } }
-  unread: {},              // { channelId: count }
-  replyTo: null,           // { id, username, content }
+  messages: {},
+  members: {},
+  presences: {},
+  typingUsers: {},
+  unread: {},
+  replyTo: null,
   membersVisible: true,
-  pendingChannelCreate: null, // { serverId, categoryId }
+  pendingChannelCreate: null,
+  voiceStates: {},          // { channelId: [participant, ...] }
 };
 
-let socket = null;   // Socket.IO /gateway socket
-let muted  = false;
+// Voice connection state
+const V = {
+  channelId: null,          // currently connected channel id
+  muted: false,
+  deafened: false,
+  stream: null,             // local MediaStream
+  peers: new Map(),         // userId → RTCPeerConnection
+  audios: new Map(),        // userId → HTMLAudioElement
+};
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
 
 // ─── UTILITY ─────────────────────────────────────────────────────────────────
+let socket = null;   // Socket.IO /gateway socket
+
 const $ = id => document.getElementById(id);
 const qs = (sel, el = document) => el.querySelector(sel);
 
@@ -239,11 +256,12 @@ function connectGateway() {
     socket.emit('IDENTIFY', { token: API.getToken() });
   });
 
-  socket.on('READY', ({ user, servers, dm_channels, presences }) => {
+  socket.on('READY', ({ user, servers, dm_channels, presences, voice_states }) => {
     S.me = user;
     S.servers = servers;
     S.dmChannels = dm_channels;
     S.presences = presences;
+    S.voiceStates = voice_states || {};
     renderApp();
   });
 
@@ -377,6 +395,238 @@ function connectGateway() {
 
   socket.on('ERROR', ({ message }) => console.warn('[GW]', message));
   socket.on('disconnect', () => console.log('[GW] disconnected'));
+
+  // ── VOICE events ──────────────────────────────────────────────────────────
+  socket.on('VOICE_STATE_UPDATE', ({ channel_id, voice_states }) => {
+    S.voiceStates[channel_id] = voice_states;
+    renderChannelList(); // update participant counts
+    if (S.activeChannelId === channel_id) renderVoicePanel();
+    renderVoiceBar();
+  });
+
+  socket.on('VOICE_READY', async ({ channel_id, peers }) => {
+    // We just joined; initiate WebRTC offer to each existing peer
+    for (const peer of peers) {
+      await createOffer(peer.user_id);
+    }
+  });
+
+  socket.on('WEBRTC_OFFER', async ({ from_user_id, offer }) => {
+    const pc = getOrCreatePeer(from_user_id);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('WEBRTC_ANSWER', { to_user_id: from_user_id, answer });
+  });
+
+  socket.on('WEBRTC_ANSWER', async ({ from_user_id, answer }) => {
+    const pc = V.peers.get(from_user_id);
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  });
+
+  socket.on('WEBRTC_ICE', async ({ from_user_id, candidate }) => {
+    const pc = V.peers.get(from_user_id);
+    if (pc && candidate) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+    }
+  });
+}
+
+// ─── VOICE ────────────────────────────────────────────────────────────────────
+function getOrCreatePeer(userId) {
+  if (V.peers.has(userId)) return V.peers.get(userId);
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+
+  // Add local tracks
+  if (V.stream) {
+    V.stream.getTracks().forEach(track => pc.addTrack(track, V.stream));
+  }
+
+  // Forward ICE candidates
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) socket.emit('WEBRTC_ICE', { to_user_id: userId, candidate });
+  };
+
+  // Receive remote audio
+  pc.ontrack = ({ streams }) => {
+    let audio = V.audios.get(userId);
+    if (!audio) {
+      audio = new Audio();
+      audio.autoplay = true;
+      V.audios.set(userId, audio);
+    }
+    audio.srcObject = streams[0];
+    if (V.deafened) audio.muted = true;
+  };
+
+  V.peers.set(userId, pc);
+  return pc;
+}
+
+async function createOffer(userId) {
+  const pc = getOrCreatePeer(userId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  socket.emit('WEBRTC_OFFER', { to_user_id: userId, offer });
+}
+
+function closePeer(userId) {
+  const pc = V.peers.get(userId);
+  if (pc) { pc.close(); V.peers.delete(userId); }
+  const audio = V.audios.get(userId);
+  if (audio) { audio.srcObject = null; V.audios.delete(userId); }
+}
+
+async function joinVoiceChannel(channelId) {
+  if (V.channelId === channelId) return; // already connected
+  if (V.channelId) await leaveVoiceChannel();
+
+  try {
+    V.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    showToast('Нет доступа к микрофону', 'error');
+    return;
+  }
+
+  V.channelId  = channelId;
+  V.muted      = false;
+  V.deafened   = false;
+  socket.emit('VOICE_JOIN', { channel_id: channelId });
+  renderVoiceBar();
+  renderVoicePanel();
+  renderChannelList();
+  showToast('🔊 Подключён к голосовому каналу', 'success');
+}
+
+async function leaveVoiceChannel() {
+  if (!V.channelId) return;
+  socket.emit('VOICE_LEAVE');
+  // Close all peer connections
+  for (const uid of V.peers.keys()) closePeer(uid);
+  if (V.stream) { V.stream.getTracks().forEach(t => t.stop()); V.stream = null; }
+  const prev = V.channelId;
+  V.channelId = null;
+  renderVoiceBar();
+  if (S.activeChannelId === prev) renderVoicePanel();
+  renderChannelList();
+  showToast('Отключён от голосового канала');
+}
+
+function toggleVoiceMute() {
+  V.muted = !V.muted;
+  if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = !V.muted; });
+  socket.emit('VOICE_MUTE', { muted: V.muted });
+  renderVoiceBar();
+}
+
+function toggleVoiceDeafen() {
+  V.deafened = !V.deafened;
+  V.audios.forEach(audio => { audio.muted = V.deafened; });
+  if (V.deafened && !V.muted) {
+    V.muted = true;
+    if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = false; });
+    socket.emit('VOICE_MUTE', { muted: true });
+  } else if (!V.deafened) {
+    V.muted = false;
+    if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = true; });
+    socket.emit('VOICE_MUTE', { muted: false });
+  }
+  renderVoiceBar();
+}
+
+function renderVoiceBar() {
+  const bar = $('voice-connected-bar');
+  if (!bar) return;
+  if (!V.channelId) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const ch = getChannel(V.channelId);
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    <div class="vcb-info">
+      <div class="vcb-status">
+        <span class="vcb-dot"></span>
+        <span class="vcb-name">${escHtml(ch?.name || 'Voice')}</span>
+      </div>
+      <div class="vcb-sub">Голосовой канал активен</div>
+    </div>
+    <div class="vcb-actions">
+      <button class="vcb-btn ${V.muted ? 'active' : ''}" id="vcb-mute" title="${V.muted ? 'Включить микрофон' : 'Отключить микрофон'}">
+        ${V.muted
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>'}
+      </button>
+      <button class="vcb-btn ${V.deafened ? 'active' : ''}" id="vcb-deaf" title="${V.deafened ? 'Включить звук' : 'Отключить звук'}">
+        ${V.deafened
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>'}
+      </button>
+      <button class="vcb-btn danger" id="vcb-leave" title="Отключиться">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+      </button>
+    </div>
+  `;
+  $('vcb-mute')?.addEventListener('click', toggleVoiceMute);
+  $('vcb-deaf')?.addEventListener('click', toggleVoiceDeafen);
+  $('vcb-leave')?.addEventListener('click', leaveVoiceChannel);
+}
+
+function renderVoicePanel() {
+  const ch = getChannel(S.activeChannelId);
+  if (!ch || ch.type !== 'voice') return;
+
+  const participants = S.voiceStates[ch.id] || [];
+  const inVoice = V.channelId === ch.id;
+
+  // Replace messages area with voice panel
+  $('messages-wrapper').classList.add('hidden');
+  $('input-area').classList.add('hidden');
+  $('voice-panel')?.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'voice-panel';
+  panel.className = 'voice-panel';
+  panel.innerHTML = `
+    <div class="vp-header">
+      <div class="vp-icon">🔊</div>
+      <h2>${escHtml(ch.name)}</h2>
+      <div class="vp-sub">${participants.length > 0 ? `${participants.length} участников в канале` : 'Никого нет в канале'}</div>
+    </div>
+    <div class="vp-participants">
+      ${participants.map(p => `
+        <div class="vp-participant">
+          <div class="vp-av" style="background:${escHtml(p.avatar_color || '#5865f2')}">
+            ${p.avatar_url ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : escHtml((p.username||'?')[0].toUpperCase())}
+            ${p.muted ? '<div class="vp-muted-badge">🔇</div>' : ''}
+          </div>
+          <div class="vp-name">${escHtml(p.username)}</div>
+          ${p.user_id === V.channelId ? '<div class="vp-you">Вы</div>' : ''}
+        </div>
+      `).join('')}
+    </div>
+    ${!inVoice ? `
+      <button class="btn btn-primary vp-join-btn" id="vp-join">
+        🔊 Подключиться к каналу
+      </button>
+    ` : `
+      <div class="vp-controls">
+        <button class="btn ${V.muted ? 'btn-danger-solid' : 'btn-outline'}" id="vp-mute">
+          ${V.muted ? '🔇 Включить микрофон' : '🎤 Выключить микрофон'}
+        </button>
+        <button class="btn ${V.deafened ? 'btn-danger-solid' : 'btn-outline'}" id="vp-deaf">
+          ${V.deafened ? '🔊 Включить звук' : '🔈 Выключить звук'}
+        </button>
+        <button class="btn btn-danger-solid" id="vp-leave">Отключиться</button>
+      </div>
+    `}
+  `;
+
+  $('main').insertBefore(panel, $('messages-wrapper'));
+  $('vp-join')?.addEventListener('click', () => joinVoiceChannel(ch.id));
+  $('vp-mute')?.addEventListener('click', toggleVoiceMute);
+  $('vp-deaf')?.addEventListener('click', toggleVoiceDeafen);
+  $('vp-leave')?.addEventListener('click', leaveVoiceChannel);
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
@@ -550,12 +800,27 @@ function renderChannelGroup(container, cat, channels, srv) {
     const icon = ch.type === 'voice' ? '🔊' : ch.type === 'announcement' ? '📣' : '#';
     const isActive = ch.id === S.activeChannelId;
     const unread = S.unread[ch.id] || 0;
+    const voiceParticipants = S.voiceStates[ch.id] || [];
+    const isConnected = V.channelId === ch.id;
+
     container.insertAdjacentHTML('beforeend', `
-      <div class="channel-item ${isActive ? 'active' : ''} ${unread && !isActive ? 'unread' : ''}"
+      <div class="channel-item ${isActive ? 'active' : ''} ${unread && !isActive ? 'unread' : ''} ${isConnected ? 'voice-active' : ''}"
            data-ch-id="${escHtml(ch.id)}" data-ch-type="${ch.type}">
         <span class="ch-icon">${icon}</span>
         <span class="ch-name">${escHtml(ch.name)}</span>
+        ${voiceParticipants.length > 0 ? `<span class="ch-voice-count">${voiceParticipants.length}</span>` : ''}
       </div>
+      ${voiceParticipants.length > 0 ? `
+        <div class="ch-voice-users">
+          ${voiceParticipants.map(p => `
+            <div class="ch-voice-user ${p.muted ? 'muted' : ''}">
+              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">${escHtml((p.username||'?')[0].toUpperCase())}</span>
+              <span>${escHtml(p.username)}</span>
+              ${p.muted ? '<span class="ch-voice-muted">🔇</span>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `);
   }
 
@@ -582,7 +847,23 @@ async function selectChannel(id) {
   const ch = getChannel(id);
   if (!ch) return;
 
-  // Show chat UI
+  // Voice channel: show voice panel instead of text chat
+  if (ch.type === 'voice') {
+    $('welcome-screen').classList.add('hidden');
+    $('chat-header').classList.remove('hidden');
+    $('messages-wrapper').classList.add('hidden');
+    $('typing-indicator').classList.add('hidden');
+    $('input-area').classList.add('hidden');
+    $('members-panel').classList.add('hidden');
+    $('chat-ch-icon').textContent = '🔊';
+    $('chat-ch-name').textContent = ch.name;
+    $('chat-ch-topic').textContent = ch.topic || '';
+    renderVoicePanel();
+    return;
+  }
+
+  // Show chat UI — remove voice panel if present
+  $('voice-panel')?.remove();
   $('welcome-screen').classList.add('hidden');
   $('chat-header').classList.remove('hidden');
   $('messages-wrapper').classList.remove('hidden');
@@ -633,6 +914,7 @@ async function selectChannel(id) {
 }
 
 function showWelcomeScreen() {
+  $('voice-panel')?.remove();
   $('welcome-screen').classList.remove('hidden');
   $('chat-header').classList.add('hidden');
   $('messages-wrapper').classList.add('hidden');
@@ -1129,14 +1411,26 @@ function closeProfileCard() {
 function showCtxMenu(x, y, items) {
   const menu = $('ctx-menu');
   menu.innerHTML = items.map(item => {
-    if (item.divider) return '<div class="ctx-divider"></div>';
-    return `<div class="ctx-item ${item.danger ? 'danger' : ''}" data-action="${escHtml(item.action || '')}">${escHtml(item.label)}</div>`;
+    if (item.divider)  return '<div class="ctx-divider"></div>';
+    if (item.header)   return `<div class="ctx-header">${escHtml(item.header)}</div>`;
+    return `<div class="ctx-item ${item.danger ? 'danger' : ''} ${item.disabled ? 'disabled' : ''}">
+      <span class="ctx-icon">${item.icon || ''}</span>
+      <span class="ctx-label">${escHtml(item.label)}</span>
+      ${item.hint ? `<span class="ctx-hint">${escHtml(item.hint)}</span>` : ''}
+    </div>`;
   }).join('');
-  menu.style.left = x + 'px';
-  menu.style.top  = y + 'px';
+  // Smart positioning — keep inside viewport
+  menu.style.left = '-9999px';
+  menu.style.top  = '-9999px';
   menu.classList.remove('hidden');
-  menu.querySelectorAll('.ctx-item').forEach((el, i) => {
-    if (items[i] && items[i].onClick) el.addEventListener('click', () => { closeContextMenu(); items[i].onClick(); });
+  const { offsetWidth: mw, offsetHeight: mh } = menu;
+  const cx = x + mw > window.innerWidth  ? x - mw : x;
+  const cy = y + mh > window.innerHeight ? y - mh : y;
+  menu.style.left = cx + 'px';
+  menu.style.top  = cy + 'px';
+  menu.querySelectorAll('.ctx-item:not(.disabled)').forEach((el, i) => {
+    const item = items.filter(it => !it.divider && !it.header)[i];
+    if (item?.onClick) el.addEventListener('click', () => { closeContextMenu(); item.onClick(); });
   });
 }
 function closeContextMenu() { $('ctx-menu').classList.add('hidden'); }
@@ -1146,23 +1440,56 @@ function showServerContextMenu(e, serverId) {
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
   showCtxMenu(e.clientX, e.clientY, [
-    { label: '⚙ ' + t('server_settings_menu'), onClick: () => openServerSettings(serverId) },
-    { label: '📋 ' + t('invite_people'),        onClick: () => createInvite(serverId) },
+    { icon: '⚙️',  label: t('server_settings_menu'),   onClick: () => openServerSettings(serverId) },
+    { icon: '🔔',  label: 'Уведомления',               onClick: () => showToast('Настройки уведомлений в разработке') },
+    { icon: '📋',  label: t('invite_people'),           onClick: () => createInvite(serverId) },
     { divider: true },
-    !isOwner && { label: '🚪 ' + t('leave_server'),  danger: true, onClick: () => leaveServer(serverId) },
-    isOwner  && { label: '🗑 ' + t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
+    { icon: '📌',  label: 'Закреплённые сообщения',   onClick: () => showToast('Откройте канал и нажмите кнопку 📌') },
+    { icon: '#️⃣', label: 'Создать канал',              onClick: () => openCreateChannelModal(serverId, null) },
+    { icon: '📁',  label: 'Создать категорию',          onClick: () => createCategory(serverId) },
+    { divider: true },
+    { icon: '🆔',  label: 'Скопировать ID сервера',    onClick: () => { navigator.clipboard.writeText(serverId); showToast('ID скопирован'); } },
+    { divider: true },
+    !isOwner && { icon: '🚪', label: t('leave_server'),  danger: true, onClick: () => leaveServer(serverId) },
+    isOwner  && { icon: '🗑️', label: t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
   ].filter(Boolean));
 }
 
 function showChannelContextMenu(e, channelId) {
   const ch = getChannel(channelId);
   if (!ch || !ch.server_id) return;
-  const canManage = getServer(ch.server_id)?.owner_id === S.me?.id;
-  if (!canManage) return;
-  showCtxMenu(e.clientX, e.clientY, [
-    { label: '✏ ' + t('rename_channel'), onClick: () => renameChannel(ch) },
-    { label: '🗑 ' + t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
-  ]);
+  const isOwner = getServer(ch.server_id)?.owner_id === S.me?.id;
+  const isVoice = ch.type === 'voice';
+
+  const items = [
+    { header: escHtml(ch.name) },
+  ];
+
+  if (isVoice) {
+    if (V.channelId !== channelId) {
+      items.push({ icon: '🔊', label: 'Подключиться к каналу', onClick: () => joinVoiceChannel(channelId) });
+    } else {
+      items.push({ icon: '🔇', label: 'Отключиться', danger: true, onClick: leaveVoiceChannel });
+    }
+    items.push({ divider: true });
+  }
+
+  items.push(
+    { icon: '🔔', label: 'Уведомления',  onClick: () => showToast('Настройки уведомлений в разработке') },
+    { icon: '📌', label: 'Закреп',       onClick: () => { S.activeChannelId = channelId; showPins(); } },
+    { icon: '🆔', label: 'Скопировать ID', onClick: () => { navigator.clipboard.writeText(channelId); showToast('ID скопирован'); } },
+    { divider: true },
+  );
+
+  if (isOwner) {
+    items.push(
+      { icon: '✏️',  label: t('rename_channel'), onClick: () => renameChannel(ch) },
+      { icon: '📋',  label: 'Создать инвайт',    onClick: () => createInvite(ch.server_id) },
+      { icon: '🗑️',  label: t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
+    );
+  }
+
+  showCtxMenu(e.clientX, e.clientY, items);
 }
 
 async function renameChannel(ch) {
@@ -1891,13 +2218,14 @@ function setup() {
   // Reply close
   $('reply-close').onclick = cancelReply;
 
-  // Mute button
-  const MIC_ON  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
-  const MIC_OFF = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .23 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>`;
+  // Mute button — toggles mic (also works during voice calls)
   $('btn-toggle-mute').onclick = () => {
-    muted = !muted;
-    $('btn-toggle-mute').innerHTML = muted ? MIC_OFF : MIC_ON;
-    $('btn-toggle-mute').style.color = muted ? 'var(--danger)' : '';
+    if (V.channelId) {
+      toggleVoiceMute();
+    } else {
+      V.muted = !V.muted;
+    }
+    $('btn-toggle-mute').style.color = V.muted ? 'var(--danger)' : '';
   };
 
   // Settings button
