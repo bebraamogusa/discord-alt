@@ -428,6 +428,9 @@ const io = new Server(app.server, {
 registerServerRoutes(app, db, io);
 registerChannelRoutes(app, db, io);
 
+// Redirect root to the new app
+app.get('/', (_req, reply) => reply.redirect('/app', 301));
+
 // SPA for the new v2 app — /app* → app.html
 app.get('/app', (_req, reply) => reply.sendFile('app.html'));
 app.get('/app/*', (_req, reply) => reply.sendFile('app.html'));
