@@ -13,7 +13,7 @@
 
 <!-- ── Splash / loading screen ────────────────────────────────── -->
 <div id="splash-screen">
-  <div class="splash-logo">💬</div>
+  <div class="splash-logo"><svg class="ic" width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 12H7v-2h10v2zm0-3H7V9h10v2zm0-3H7V6h10v2z" fill="currentColor"/></svg></div>
   <div class="splash-spinner"></div>
   <div class="splash-text">Загрузка…</div>
 </div>
@@ -105,7 +105,7 @@
   <div id="main">
     <!-- Welcome screen -->
     <div id="welcome-screen">
-      <div class="empty-icon">💬</div>
+      <div class="empty-icon" id="welcome-empty-icon"></div>
       <div class="empty-text">Выберите канал для начала</div>
       <div class="empty-sub text-muted">Или откройте личные сообщения</div>
     </div>
@@ -135,7 +135,7 @@
     <!-- Messages -->
     <div id="messages-wrapper" class="hidden">
       <div id="messages-list">
-        <div id="messages-load-more" class="hidden">⬆ Загрузить ещё</div>
+        <div id="messages-load-more" class="hidden"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Загрузить ещё</div>
         <div id="messages-container"></div>
       </div>
     </div>
@@ -229,8 +229,8 @@
         <label for="new-ch-type">Тип канала</label>
         <select id="new-ch-type">
           <option value="text">Текстовый #</option>
-          <option value="voice">Голосовой 🔊</option>
-          <option value="announcement">Объявления 📣</option>
+          <option value="voice">Голосовой</option>
+          <option value="announcement">Объявления</option>
         </select>
       </div>
       <div class="form-group">
@@ -277,8 +277,8 @@
     <div class="settings-nav-title" id="ss-server-name"></div>
     <div id="ss-nav-items"></div>
     <div class="settings-nav-divider"></div>
-    <div class="settings-nav-item text-danger" id="ss-leave-server"><span class="nav-icon">🚪</span><span data-i18n="leave_server"></span></div>
-    <div class="settings-nav-item text-danger hidden" id="ss-delete-server"><span class="nav-icon">🗑️</span><span data-i18n="delete_server"></span></div>
+    <div class="settings-nav-item text-danger" id="ss-leave-server"><span class="nav-icon" data-icon="leave"></span><span data-i18n="leave_server"></span></div>
+    <div class="settings-nav-item text-danger hidden" id="ss-delete-server"><span class="nav-icon" data-icon="trash"></span><span data-i18n="delete_server"></span></div>
   </div>
   <div class="settings-content" id="ss-content">
     <div class="settings-section-title" id="ss-page-title"></div>
@@ -292,11 +292,11 @@
   <div class="settings-nav">
     <div class="settings-nav-title" data-i18n="settings_title"></div>
     <div id="us-nav-items">
-      <div class="settings-nav-item active" data-page="profile"><span class="nav-icon">👤</span><span data-i18n="us_profile"></span></div>
-      <div class="settings-nav-item" data-page="appearance"><span class="nav-icon">🎨</span><span data-i18n="us_appearance"></span></div>
-      <div class="settings-nav-item" data-page="language"><span class="nav-icon">🌐</span><span data-i18n="us_language"></span></div>
+      <div class="settings-nav-item active" data-page="profile"><span class="nav-icon" data-icon="user"></span><span data-i18n="us_profile"></span></div>
+      <div class="settings-nav-item" data-page="appearance"><span class="nav-icon" data-icon="palette"></span><span data-i18n="us_appearance"></span></div>
+      <div class="settings-nav-item" data-page="language"><span class="nav-icon" data-icon="globe"></span><span data-i18n="us_language"></span></div>
       <div class="settings-nav-divider"></div>
-      <div class="settings-nav-item text-danger" id="us-logout"><span class="nav-icon">🚪</span><span data-i18n="logout"></span></div>
+      <div class="settings-nav-item text-danger" id="us-logout"><span class="nav-icon" data-icon="leave"></span><span data-i18n="logout"></span></div>
     </div>
   </div>
   <div class="settings-content" id="us-content"></div>
