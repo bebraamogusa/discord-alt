@@ -1141,7 +1141,7 @@ export const TRANSLATIONS = {
 
 export const LANG_NAMES = { ru: 'Русский', en: 'English', pl: 'Polski' };
 
-let _lang = localStorage.getItem('da_lang') || 'ru';
+let _lang = localStorage.getItem('da_lang') || 'en';
 
 export function getLang() { return _lang; }
 
