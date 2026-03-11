@@ -11,6 +11,7 @@ import { unlink } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 import { join, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
 import {
   registerUser,
   loginUser,
@@ -19,6 +20,26 @@ import {
   authenticate,
   publicUser,
 } from './auth.js';
+
+// ── Rate limiter (in-memory) ──────────────────────────────────────────────────
+const rateLimitBuckets = new Map();
+function rateLimit(key, maxRequests, windowSec) {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now - bucket.start > windowSec * 1000) {
+    rateLimitBuckets.set(key, { start: now, count: 1 });
+    return false; // not limited
+  }
+  bucket.count++;
+  return bucket.count > maxRequests;
+}
+// Cleanup stale buckets every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimitBuckets) {
+    if (now - v.start > 300_000) rateLimitBuckets.delete(k);
+  }
+}, 300_000);
 import registerServerRoutes  from './routes/servers.js';
 import registerChannelRoutes from './routes/channels.js';
 import { setupGateway }      from './gateway.js';
@@ -99,8 +120,8 @@ function getMessageType(ext) {
   return 'file';
 }
 
-// ── Upload endpoint ───────────────────────────────────────────────────────────
-app.post('/api/upload', async (req, reply) => {
+// ── Upload endpoint (requires auth) ───────────────────────────────────────────
+app.post('/api/upload', { preHandler: authenticate }, async (req, reply) => {
   const file = await req.file();
   if (!file) return reply.code(400).send({ error: 'No file provided' });
 
@@ -124,8 +145,10 @@ app.post('/api/upload', async (req, reply) => {
 
 // ── Auth routes ─────────────────────────────────────────────────────────────
 
-// POST /api/auth/register
+// POST /api/auth/register (rate limited: 5 per 5 min per IP)
 app.post('/api/auth/register', async (req, reply) => {
+  if (rateLimit(`reg:${req.ip}`, 5, 300))
+    return reply.code(429).send({ error: 'Слишком много попыток. Подождите немного.' });
   try {
     const { username, email, password } = req.body || {};
     const meta = { userAgent: req.headers['user-agent'], ip: req.ip };
@@ -136,8 +159,10 @@ app.post('/api/auth/register', async (req, reply) => {
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login (rate limited: 10 per 5 min per IP)
 app.post('/api/auth/login', async (req, reply) => {
+  if (rateLimit(`login:${req.ip}`, 10, 300))
+    return reply.code(429).send({ error: 'Слишком много попыток. Подождите немного.' });
   try {
     const { email, password } = req.body || {};
     const meta = { userAgent: req.headers['user-agent'], ip: req.ip };
@@ -217,6 +242,54 @@ app.get('/api/users/:id', { preHandler: authenticate }, (req, reply) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!user) return reply.code(404).send({ error: 'User not found' });
   return reply.send(publicUser(user));
+});
+
+// ── Password change ─────────────────────────────────────────────────────────
+app.patch('/api/@me/password', { preHandler: authenticate }, async (req, reply) => {
+  if (rateLimit(`pwd:${req.user.id}`, 5, 300))
+    return reply.code(429).send({ error: 'Слишком много попыток.' });
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password)
+    return reply.code(400).send({ error: 'Оба поля обязательны' });
+  if (new_password.length < 6)
+    return reply.code(400).send({ error: 'Новый пароль: минимум 6 символов' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return reply.code(404).send({ error: 'User not found' });
+  const ok = bcrypt.compareSync(current_password, user.password_hash || '');
+  if (!ok) return reply.code(401).send({ error: 'Неверный текущий пароль' });
+  const hash = bcrypt.hashSync(new_password, 12);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
+  // Revoke all sessions except current to force re-login on other devices
+  return reply.send({ ok: true });
+});
+
+// ── Message search ──────────────────────────────────────────────────────────
+app.get('/api/channels/:id/messages/search', { preHandler: authenticate }, (req, reply) => {
+  const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+  if (!ch) return reply.code(404).send({ error: 'Channel not found' });
+  // verify access
+  if (ch.server_id) {
+    const sm = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(ch.server_id, req.user.id);
+    if (!sm) return reply.code(403).send({ error: 'No access' });
+  } else {
+    const dm = db.prepare('SELECT 1 FROM dm_members WHERE channel_id = ? AND user_id = ?').get(ch.id, req.user.id);
+    if (!dm) return reply.code(403).send({ error: 'No access' });
+  }
+  const q = String(req.query.q || '').trim();
+  if (!q || q.length < 2) return reply.code(400).send({ error: 'Минимум 2 символа для поиска' });
+  const limit = Math.min(parseInt(req.query.limit || '25', 10), 50);
+  const rows = db.prepare(`
+    SELECT m.*, u.username, u.discriminator, u.avatar_url, u.avatar_color
+    FROM messages m
+    JOIN users u ON u.id = m.author_id
+    WHERE m.channel_id = ? AND m.content LIKE ?
+    ORDER BY m.created_at DESC LIMIT ?
+  `).all(ch.id, `%${q}%`, limit);
+  const results = rows.map(r => ({
+    ...r,
+    author: { id: r.author_id, username: r.username, discriminator: r.discriminator, avatar_url: r.avatar_url, avatar_color: r.avatar_color },
+  }));
+  return reply.send(results);
 });
 
 // ── Start ───────────────────────────────────────────────────────────────────

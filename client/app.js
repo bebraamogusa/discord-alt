@@ -47,7 +47,9 @@ const $ = id => document.getElementById(id);
 
 function showToast(msg, type = '') {
   const t = $('toast');
-  t.textContent = msg;
+  const iconMap = { success: '✅', error: '❌', info: 'ℹ️' };
+  const icon = iconMap[type] || '💬';
+  t.innerHTML = `<span class="toast-icon">${icon}</span><span>${escHtml(msg)}</span>`;
   t.className = `toast ${type}`;
   void t.offsetWidth;
   t.classList.add('visible');
@@ -150,8 +152,8 @@ function parseMarkdown(text) {
   s = s.replace(/__(.+?)__/g, '<u>$1</u>');
   // strikethrough
   s = s.replace(/~~(.+?)~~/g, '<s>$1</s>');
-  // links
-  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  // links (filter out javascript: protocol for XSS protection)
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
   // newlines
   s = s.replace(/\n/g, '<br>');
   return s;
@@ -275,6 +277,8 @@ function connectGateway() {
       S.unread[msg.channel_id] = (S.unread[msg.channel_id] || 0) + 1;
       renderChannelList();
       renderServerIcons();
+      // Notification sound for messages in other channels (not from self)
+      if (msg.author_id !== S.me?.id) NotifSound.play();
     }
   });
 
@@ -664,7 +668,8 @@ function renderServerIcons() {
   const container = $('server-icons');
   container.innerHTML = '';
   for (const srv of S.servers) {
-    const hasUnread = Object.entries(S.unread).some(([cid, n]) => n > 0 && srv.channels?.find(c => c.id === cid));
+    const unreadCount = Object.entries(S.unread).reduce((sum, [cid, n]) => sum + (n > 0 && srv.channels?.find(c => c.id === cid) ? n : 0), 0);
+    const hasUnread = unreadCount > 0;
     const active = S.activeServerId === srv.id;
     const letter = srv.name[0].toUpperCase();
     container.insertAdjacentHTML('beforeend', `
@@ -674,7 +679,7 @@ function renderServerIcons() {
             ? `<img src="${escHtml(srv.icon_url)}" alt="${escHtml(srv.name)}">`
             : escHtml(letter)}
           <div class="pill"></div>
-          ${hasUnread && !active ? '<div class="unread-dot"></div>' : ''}
+          ${hasUnread && !active ? `<div class="unread-badge">${unreadCount > 99 ? '99+' : unreadCount}</div>` : ''}
         </div>
         <div class="tooltip-label">${escHtml(srv.name)}</div>
       </div>
@@ -913,6 +918,17 @@ async function selectChannel(id) {
 function showWelcomeScreen() {
   $('voice-panel')?.remove();
   $('welcome-screen').classList.remove('hidden');
+  $('welcome-screen').innerHTML = `
+    <div class="welcome-icon">💬</div>
+    <div class="welcome-title">${escHtml(t('welcome_screen_title') || 'Добро пожаловать!')}</div>
+    <div class="welcome-sub">Выберите канал на панели слева для начала общения или воспользуйтесь горячими клавишами</div>
+    <div class="welcome-shortcuts">
+      <div class="welcome-tip"><span class="tip-icon">🔍</span><span class="tip-text"><kbd>Ctrl+K</kbd> — Поиск сообщений</span></div>
+      <div class="welcome-tip"><span class="tip-icon">💬</span><span class="tip-text"><kbd>Enter</kbd> — Отправить сообщение</span></div>
+      <div class="welcome-tip"><span class="tip-icon">📎</span><span class="tip-text">Перетащите файл для загрузки</span></div>
+      <div class="welcome-tip"><span class="tip-icon">⚙️</span><span class="tip-text">Настройки в нижнем левом углу</span></div>
+    </div>
+  `;
   $('chat-header').classList.add('hidden');
   $('messages-wrapper').classList.add('hidden');
   $('typing-indicator').classList.add('hidden');
@@ -997,7 +1013,7 @@ function msgHtml(msg, isFirst) {
           </div>
     `;
   } else {
-    headerHtml = `<div class="msg-body" style="padding-left:52px">`;
+    headerHtml = `<div class="msg-body" style="padding-left:52px"><span class="msg-hover-time">${fmtTime(ts)}</span>`;
   }
 
   let replyHtml = '';
@@ -1013,7 +1029,7 @@ function msgHtml(msg, isFirst) {
   const atts = (msg.attachments || []).map(a => {
     const ext = a.url.split('.').pop().toLowerCase();
     if (['jpg','jpeg','png','gif','webp','avif'].includes(ext))
-      return `<a href="${escHtml(a.url)}" target="_blank"><img class="att-image" src="${escHtml(a.url)}" loading="lazy"></a>`;
+      return `<img class="att-image" src="${escHtml(a.url)}" loading="lazy" data-lightbox="${escHtml(a.url)}">`;
     if (['mp4','webm','mov'].includes(ext))
       return `<video class="att-video" src="${escHtml(a.url)}" controls></video>`;
     if (['mp3','ogg','wav','flac','aac'].includes(ext))
@@ -1085,6 +1101,15 @@ function attachMsgHandlers(container) {
     el.onclick = (e) => {
       e.stopPropagation();
       showProfileCard(el.dataset.userId, el);
+    };
+  });
+
+  // Image lightbox
+  container.querySelectorAll('[data-lightbox]').forEach(el => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLightbox(el.dataset.lightbox);
     };
   });
 }
@@ -2025,6 +2050,21 @@ function renderUserSettingsPage(page) {
         <input id="us-status" value="${escHtml(S.me?.custom_status||'')}">
       </div>
       <button class="btn btn-primary" id="us-save">${t('save')}</button>
+
+      <div class="settings-section-title" style="margin-top:24px">🔒 ${t('change_password') || 'Смена пароля'}</div>
+      <div class="form-group">
+        <label>${t('current_password') || 'Текущий пароль'}</label>
+        <input type="password" id="us-cur-pass" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>${t('new_password') || 'Новый пароль'}</label>
+        <input type="password" id="us-new-pass" autocomplete="new-password" minlength="6">
+      </div>
+      <div class="form-group">
+        <label>${t('confirm_password') || 'Подтвердите пароль'}</label>
+        <input type="password" id="us-confirm-pass" autocomplete="new-password">
+      </div>
+      <button class="btn btn-danger" id="us-change-pass">${t('change_password') || 'Сменить пароль'}</button>
     `;
     $('us-save').onclick = async () => {
       try {
@@ -2040,6 +2080,21 @@ function renderUserSettingsPage(page) {
         updateSidebarUser();
         socket?.emit('UPDATE_STATUS', { status: 'online', custom_status: updated.custom_status });
         showToast(t('saved'), 'success');
+      } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+    };
+    $('us-change-pass').onclick = async () => {
+      const cur = $('us-cur-pass').value;
+      const nw  = $('us-new-pass').value;
+      const cnf = $('us-confirm-pass').value;
+      if (!cur || !nw) { showToast(t('fill_all_fields') || 'Заполните все поля', 'error'); return; }
+      if (nw.length < 6) { showToast(t('password_min_6') || 'Минимум 6 символов', 'error'); return; }
+      if (nw !== cnf) { showToast(t('passwords_mismatch') || 'Пароли не совпадают', 'error'); return; }
+      try {
+        await API.patch('/api/@me/password', { current_password: cur, new_password: nw });
+        showToast(t('password_changed') || 'Пароль изменён', 'success');
+        $('us-cur-pass').value = '';
+        $('us-new-pass').value = '';
+        $('us-confirm-pass').value = '';
       } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
     };
   } else if (page === 'appearance') {
@@ -2194,6 +2249,9 @@ function setup() {
   // Pins
   $('btn-pins').onclick = showPins;
 
+  // Search button
+  $('btn-search').onclick = openSearchModal;
+
   // Message input
   const input = $('msg-input');
   input.addEventListener('keydown', e => {
@@ -2334,6 +2392,17 @@ function setup() {
   // Setup emoji picker
   setupEmojiPicker();
 
+  // Drag & drop file upload
+  setupDragDrop();
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      openSearchModal();
+    }
+  });
+
   // Load preferences
   const theme    = localStorage.getItem('da_theme')    || 'dark';
   const fontSize = localStorage.getItem('da_fontSize') || '16';
@@ -2379,6 +2448,133 @@ function setup() {
     _extObserver.observe(el, { attributes: true, attributeFilter: ['readonly','disabled','style'] });
   });
 } // end setup()
+
+// ─── NOTIFICATION SOUND ───────────────────────────────────────────────────────
+const NotifSound = (() => {
+  let ctx = null;
+  function play() {
+    try {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start(); osc.stop(ctx.currentTime + 0.25);
+    } catch {}
+  }
+  return { play };
+})();
+
+// ─── IMAGE LIGHTBOX ───────────────────────────────────────────────────────────
+function openLightbox(src) {
+  const overlay = document.createElement('div');
+  overlay.className = 'lightbox-overlay';
+  overlay.innerHTML = `
+    <button class="lightbox-close">\u2715</button>
+    <img src="${escHtml(src)}" alt="">
+  `;
+  overlay.onclick = e => { if (e.target === overlay || e.target.classList.contains('lightbox-close')) overlay.remove(); };
+  const onKey = e => { if (e.key === 'Escape') { overlay.remove(); window.removeEventListener('keydown', onKey); } };
+  window.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+}
+
+// ─── SEARCH MODAL ─────────────────────────────────────────────────────────────
+let _searchDebounce = null;
+function openSearchModal() {
+  if (!S.activeChannelId) { showToast('Выберите канал для поиска', 'info'); return; }
+  const existing = document.querySelector('.search-overlay');
+  if (existing) { existing.remove(); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'search-overlay';
+  overlay.innerHTML = `
+    <div class="search-box">
+      <div class="search-input-wrap">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input class="search-input" placeholder="Поиск сообщений..." autofocus>
+      </div>
+      <div class="search-hint">Введите минимум 2 символа для поиска в текущем канале</div>
+      <div class="search-results"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector('.search-input');
+  const results = overlay.querySelector('.search-results');
+  const hint = overlay.querySelector('.search-hint');
+
+  input.addEventListener('input', () => {
+    clearTimeout(_searchDebounce);
+    const q = input.value.trim();
+    if (q.length < 2) { results.innerHTML = ''; hint.style.display = ''; return; }
+    hint.style.display = 'none';
+    _searchDebounce = setTimeout(async () => {
+      try {
+        const msgs = await API.get(`/api/channels/${S.activeChannelId}/messages/search?q=${encodeURIComponent(q)}&limit=20`);
+        if (!msgs.length) { results.innerHTML = '<div class="search-empty">Ничего не найдено</div>'; return; }
+        results.innerHTML = msgs.map(m => {
+          const highlighted = escHtml(m.content || '').replace(new RegExp(escHtml(q).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'gi'), '<mark>$&</mark>');
+          return `<div class="search-result" data-msg-id="${escHtml(m.id)}">
+            <div style="flex:1;min-width:0">
+              <span class="sr-author">${escHtml(m.author?.username || '?')}</span>
+              <span class="sr-time">${fmtDatetime(m.created_at)}</span>
+              <div class="sr-content">${highlighted}</div>
+            </div>
+          </div>`;
+        }).join('');
+        results.querySelectorAll('.search-result').forEach(el => {
+          el.onclick = () => {
+            overlay.remove();
+            const msgEl = document.querySelector(`[data-msg-id="${el.dataset.msgId}"]`);
+            if (msgEl) { msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); msgEl.style.background = 'var(--mention-bg)'; setTimeout(() => msgEl.style.background = '', 2000); }
+          };
+        });
+      } catch { results.innerHTML = '<div class="search-empty">Ошибка поиска</div>'; }
+    }, 300);
+  });
+
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  const onKey = e => { if (e.key === 'Escape') { overlay.remove(); window.removeEventListener('keydown', onKey); } };
+  window.addEventListener('keydown', onKey);
+  input.focus();
+}
+
+// ─── DRAG & DROP FILE UPLOAD ──────────────────────────────────────────────────
+let _dragCounter = 0;
+function setupDragDrop() {
+  const app = $('app');
+  let dropOverlay = null;
+
+  app.addEventListener('dragenter', e => {
+    e.preventDefault();
+    _dragCounter++;
+    if (_dragCounter === 1 && S.activeChannelId) {
+      dropOverlay = document.createElement('div');
+      dropOverlay.className = 'drop-overlay';
+      dropOverlay.innerHTML = `<div class="drop-overlay-inner"><div class="drop-icon">📎</div><div class="drop-text">Перетащите файлы сюда</div><div class="drop-sub">Файлы будут загружены в текущий канал</div></div>`;
+      document.body.appendChild(dropOverlay);
+    }
+  });
+  app.addEventListener('dragleave', e => {
+    e.preventDefault();
+    _dragCounter--;
+    if (_dragCounter <= 0) { _dragCounter = 0; dropOverlay?.remove(); dropOverlay = null; }
+  });
+  app.addEventListener('dragover', e => e.preventDefault());
+  app.addEventListener('drop', e => {
+    e.preventDefault();
+    _dragCounter = 0;
+    dropOverlay?.remove();
+    dropOverlay = null;
+    if (!S.activeChannelId) return;
+    const files = e.dataTransfer?.files;
+    if (files?.length) for (const f of files) uploadAndSend(f);
+  });
+}
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 function hideSplash() {
