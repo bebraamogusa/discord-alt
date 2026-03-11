@@ -8,16 +8,23 @@
 </head>
 <body>
 
+<!-- ── Splash / loading screen ────────────────────────────────── -->
+<div id="splash-screen">
+  <div class="splash-logo">💬</div>
+  <div class="splash-spinner"></div>
+  <div class="splash-text">Загрузка…</div>
+</div>
+
 <!-- ── Auth overlay ───────────────────────────────────────────── -->
-<div id="auth-overlay">
+<div id="auth-overlay" class="hidden">
   <div id="auth-login" class="auth-card">
     <h2>Добро пожаловать!</h2>
     <p class="sub">Рады видеть тебя снова!</p>
     <div class="auth-error" id="auth-login-err"></div>
     <label for="li-email">E-mail</label>
-    <input id="li-email" type="email" autocomplete="email" placeholder="вы@example.com" tabindex="0">
+    <input id="li-email" type="email" autocomplete="off" placeholder="вы@example.com" tabindex="0">
     <label for="li-pass">Пароль</label>
-    <input id="li-pass" type="password" autocomplete="current-password" placeholder="••••••••" tabindex="0">
+    <input id="li-pass" type="password" autocomplete="off" placeholder="••••••••" tabindex="0">
     <button class="btn-primary" id="li-btn">Войти</button>
     <p class="auth-switch">Нет аккаунта? <a id="goto-register">Зарегистрироваться</a></p>
   </div>
@@ -80,8 +87,12 @@
         <div class="su-status" id="su-custom-status"></div>
       </div>
       <div class="su-actions">
-        <button class="icon-btn" id="btn-toggle-mute" title="Микрофон">🎤</button>
-        <button class="icon-btn" id="btn-settings" title="Настройки">⚙</button>
+        <button class="icon-btn" id="btn-toggle-mute" title="Микрофон">
+          <svg id="mute-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-settings" title="Настройки">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -97,12 +108,19 @@
 
     <!-- Chat header -->
     <div id="chat-header" class="hidden">
+      <button class="icon-btn" id="btn-mobile-menu" title="Меню" style="display:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <span class="ch-icon" id="chat-ch-icon">#</span>
       <span class="ch-title" id="chat-ch-name"></span>
       <span class="ch-topic" id="chat-ch-topic"></span>
       <div class="header-actions">
-        <button class="icon-btn" id="btn-pins" title="Закреплённые">📌</button>
-        <button class="icon-btn" id="btn-members" title="Участники">👥</button>
+        <button class="icon-btn" id="btn-pins" title="Закреплённые">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-members" title="Участники">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        </button>
       </div>
     </div>
 
@@ -127,10 +145,14 @@
     <!-- Input area -->
     <div id="input-area" class="hidden">
       <div id="input-box">
-        <button class="input-action" id="btn-attach" title="Прикрепить файл">➕</button>
+        <button class="input-action" id="btn-attach" title="Прикрепить файл">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </button>
         <textarea id="msg-input" placeholder="Написать сообщение..." rows="1"></textarea>
         <div style="position:relative">
-          <button class="input-action" id="btn-emoji" title="Эмодзи">😀</button>
+          <button class="input-action" id="btn-emoji" title="Эмодзи">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
           <div id="emoji-picker" class="emoji-picker hidden"></div>
         </div>
       </div>
@@ -140,6 +162,9 @@
 
   <!-- Members panel -->
   <div id="members-panel" class="hidden"></div>
+
+  <!-- Mobile sidebar overlay (backdrop) -->
+  <div id="mobile-sidebar-overlay"></div>
 </div>
 
 <!-- ── Modals ──────────────────────────────────────────────────── -->

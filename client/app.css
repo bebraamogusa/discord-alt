@@ -88,6 +88,27 @@ button { cursor: pointer; }
   -webkit-user-select: none;
 }
 
+/* ── Splash screen ────────────────────────────────────────────── */
+#splash-screen {
+  position: fixed; inset: 0; z-index: 2000;
+  background: #111;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  transition: opacity 0.3s ease;
+}
+#splash-screen.fade-out { opacity: 0; pointer-events: none; }
+.splash-logo { font-size: 64px; animation: splash-pulse 1.4s ease-in-out infinite; }
+.splash-text { color: var(--text-3); font-size: 14px; }
+.splash-spinner {
+  width: 28px; height: 28px;
+  border: 3px solid var(--border, #3f4147);
+  border-top-color: #5865f2;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes splash-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+
 /* ── Auth overlay ─────────────────────────────────────────────── */
 #auth-overlay {
   position: fixed; inset: 0; z-index: 1000;
@@ -798,7 +819,105 @@ button { cursor: pointer; }
 .mt-16 { margin-top: 16px; }
 .mb-8  { margin-bottom: 8px; }
 .w100  { width: 100%; }
-input[type=color] { padding: 2px; width: 48px; height: 32px; border-radius: 3px; border: 1px solid var(--border); background: var(--input-bg); cursor: pointer; }
+/* ── Mobile ────────────────────────────────────────────────────── */
+#mobile-sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 45;
+  background: rgba(0,0,0,.55);
+}
+#btn-mobile-menu { display: none; }
+
+@media (max-width: 768px) {
+  :root {
+    --serverlist-w: 56px;
+    --sidebar-w: calc(100vw - 56px);
+    --header-h: 52px;
+  }
+
+  /* Input: prevent iOS autozoom on focus */
+  #msg-input { font-size: 16px !important; }
+
+  /* App fills full screen */
+  #app { position: fixed; inset: 0; }
+
+  /* Server list: fixed, hidden off-screen to the left */
+  #server-list {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    width: var(--serverlist-w);
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    padding: 8px 0;
+  }
+
+  /* Sidebar: fixed, slides in from left (after server list) */
+  #sidebar {
+    position: fixed;
+    left: var(--serverlist-w);
+    top: 0; bottom: 0;
+    width: var(--sidebar-w);
+    z-index: 50;
+    transform: translateX(calc(-100% - var(--serverlist-w)));
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Open state */
+  #app.mobile-sidebar-open #server-list { transform: translateX(0); }
+  #app.mobile-sidebar-open #sidebar     { transform: translateX(0); }
+  #app.mobile-sidebar-open #mobile-sidebar-overlay { display: block; }
+
+  /* Main: full width */
+  #main { flex: 1; min-width: 0; }
+
+  /* Hide members panel on mobile by default */
+  #members-panel { display: none !important; }
+
+  /* Show hamburger button */
+  #btn-mobile-menu { display: flex !important; }
+
+  /* Chat header adjustments */
+  #chat-header { padding: 0 8px; gap: 6px; }
+  #chat-header .ch-topic { display: none; }
+
+  /* Input area */
+  #input-area { padding: 0 8px 12px; }
+
+  /* Auth card: full width on small screens */
+  #auth-overlay { padding: 16px; }
+  .auth-card { width: 100%; max-width: 480px; padding: 24px 20px; }
+
+  /* Modals: full width */
+  .modal-sm { width: calc(100vw - 32px); max-width: 480px; }
+  .modal-lg { width: calc(100vw - 32px); }
+
+  /* Server settings: stacked */
+  .settings-overlay { flex-direction: column; }
+  .settings-nav { width: 100%; padding: 48px 8px 8px; max-height: 40vh; overflow-y: auto; }
+  .settings-content { padding: 24px 16px; }
+  .settings-close { top: 8px; right: 8px; }
+
+  /* Profile card */
+  .profile-card { width: calc(100vw - 32px); max-width: 320px; }
+
+  /* Toast: bottom center on mobile */
+  .toast { right: 50%; transform: translateX(50%) translateY(8px); }
+  .toast.visible { transform: translateX(50%) translateY(0); }
+
+  /* Message groups */
+  .msg-group { padding: 2px 8px; }
+  .msg-group.first-in-group { padding-top: 8px; }
+
+  /* Attachment images */
+  .att-image { max-width: 100%; }
+  .att-video { max-width: 100%; }
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  :root { --serverlist-w: 48px; }
+  .server-icon { width: 40px; height: 40px; font-size: 14px; }
+  .server-add-btn { width: 40px; height: 40px; }
+}input[type=color] { padding: 2px; width: 48px; height: 32px; border-radius: 3px; border: 1px solid var(--border); background: var(--input-bg); cursor: pointer; }
 
 /* ── Server/channel create step banner ───────────────────────── */
 .create-step-title { font-size: 24px; font-weight: 700; text-align: center; margin-bottom: 8px; }

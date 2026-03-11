@@ -105,6 +105,12 @@ function showAuth(view = 'login') {
   $('app').classList.add('hidden');
   $('auth-login').classList.toggle('hidden', view !== 'login');
   $('auth-register').classList.toggle('hidden', view !== 'register');
+  // Clear all auth fields to prevent browser from restoring stale values
+  ['li-email','li-pass','reg-email','reg-name','reg-pass'].forEach(id => {
+    const el = $(id); if (el) el.value = '';
+  });
+  $('auth-login-err').textContent = '';
+  $('auth-reg-err').textContent = '';
 }
 function hideAuth() {
   $('auth-overlay').classList.add('hidden');
@@ -502,6 +508,8 @@ async function selectChannel(id) {
   S.activeChannelId = id;
   S.unread[id] = 0;
   renderChannelList();
+  // Notify mobile layout to close sidebar
+  document.dispatchEvent(new CustomEvent('da:channel-selected'));
 
   const ch = getChannel(id);
   if (!ch) return;
@@ -1641,31 +1649,13 @@ function setup() {
   $('li-pass').onkeydown  = e => { if (e.key === 'Enter') doLogin(); };
   $('reg-pass').onkeydown = e => { if (e.key === 'Enter') doRegister(); };
 
-  // ── Password field debug logs ────────────────────────────────
-  ['li-pass', 'reg-pass'].forEach(id => {
-    const el = $(id);
-    el.addEventListener('focus',   () => console.log(`[pass:${id}] focus | readOnly=${el.readOnly} | disabled=${el.disabled} | tabIndex=${el.tabIndex}`));
-    el.addEventListener('blur',    () => console.log(`[pass:${id}] blur  | value.length=${el.value.length}`));
-    el.addEventListener('click',   () => console.log(`[pass:${id}] click | readOnly=${el.readOnly} | disabled=${el.disabled}`));
-    el.addEventListener('keydown', e  => console.log(`[pass:${id}] keydown  key="${e.key}" code="${e.code}" defaultPrevented=${e.defaultPrevented} propagationStopped=${e._stopped}`));
-    el.addEventListener('keyup',   e  => console.log(`[pass:${id}] keyup    key="${e.key}"`));
-    el.addEventListener('input',   e  => console.log(`[pass:${id}] input    value.length=${el.value.length} inputType=${e.inputType}`));
-    el.addEventListener('paste',   e  => console.log(`[pass:${id}] paste    clipboardData="${e.clipboardData?.getData('text')?.length} chars"`));
-    // Check for readonly/disabled changes via MutationObserver
-    new MutationObserver(muts => {
-      for (const m of muts) {
-        console.log(`[pass:${id}] attr changed: ${m.attributeName} = "${el.getAttribute(m.attributeName)}"`);
-      }
-    }).observe(el, { attributes: true });
-  });
-  // Log initial state
-  setTimeout(() => {
-    ['li-pass', 'reg-pass'].forEach(id => {
-      const el = $(id);
-      console.log(`[pass:${id}] INIT | type=${el.type} readOnly=${el.readOnly} disabled=${el.disabled} tabIndex=${el.tabIndex} pointerEvents=${getComputedStyle(el).pointerEvents}`);
-    });
-  }, 500);
-  // ─────────────────────────────────────────────────────────────
+  // ── Mobile sidebar toggle ────────────────────────────────────
+  function openMobileSidebar()  { $('app').classList.add('mobile-sidebar-open'); }
+  function closeMobileSidebar() { $('app').classList.remove('mobile-sidebar-open'); }
+  $('btn-mobile-menu').onclick = openMobileSidebar;
+  $('mobile-sidebar-overlay').onclick = closeMobileSidebar;
+  // Close sidebar after selecting a channel/DM on mobile
+  document.addEventListener('da:channel-selected', closeMobileSidebar);
 
   // DM home
   $('btn-home').onclick = () => selectServer('@me');
@@ -1718,9 +1708,12 @@ function setup() {
   $('reply-close').onclick = cancelReply;
 
   // Mute button
+  const MIC_ON  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
+  const MIC_OFF = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.34 3 3 3 .23 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>`;
   $('btn-toggle-mute').onclick = () => {
     muted = !muted;
-    $('btn-toggle-mute').textContent = muted ? '🔇' : '🎤';
+    $('btn-toggle-mute').innerHTML = muted ? MIC_OFF : MIC_ON;
+    $('btn-toggle-mute').style.color = muted ? 'var(--danger)' : '';
   };
 
   // Settings button
@@ -1879,23 +1872,17 @@ function setup() {
 } // end setup()
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-// Dev helper: call window.__skipAuth() in DevTools console to bypass login
-window.__skipAuth = function() {
-  S.me = { id: 'dev', username: 'dev', discriminator: '0000', avatar_color: '#5865f2', custom_status: 'dev mode' };
-  S.servers = [];
-  S.dmChannels = [];
-  S.presences  = {};
-  hideAuth();
-  updateSidebarUser();
-  renderServerIcons();
-  selectServer('@me');
-  console.log('%c[dev] Auth bypassed. Socket gateway не подключён.', 'color:#5865f2;font-weight:bold');
-};
+function hideSplash() {
+  const splash = document.getElementById('splash-screen');
+  if (!splash) return;
+  splash.classList.add('fade-out');
+  setTimeout(() => splash.remove(), 320);
+}
 
 async function init() {
   setup();
 
-  // Check if socket.io is available
+  // Load socket.io if needed
   if (!window.io) {
     const script = document.createElement('script');
     script.src = '/socket.io/socket.io.js';
@@ -1905,17 +1892,22 @@ async function init() {
 
   const token = API.getToken();
   if (!token) {
+    // No stored session — show login immediately
+    hideSplash();
     showAuth('login');
     return;
   }
 
-  // Validate token
+  // Silently validate stored session (api.js auto-refreshes if expired)
   try {
     S.me = await API.get('/api/@me');
+    hideSplash();
     window.dispatchEvent(new CustomEvent('da:authenticated'));
     await bootApp();
   } catch {
+    // Token invalid and refresh failed — force re-login
     API.clearTokens();
+    hideSplash();
     showAuth('login');
   }
 }
