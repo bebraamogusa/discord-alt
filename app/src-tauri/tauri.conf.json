@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "identifier": "com.discord-alt.app",
   "build": {
-    "frontendDist": "https://lolihentai.online:8443"
+    "frontendDist": "https://lolihentai.online"
   },
   "app": {
     "withGlobalTauri": true,

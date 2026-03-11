@@ -1641,12 +1641,6 @@ function setup() {
   $('li-pass').onkeydown  = e => e.key === 'Enter' && doLogin();
   $('reg-pass').onkeydown = e => e.key === 'Enter' && doRegister();
 
-  // Switch password fields from type=text to type=password on first focus
-  // (prevents Dashlane/DWL from injecting readonly on page load)
-  ['li-pass','reg-pass'].forEach(id => {
-    const el = $(id);
-    el.addEventListener('focus', () => { if (el.type !== 'password') el.type = 'password'; }, { once: true });
-  });
 
   // DM home
   $('btn-home').onclick = () => selectServer('@me');
