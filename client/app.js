@@ -1537,14 +1537,14 @@ function showServerDropdown() {
   const isOwner = srv.owner_id === S.me?.id;
   const dd = $('server-dropdown');
   dd.innerHTML = `
-    <div class="sm-item" id="sm-invite">📋 ${t('invite_people')} <span class="text-muted">⌘I</span></div>
-    ${isOwner ? `<div class="sm-item" id="sm-settings">⚙ ${t('server_settings_menu')}</div>` : ''}
-    <div class="sm-item" id="sm-create-ch">+ ${t('create_channel')}</div>
-    <div class="sm-item" id="sm-create-cat">📁 ${t('create_category')}</div>
+    <div class="sm-item" id="sm-invite"><span class="sm-icon">📋</span><span class="sm-label">${t('invite_people')}</span><span class="sm-hint">⌘I</span></div>
+    ${isOwner ? `<div class="sm-item" id="sm-settings"><span class="sm-icon">⚙️</span><span class="sm-label">${t('server_settings_menu')}</span></div>` : ''}
+    <div class="sm-item" id="sm-create-ch"><span class="sm-icon">＋</span><span class="sm-label">${t('create_channel')}</span></div>
+    <div class="sm-item" id="sm-create-cat"><span class="sm-icon">📁</span><span class="sm-label">${t('create_category')}</span></div>
     <div class="sm-divider"></div>
     ${isOwner
-      ? `<div class="sm-item danger" id="sm-delete">🗑 ${t('delete_server')}</div>`
-      : `<div class="sm-item danger" id="sm-leave">🚪 ${t('leave_server')}</div>`}
+      ? `<div class="sm-item danger" id="sm-delete"><span class="sm-icon">🗑️</span><span class="sm-label">${t('delete_server')}</span></div>`
+      : `<div class="sm-item danger" id="sm-leave"><span class="sm-icon">🚪</span><span class="sm-label">${t('leave_server')}</span></div>`}
   `;
   dd.classList.remove('hidden');
   dd.querySelector('#sm-invite')?.addEventListener('click', () => { createInvite(srv.id); hideServerDropdown(); });
@@ -1666,16 +1666,16 @@ function openServerSettings(serverId) {
   $('ss-delete-server').classList.toggle('hidden', !isOwner);
 
   const pages = [
-    { id: 'overview',  label: t('ss_overview') },
-    { id: 'roles',     label: t('ss_roles') },
-    { id: 'members',   label: t('ss_members') },
-    { id: 'bans',      label: t('ss_bans') },
-    { id: 'invites',   label: t('ss_invites') },
-    { id: 'audit',     label: t('ss_audit') },
+    { id: 'overview',  label: t('ss_overview'), icon: '📋' },
+    { id: 'roles',     label: t('ss_roles'),    icon: '🛡️' },
+    { id: 'members',   label: t('ss_members'),  icon: '👥' },
+    { id: 'bans',      label: t('ss_bans'),     icon: '🔨' },
+    { id: 'invites',   label: t('ss_invites'),  icon: '🔗' },
+    { id: 'audit',     label: t('ss_audit'),    icon: '📜' },
   ];
 
   $('ss-nav-items').innerHTML = pages.map(p => `
-    <div class="settings-nav-item ${p.id === 'overview' ? 'active' : ''}" data-ss-page="${p.id}">${p.label}</div>
+    <div class="settings-nav-item ${p.id === 'overview' ? 'active' : ''}" data-ss-page="${p.id}"><span class="nav-icon">${p.icon}</span>${p.label}</div>
   `).join('');
 
   $('ss-nav-items').querySelectorAll('[data-ss-page]').forEach(el => {
@@ -1696,7 +1696,8 @@ function openServerSettings(serverId) {
 async function renderServerSettingsPage(serverId, page) {
   const srv = getServer(serverId);
   if (!srv) return;
-  $('ss-page-title').textContent = { overview: t('ss_overview'), roles: t('ss_roles'), members: t('ss_members'), bans: t('ss_bans'), invites: t('ss_invites'), audit: t('ss_audit') }[page] || page;
+  const titleIcons = { overview: '📋', roles: '🛡️', members: '👥', bans: '🔨', invites: '🔗', audit: '📜' };
+  $('ss-page-title').innerHTML = `${titleIcons[page] || ''} ${{ overview: t('ss_overview'), roles: t('ss_roles'), members: t('ss_members'), bans: t('ss_bans'), invites: t('ss_invites'), audit: t('ss_audit') }[page] || page}`;
   const body = $('ss-page-body');
   body.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 
@@ -2338,26 +2339,35 @@ function applyI18nToHtml() {
 
   // Server settings default title
   const ssTitle = $('ss-page-title');
-  if (ssTitle) ssTitle.textContent = t('overview');
-  const ssLeave = $('ss-leave-server');
-  if (ssLeave) ssLeave.textContent = t('leave_server_menu');
-  const ssDelete = $('ss-delete-server');
-  if (ssDelete) ssDelete.textContent = t('delete_server_icon');
+  if (ssTitle && !ssTitle.innerHTML.trim()) ssTitle.textContent = t('ss_overview');
 
-  // User settings nav
+  // User settings nav — update via data-i18n spans
   const usNav = $('us-nav-items');
   if (usNav) {
     const items = usNav.querySelectorAll('[data-page]');
     items.forEach(el => {
-      if (el.dataset.page === 'profile')    el.textContent = t('us_profile');
-      if (el.dataset.page === 'appearance') el.textContent = t('us_appearance');
-      if (el.dataset.page === 'language')   el.textContent = t('us_language');
+      const span = el.querySelector('[data-i18n]');
+      if (span) span.textContent = t(span.dataset.i18n);
+      else {
+        if (el.dataset.page === 'profile')    el.textContent = t('us_profile');
+        if (el.dataset.page === 'appearance') el.textContent = t('us_appearance');
+        if (el.dataset.page === 'language')   el.textContent = t('us_language');
+      }
     });
     const logout = $('us-logout');
-    if (logout) logout.textContent = t('us_logout');
+    if (logout) {
+      const span = logout.querySelector('[data-i18n]');
+      if (span) span.textContent = t(span.dataset.i18n);
+      else logout.textContent = t('us_logout');
+    }
   }
   const usTitle = document.querySelector('#user-settings .settings-nav-title');
   if (usTitle) usTitle.textContent = t('settings_title');
+
+  // Generic data-i18n for server settings leave/delete
+  document.querySelectorAll('#server-settings [data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
 }
 
 // ─── EVENT LISTENERS ──────────────────────────────────────────────────────────

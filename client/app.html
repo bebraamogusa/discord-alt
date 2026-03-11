@@ -274,14 +274,14 @@
 <!-- Server settings (full screen) -->
 <div id="server-settings" class="settings-overlay hidden">
   <div class="settings-nav">
-    <div class="settings-nav-title" id="ss-server-name">Сервер</div>
+    <div class="settings-nav-title" id="ss-server-name"></div>
     <div id="ss-nav-items"></div>
     <div class="settings-nav-divider"></div>
-    <div class="settings-nav-item text-danger" id="ss-leave-server">Покинуть сервер</div>
-    <div class="settings-nav-item text-danger hidden" id="ss-delete-server">🗑 Удалить сервер</div>
+    <div class="settings-nav-item text-danger" id="ss-leave-server"><span class="nav-icon">🚪</span><span data-i18n="leave_server"></span></div>
+    <div class="settings-nav-item text-danger hidden" id="ss-delete-server"><span class="nav-icon">🗑️</span><span data-i18n="delete_server"></span></div>
   </div>
   <div class="settings-content" id="ss-content">
-    <div class="settings-section-title" id="ss-page-title">Обзор</div>
+    <div class="settings-section-title" id="ss-page-title"></div>
     <div id="ss-page-body"></div>
   </div>
   <button class="settings-close" id="ss-close">✕</button>
@@ -290,13 +290,13 @@
 <!-- User settings -->
 <div id="user-settings" class="settings-overlay hidden">
   <div class="settings-nav">
-    <div class="settings-nav-title">Настройки</div>
+    <div class="settings-nav-title" data-i18n="settings_title"></div>
     <div id="us-nav-items">
-      <div class="settings-nav-item active" data-page="profile">Мой аккаунт</div>
-      <div class="settings-nav-item" data-page="appearance">Оформление</div>
-      <div class="settings-nav-item" data-page="language">Язык</div>
+      <div class="settings-nav-item active" data-page="profile"><span class="nav-icon">👤</span><span data-i18n="us_profile"></span></div>
+      <div class="settings-nav-item" data-page="appearance"><span class="nav-icon">🎨</span><span data-i18n="us_appearance"></span></div>
+      <div class="settings-nav-item" data-page="language"><span class="nav-icon">🌐</span><span data-i18n="us_language"></span></div>
       <div class="settings-nav-divider"></div>
-      <div class="settings-nav-item text-danger" id="us-logout">Выйти</div>
+      <div class="settings-nav-item text-danger" id="us-logout"><span class="nav-icon">🚪</span><span data-i18n="logout"></span></div>
     </div>
   </div>
   <div class="settings-content" id="us-content"></div>
