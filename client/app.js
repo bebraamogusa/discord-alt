@@ -1638,8 +1638,8 @@ function setup() {
   $('reg-btn').onclick = doRegister;
   $('goto-register').onclick = () => showAuth('register');
   $('goto-login').onclick    = () => showAuth('login');
-  $('li-pass').onkeydown  = e => e.key === 'Enter' && doLogin();
-  $('reg-pass').onkeydown = e => e.key === 'Enter' && doRegister();
+  $('li-pass').onkeydown  = e => { if (e.key === 'Enter') doLogin(); };
+  $('reg-pass').onkeydown = e => { if (e.key === 'Enter') doRegister(); };
 
   // ── Password field debug logs ────────────────────────────────
   ['li-pass', 'reg-pass'].forEach(id => {
