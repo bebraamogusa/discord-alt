@@ -3,6 +3,7 @@
  * Vanilla JS, no frameworks.
  */
 import * as API from '/api.js';
+import { t, setLang, getLang, LANG_NAMES } from '/i18n.js';
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const S = {
@@ -39,18 +40,20 @@ function showToast(msg, type = '') {
 }
 
 // ─── CUSTOM DIALOGS ───────────────────────────────────────────────────────────
-function daConfirm(message, { title = 'Подтвердите действие', danger = false, confirmText, cancelText = 'Отмена' } = {}) {
-  const okText   = confirmText || (danger ? 'Удалить' : 'Подтвердить');
+function daConfirm(message, { title, danger = false, confirmText, cancelText } = {}) {
+  const _title   = title       || t('confirm_action');
+  const _cancel  = cancelText  || t('cancel');
+  const okText   = confirmText || (danger ? t('delete_btn') : t('confirm'));
   const okClass  = danger ? 'btn btn-danger-solid' : 'btn btn-accent';
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'da-dialog-overlay';
     overlay.innerHTML = `
       <div class="da-dialog-box" role="dialog" aria-modal="true">
-        <div class="da-dialog-head"><h3>${escHtml(title)}</h3></div>
+        <div class="da-dialog-head"><h3>${escHtml(_title)}</h3></div>
         <div class="da-dialog-body"><p>${escHtml(message)}</p></div>
         <div class="da-dialog-foot">
-          <button class="btn btn-outline" id="dac-cancel">${escHtml(cancelText)}</button>
+          <button class="btn btn-outline" id="dac-cancel">${escHtml(_cancel)}</button>
           <button class="${okClass}" id="dac-ok">${escHtml(okText)}</button>
         </div>
       </div>`;
@@ -68,20 +71,23 @@ function daConfirm(message, { title = 'Подтвердите действие',
   });
 }
 
-function daPrompt(message, { title = 'Введите значение', placeholder = '', confirmText = 'OK', cancelText = 'Отмена' } = {}) {
+function daPrompt(message, { title, placeholder = '', confirmText, cancelText } = {}) {
+  const _title   = title       || t('confirm_action');
+  const _ok      = confirmText || t('ok');
+  const _cancel  = cancelText  || t('cancel');
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'da-dialog-overlay';
     overlay.innerHTML = `
       <div class="da-dialog-box" role="dialog" aria-modal="true">
-        <div class="da-dialog-head"><h3>${escHtml(title)}</h3></div>
+        <div class="da-dialog-head"><h3>${escHtml(_title)}</h3></div>
         <div class="da-dialog-body">
           <p>${escHtml(message)}</p>
           <input class="da-dialog-input" id="dap-input" type="text" placeholder="${escHtml(placeholder)}" autocomplete="off">
         </div>
         <div class="da-dialog-foot">
-          <button class="btn btn-outline" id="dap-cancel">${escHtml(cancelText)}</button>
-          <button class="btn btn-accent" id="dap-ok">${escHtml(confirmText)}</button>
+          <button class="btn btn-outline" id="dap-cancel">${escHtml(_cancel)}</button>
+          <button class="btn btn-accent" id="dap-ok">${escHtml(_ok)}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -1140,11 +1146,11 @@ function showServerContextMenu(e, serverId) {
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
   showCtxMenu(e.clientX, e.clientY, [
-    { label: '⚙ Настройки сервера', onClick: () => openServerSettings(serverId) },
-    { label: '📋 Создать инвайт',   onClick: () => createInvite(serverId) },
+    { label: '⚙ ' + t('server_settings_menu'), onClick: () => openServerSettings(serverId) },
+    { label: '📋 ' + t('invite_people'),        onClick: () => createInvite(serverId) },
     { divider: true },
-    !isOwner && { label: '🚪 Покинуть сервер', danger: true, onClick: () => leaveServer(serverId) },
-    isOwner  && { label: '🗑 Удалить сервер',  danger: true, onClick: () => deleteServer(serverId) },
+    !isOwner && { label: '🚪 ' + t('leave_server'),  danger: true, onClick: () => leaveServer(serverId) },
+    isOwner  && { label: '🗑 ' + t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
   ].filter(Boolean));
 }
 
@@ -1154,24 +1160,24 @@ function showChannelContextMenu(e, channelId) {
   const canManage = getServer(ch.server_id)?.owner_id === S.me?.id;
   if (!canManage) return;
   showCtxMenu(e.clientX, e.clientY, [
-    { label: '✏ Переименовать', onClick: () => renameChannel(ch) },
-    { label: '🗑 Удалить канал', danger: true, onClick: () => deleteChannel(channelId) },
+    { label: '✏ ' + t('rename_channel'), onClick: () => renameChannel(ch) },
+    { label: '🗑 ' + t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
   ]);
 }
 
 async function renameChannel(ch) {
-  const name = prompt('Новое название канала:', ch.name);
+  const name = await daPrompt(t('channel_name'), { title: t('rename_channel'), placeholder: ch.name, confirmText: t('ok') });
   if (!name || name === ch.name) return;
   try {
     await API.patch(`/api/channels/${ch.id}`, { name: name.trim() });
-    showToast('Канал переименован');
-  } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+    showToast(t('renamed'), 'success');
+  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 async function deleteChannel(channelId) {
-  if (!await daConfirm('Все сообщения в этом канале будут безвозвратно удалены.', { title: 'Удалить канал', danger: true })) return;
+  if (!await daConfirm(t('confirm_delete_channel_msg'), { title: t('delete_channel'), danger: true })) return;
   try { await API.del(`/api/channels/${channelId}`); }
-  catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+  catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 // ─── SERVER DROPDOWN ──────────────────────────────────────────────────────────
@@ -1182,14 +1188,14 @@ function showServerDropdown() {
   const isOwner = srv.owner_id === S.me?.id;
   const dd = $('server-dropdown');
   dd.innerHTML = `
-    <div class="sm-item" id="sm-invite">📋 Пригласить людей <span class="text-muted">⌘I</span></div>
-    ${isOwner ? `<div class="sm-item" id="sm-settings">⚙ Настройки сервера</div>` : ''}
-    <div class="sm-item" id="sm-create-ch">+ Создать канал</div>
-    <div class="sm-item" id="sm-create-cat">📁 Создать категорию</div>
+    <div class="sm-item" id="sm-invite">📋 ${t('invite_people')} <span class="text-muted">⌘I</span></div>
+    ${isOwner ? `<div class="sm-item" id="sm-settings">⚙ ${t('server_settings_menu')}</div>` : ''}
+    <div class="sm-item" id="sm-create-ch">+ ${t('create_channel')}</div>
+    <div class="sm-item" id="sm-create-cat">📁 ${t('create_category')}</div>
     <div class="sm-divider"></div>
     ${isOwner
-      ? `<div class="sm-item danger" id="sm-delete">🗑 Удалить сервер</div>`
-      : `<div class="sm-item danger" id="sm-leave">🚪 Покинуть сервер</div>`}
+      ? `<div class="sm-item danger" id="sm-delete">🗑 ${t('delete_server')}</div>`
+      : `<div class="sm-item danger" id="sm-leave">🚪 ${t('leave_server')}</div>`}
   `;
   dd.classList.remove('hidden');
   dd.querySelector('#sm-invite')?.addEventListener('click', () => { createInvite(srv.id); hideServerDropdown(); });
@@ -1213,34 +1219,34 @@ async function createInvite(serverId) {
     const inv = await API.post(`/api/servers/${serverId}/invites`, { ttl_seconds: 7 * 24 * 3600 });
     const url = `${location.origin}/app?invite=${inv.code}`;
     await navigator.clipboard.writeText(url).catch(() => {});
-    showToast(`Ссылка скопирована: ${url}`, 'success');
-  } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+    showToast(t('invite_copied', { url }), 'success');
+  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 async function leaveServer(serverId) {
   const srv = getServer(serverId);
-  if (!await daConfirm(`Вы покинете сервер «${srv?.name || 'сервер'}». Вернуться можно только по приглашению.`, { title: 'Покинуть сервер', danger: true, confirmText: 'Покинуть' })) return;
+  if (!await daConfirm(t('confirm_leave_server', { name: srv?.name || '?' }), { title: t('leave_server'), danger: true, confirmText: t('confirm_leave_server_btn') })) return;
   try {
     await API.post(`/api/servers/${serverId}/leave`);
     S.servers = S.servers.filter(s => s.id !== serverId);
     renderServerIcons();
     selectServer('@me');
-  } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 async function deleteServer(serverId) {
   const srv = getServer(serverId);
-  if (!await daConfirm(`Сервер «${srv?.name || 'сервер'}» и все его каналы и сообщения будут удалены навсегда. Это действие необратимо.`, { title: 'Удалить сервер', danger: true })) return;
+  if (!await daConfirm(t('confirm_delete_server', { name: srv?.name || '?' }), { title: t('delete_server'), danger: true })) return;
   try {
     await API.del(`/api/servers/${serverId}`);
     S.servers = S.servers.filter(s => s.id !== serverId);
     renderServerIcons();
     selectServer('@me');
-  } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 async function createCategory(serverId) {
-  const name = prompt('Название категории:');
+  const name = await daPrompt(t('category_name'), { title: t('create_category'), confirmText: t('create') });
   if (!name) return;
   try {
     await API.post(`/api/servers/${serverId}/categories`, { name });
@@ -1294,10 +1300,7 @@ async function showPins() {
 
 // ─── NEW DM MODAL ─────────────────────────────────────────────────────────────
 function showNewDmModal() {
-  const name = prompt('Имя пользователя (@username):');
-  if (!name) return;
-  // Can't search by username directly with current API, show placeholder
-  showToast('Скопируйте ID пользователя и передайте ссылку-приглашение', 'error');
+  showToast(t('dm_hint'), 'error');
 }
 
 // ─── MODAL HELPERS ────────────────────────────────────────────────────────────
@@ -1314,12 +1317,12 @@ function openServerSettings(serverId) {
   $('ss-delete-server').classList.toggle('hidden', !isOwner);
 
   const pages = [
-    { id: 'overview',  label: 'Обзор' },
-    { id: 'roles',     label: 'Роли' },
-    { id: 'members',   label: 'Участники' },
-    { id: 'bans',      label: 'Баны' },
-    { id: 'invites',   label: 'Инвайты' },
-    { id: 'audit',     label: 'Аудит-лог' },
+    { id: 'overview',  label: t('ss_overview') },
+    { id: 'roles',     label: t('ss_roles') },
+    { id: 'members',   label: t('ss_members') },
+    { id: 'bans',      label: t('ss_bans') },
+    { id: 'invites',   label: t('ss_invites') },
+    { id: 'audit',     label: t('ss_audit') },
   ];
 
   $('ss-nav-items').innerHTML = pages.map(p => `
@@ -1344,7 +1347,7 @@ function openServerSettings(serverId) {
 async function renderServerSettingsPage(serverId, page) {
   const srv = getServer(serverId);
   if (!srv) return;
-  $('ss-page-title').textContent = { overview: 'Обзор', roles: 'Роли', members: 'Участники', bans: 'Баны', invites: 'Инвайты', audit: 'Аудит-лог' }[page] || page;
+  $('ss-page-title').textContent = { overview: t('ss_overview'), roles: t('ss_roles'), members: t('ss_members'), bans: t('ss_bans'), invites: t('ss_invites'), audit: t('ss_audit') }[page] || page;
   const body = $('ss-page-body');
   body.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 
@@ -1352,34 +1355,34 @@ async function renderServerSettingsPage(serverId, page) {
     const invUrl = `${location.origin}/app?invite=${srv.invite_code}`;
     body.innerHTML = `
       <div class="form-group">
-        <label>Название сервера</label>
+        <label>${t('server_name')}</label>
         <input id="ss-name" value="${escHtml(srv.name)}">
       </div>
       <div class="form-group">
-        <label>Описание</label>
+        <label>${t('server_description')}</label>
         <textarea id="ss-desc">${escHtml(srv.description||'')}</textarea>
       </div>
       <div class="form-group">
-        <label>Иконка (URL)</label>
+        <label>${t('server_icon_url')}</label>
         <input id="ss-icon" value="${escHtml(srv.icon_url||'')}">
       </div>
       <div class="form-group">
-        <label>Баннер (URL)</label>
+        <label>${t('server_banner_url')}</label>
         <input id="ss-banner" value="${escHtml(srv.banner_url||'')}">
       </div>
-      <button class="btn btn-primary mt-8" id="ss-save-overview">Сохранить изменения</button>
+      <button class="btn btn-primary mt-8" id="ss-save-overview">${t('save_changes')}</button>
 
       <div class="form-group mt-16">
-        <label>Ссылка-приглашение (постоянная)</label>
+        <label>${t('invite_link')}</label>
         <div class="invite-link-box">
           <code id="ss-invite-url">${escHtml(invUrl)}</code>
-          <button class="btn btn-primary copy-btn" id="ss-copy-inv">Скопировать</button>
+          <button class="btn btn-primary copy-btn" id="ss-copy-inv">${t('copy')}</button>
         </div>
       </div>
 
       <div class="danger-zone">
-        <h4>Опасная зона</h4>
-        <button class="btn btn-danger" id="ss-danger-delete">Удалить сервер</button>
+        <h4>${t('danger_zone')}</h4>
+        <button class="btn btn-danger" id="ss-danger-delete">${t('delete_server_btn')}</button>
       </div>
     `;
     $('ss-save-overview').onclick = async () => {
@@ -1393,33 +1396,34 @@ async function renderServerSettingsPage(serverId, page) {
         const idx = S.servers.findIndex(s => s.id === serverId);
         if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...updated };
         renderServerIcons();
-        showToast('Сохранено', 'success');
-      } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        showToast(t('saved'), 'success');
+      } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
     };
-    $('ss-copy-inv').onclick = () => { navigator.clipboard.writeText(invUrl).catch(()=>{}); showToast('Скопировано!', 'success'); };
+    $('ss-copy-inv').onclick = () => { navigator.clipboard.writeText(invUrl).catch(()=>{}); showToast(t('copied'), 'success'); };
     $('ss-danger-delete').onclick = () => deleteServer(serverId);
   }
 
   if (page === 'roles') {
     const roles = await API.get(`/api/servers/${serverId}/roles`).catch(() => []);
     const isOwner = srv.owner_id === S.me?.id;
+    const canManageRoles = isOwner || userHasPermissionClient(serverId);
     const perms = ['send_messages','manage_messages','kick_members','ban_members','manage_channels','manage_server','mention_everyone','manage_roles','view_channel','administrator'];
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <span>${roles.length} ролей</span>
-        ${isOwner ? `<button class="btn btn-primary" id="ss-add-role">+ Создать роль</button>` : ''}
+        <span>${t('roles_count', { n: roles.length })}</span>
+        ${canManageRoles ? `<button class="btn btn-primary" id="ss-add-role">${t('create_role')}</button>` : ''}
       </div>
       <table class="settings-table">
-        <thead><tr><th>Роль</th><th>Участников</th><th>Действия</th></tr></thead>
+        <thead><tr><th>${t('role_name')}</th><th>${t('role_members')}</th><th>${t('role_actions')}</th></tr></thead>
         <tbody>
           ${roles.map(r => `
             <tr data-role-id="${escHtml(r.id)}">
               <td><span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span></td>
               <td>—</td>
               <td class="table-actions">
-                ${!r.is_default && isOwner ? `
-                  <button class="table-btn edit-role-btn" data-role-id="${escHtml(r.id)}" title="Редактировать">✏</button>
-                  <button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="Удалить">🗑</button>
+                ${!r.is_default && canManageRoles ? `
+                  <button class="table-btn edit-role-btn" data-role-id="${escHtml(r.id)}" title="${t('edit')}">&#9998;</button>
+                  <button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="${t('delete')}">&#128465;</button>
                 ` : ''}
               </td>
             </tr>
@@ -1429,24 +1433,25 @@ async function renderServerSettingsPage(serverId, page) {
     `;
 
     body.querySelector('#ss-add-role')?.addEventListener('click', async () => {
-      const name  = prompt('Название роли:'); if (!name) return;
-      const color = prompt('Цвет (hex, напр. #ff4444):', '#99aab5') || '#99aab5';
+      const name = await daPrompt(t('role_name'), { title: t('create_role'), confirmText: t('create') });
+      if (!name) return;
+      const color = await daPrompt(t('role_color') + ' (hex)',  { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
       try {
-        const role = await API.post(`/api/servers/${serverId}/roles`, { name, color });
+        const role = await API.post(`/api/servers/${serverId}/roles`, { name, color: color || '#99aab5' });
         const idx = S.servers.findIndex(s => s.id === serverId);
         if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles||[]), role];
         renderServerSettingsPage(serverId, 'roles');
-        showToast('Роль создана', 'success');
-      } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        showToast(t('role_created'), 'success');
+      } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
     });
     body.querySelectorAll('.delete-role-btn').forEach(btn => {
       btn.onclick = async () => {
-        if (!await daConfirm('Роль будет удалена у всех участников сервера.', { title: 'Удалить роль', danger: true })) return;
+        if (!await daConfirm(t('confirm_delete_role'), { title: t('confirm_delete_role_title'), danger: true })) return;
         try {
           await API.del(`/api/servers/${serverId}/roles/${btn.dataset.roleId}`);
           renderServerSettingsPage(serverId, 'roles');
-          showToast('Роль удалена');
-        } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+          showToast(t('role_deleted'));
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
     body.querySelectorAll('.edit-role-btn').forEach(btn => {
@@ -1457,21 +1462,26 @@ async function renderServerSettingsPage(serverId, page) {
   if (page === 'members') {
     const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
-    const roles = getServer(serverId)?.roles || [];
+    const roles = getServer(serverId)?.roles?.filter(r => !r.is_default) || [];
+    const isOwner = srv.owner_id === S.me?.id;
+    const canManage = isOwner || userHasPermissionClient(serverId);
     body.innerHTML = `
       <table class="settings-table">
-        <thead><tr><th>Пользователь</th><th>Ник</th><th>Роли</th><th>Вступил</th><th></th></tr></thead>
+        <thead><tr><th>${t('member_user')}</th><th>${t('member_nick')}</th><th>${t('member_roles')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
         <tbody>
           ${members.map(m => `
             <tr>
               <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.username)}</div></td>
               <td>${escHtml(m.nickname||'—')}</td>
-              <td>${(m.roles||[]).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}</td>
+              <td>
+                ${(m.roles||[]).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
+                ${canManage && roles.length ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
+              </td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(m.joined_at)}</td>
               <td class="table-actions">
-                ${m.id !== S.me?.id ? `
-                  <button class="table-btn del kick-btn" data-user-id="${escHtml(m.id)}" title="Кик">👢</button>
-                  <button class="table-btn del ban-btn" data-user-id="${escHtml(m.id)}" title="Бан">🔨</button>
+                ${m.id !== S.me?.id && canManage ? `
+                  <button class="table-btn del kick-btn" data-user-id="${escHtml(m.id)}" title="${t('kick')}">&#128098;</button>
+                  <button class="table-btn del ban-btn" data-user-id="${escHtml(m.id)}" title="${t('ban')}">&#128296;</button>
                 ` : ''}
               </td>
             </tr>
@@ -1481,32 +1491,68 @@ async function renderServerSettingsPage(serverId, page) {
     `;
     body.querySelectorAll('.kick-btn').forEach(btn => {
       btn.onclick = async () => {
-        if (!await daConfirm('Пользователь будет исключён с сервера. Он сможет вернуться по новому приглашению.', { title: 'Кикнуть участника', danger: true, confirmText: 'Кикнуть' })) return;
+        if (!await daConfirm(t('confirm_kick'), { title: t('confirm_kick_title'), danger: true, confirmText: t('confirm_kick_btn') })) return;
         try { await API.del(`/api/servers/${serverId}/members/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'members'); }
-        catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
     body.querySelectorAll('.ban-btn').forEach(btn => {
       btn.onclick = async () => {
-        const reason = prompt('Причина бана (необязательно):');
+        const reason = await daPrompt(t('prompt_ban_reason'), { title: t('prompt_ban_reason_title'), confirmText: t('ok') });
         if (reason === null) return;
-        try { await API.post(`/api/servers/${serverId}/bans/${btn.dataset.userId}`, { reason }); renderServerSettingsPage(serverId, 'members'); showToast('Забанен'); }
-        catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        try { await API.post(`/api/servers/${serverId}/bans/${btn.dataset.userId}`, { reason }); renderServerSettingsPage(serverId, 'members'); showToast(t('banned')); }
+        catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    });
+    // Role assignment
+    body.querySelectorAll('.assign-role-btn').forEach(btn => {
+      btn.onclick = async e => {
+        e.stopPropagation();
+        const memberId = btn.dataset.userId;
+        const member = members.find(m => m.id === memberId);
+        const assignedIds = new Set((member?.roles||[]).map(r => r.id));
+        const items = roles.map(r => `
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+            <input type="checkbox" data-role-id="${escHtml(r.id)}" ${assignedIds.has(r.id) ? 'checked' : ''}>
+            <span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>
+          </label>
+        `).join('');
+        const overlay = document.createElement('div');
+        overlay.className = 'da-dialog-overlay';
+        overlay.innerHTML = `<div class="da-dialog-box"><div class="da-dialog-head"><h3>${t('assign_role')}</h3></div><div class="da-dialog-body">${items}</div><div class="da-dialog-foot"><button class="btn btn-outline" id="daa-close">${t('cancel')}</button><button class="btn btn-accent" id="daa-save">${t('save')}</button></div></div>`;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.querySelector('#daa-close').onclick = close;
+        overlay.onclick = ev => { if (ev.target === overlay) close(); };
+        overlay.querySelector('#daa-save').onclick = async () => {
+          const checks = overlay.querySelectorAll('input[data-role-id]');
+          for (const cb of checks) {
+            const rid = cb.dataset.roleId;
+            const was = assignedIds.has(rid);
+            if (cb.checked && !was) {
+              await API.post(`/api/servers/${serverId}/members/${memberId}/roles/${rid}`, {}).catch(() => {});
+            } else if (!cb.checked && was) {
+              await API.del(`/api/servers/${serverId}/members/${memberId}/roles/${rid}`).catch(() => {});
+            }
+          }
+          close();
+          renderServerSettingsPage(serverId, 'members');
+        };
       };
     });
   }
 
   if (page === 'bans') {
     const bans = await API.get(`/api/servers/${serverId}/bans`).catch(() => []);
-    body.innerHTML = !bans.length ? '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Нет банов</div></div>' : `
+    body.innerHTML = !bans.length ? `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">${t('no_bans')}</div></div>` : `
       <table class="settings-table">
-        <thead><tr><th>Пользователь</th><th>Причина</th><th></th></tr></thead>
+        <thead><tr><th>${t('member_user')}</th><th>${t('ban_reason')}</th><th></th></tr></thead>
         <tbody>
           ${bans.map(b => `
             <tr>
               <td>${escHtml(b.username)}</td>
               <td>${escHtml(b.reason||'—')}</td>
-              <td><button class="btn btn-outline unban-btn" data-user-id="${escHtml(b.user_id)}">Разбанить</button></td>
+              <td><button class="btn btn-outline unban-btn" data-user-id="${escHtml(b.user_id)}">${t('unban')}</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -1514,8 +1560,8 @@ async function renderServerSettingsPage(serverId, page) {
     `;
     body.querySelectorAll('.unban-btn').forEach(btn => {
       btn.onclick = async () => {
-        try { await API.del(`/api/servers/${serverId}/bans/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'bans'); showToast('Разбанен'); }
-        catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        try { await API.del(`/api/servers/${serverId}/bans/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'bans'); showToast(t('unbanned')); }
+        catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
   }
@@ -1523,18 +1569,18 @@ async function renderServerSettingsPage(serverId, page) {
   if (page === 'invites') {
     const invites = await API.get(`/api/servers/${serverId}/invites`).catch(() => []);
     body.innerHTML = `
-      <button class="btn btn-primary mb-8" id="ss-create-inv">+ Создать инвайт</button>
-      ${!invites.length ? '<div class="empty-state"><div class="empty-text">Нет инвайтов</div></div>' : `
+      <button class="btn btn-primary mb-8" id="ss-create-inv">${t('create_invite')}</button>
+      ${!invites.length ? `<div class="empty-state"><div class="empty-text">${t('no_invites')}</div></div>` : `
       <table class="settings-table">
-        <thead><tr><th>Код</th><th>Создал</th><th>Использований</th><th>Истекает</th><th></th></tr></thead>
+        <thead><tr><th>${t('invite_code')}</th><th>${t('invite_creator')}</th><th>${t('invite_uses')}</th><th>${t('invite_expires')}</th><th></th></tr></thead>
         <tbody>
           ${invites.map(inv => `
             <tr>
               <td><code>${escHtml(inv.code)}</code></td>
               <td>${escHtml(inv.creator_username||'?')}</td>
               <td>${inv.uses}${inv.max_uses ? ` / ${inv.max_uses}` : ''}</td>
-              <td>${inv.expires_at ? fmtDatetime(inv.expires_at) : '∞'}</td>
-              <td><button class="table-btn del del-inv-btn" data-code="${escHtml(inv.code)}">🗑</button></td>
+              <td>${inv.expires_at ? fmtDatetime(inv.expires_at) : t('invite_never')}</td>
+              <td><button class="table-btn del del-inv-btn" data-code="${escHtml(inv.code)}">&#128465;</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -1544,17 +1590,17 @@ async function renderServerSettingsPage(serverId, page) {
     body.querySelectorAll('.del-inv-btn').forEach(btn => {
       btn.onclick = async () => {
         try { await API.del(`/api/invites/${btn.dataset.code}`); renderServerSettingsPage(serverId, 'invites'); }
-        catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
   }
 
   if (page === 'audit') {
     const logs = await API.get(`/api/servers/${serverId}/audit-log`).catch(() => []);
-    const LABELS = { kick:'kicked',ban:'banned',unban:'unbanned',role_create:'created role',role_delete:'deleted role',role_update:'updated role',channel_create:'created channel',channel_delete:'deleted channel',server_update:'updated server',message_delete:'deleted message',invite_create:'created invite',invite_delete:'deleted invite',pin_add:'pinned message',pin_remove:'unpinned message',member_update:'updated member' };
-    body.innerHTML = !logs.length ? '<div class="empty-state"><div class="empty-text">Нет записей</div></div>' : `
+    const LABELS = { kick: t('audit_kick'), ban: t('audit_ban'), unban: t('audit_unban'), role_create: t('audit_role_create'), role_delete: t('audit_role_delete'), role_update: t('audit_role_update'), channel_create: t('audit_channel_create'), channel_delete: t('audit_channel_delete'), server_update: t('audit_server_update'), message_delete: t('audit_message_delete'), invite_create: t('audit_invite_create'), invite_delete: t('audit_invite_delete'), pin_add: t('audit_pin_add'), pin_remove: t('audit_pin_remove'), member_update: t('audit_member_update') };
+    body.innerHTML = !logs.length ? `<div class="empty-state"><div class="empty-text">${t('no_audit')}</div></div>` : `
       <table class="settings-table">
-        <thead><tr><th>Кто</th><th>Действие</th><th>Когда</th></tr></thead>
+        <thead><tr><th>${t('audit_who')}</th><th>${t('audit_action')}</th><th>${t('audit_when')}</th></tr></thead>
         <tbody>
           ${logs.map(l => `
             <tr>
@@ -1576,32 +1622,32 @@ function openRoleEditor(serverId, roleId, roles, perms) {
   try { currentPerms = JSON.parse(role.permissions || '{}'); } catch {}
 
   const body = $('ss-page-body');
-  const LABELS = { send_messages:'Отправлять сообщения', manage_messages:'Управлять сообщениями', kick_members:'Кикать участников', ban_members:'Банить участников', manage_channels:'Управлять каналами', manage_server:'Управлять сервером', mention_everyone:'@everyone', manage_roles:'Управлять ролями', view_channel:'Видеть каналы', administrator:'Администратор' };
+  const PERM_KEY = { send_messages:'perm_send_messages', manage_messages:'perm_manage_messages', kick_members:'perm_kick_members', ban_members:'perm_ban_members', manage_channels:'perm_manage_channels', manage_server:'perm_manage_server', mention_everyone:'perm_mention_everyone', manage_roles:'perm_manage_roles', view_channel:'perm_view_channel', administrator:'perm_administrator' };
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-      <button class="btn btn-outline" id="back-to-roles">← Назад</button>
-      <h3>Редактировать: ${escHtml(role.name)}</h3>
+      <button class="btn btn-outline" id="back-to-roles">${t('back_to_roles')}</button>
+      <h3>${t('edit_role')}: ${escHtml(role.name)}</h3>
     </div>
     <div class="form-group">
-      <label>Название</label>
+      <label>${t('role_name')}</label>
       <input id="re-name" value="${escHtml(role.name)}">
     </div>
     <div class="form-group">
-      <label>Цвет</label>
+      <label>${t('role_color')}</label>
       <input type="color" id="re-color" value="${escHtml(role.color)}">
     </div>
     <div class="form-group">
-      <label>Права</label>
+      <label>${t('role_permissions')}</label>
       <div class="perm-grid">
         ${perms.map(p => `
           <div class="perm-item">
             <input type="checkbox" id="perm-${p}" ${currentPerms[p] ? 'checked' : ''}>
-            <label for="perm-${p}">${escHtml(LABELS[p]||p)}</label>
+            <label for="perm-${p}">${escHtml(t(PERM_KEY[p]||p))}</label>
           </div>
         `).join('')}
       </div>
     </div>
-    <button class="btn btn-primary" id="save-role-btn">Сохранить</button>
+    <button class="btn btn-primary" id="save-role-btn">${t('save_role')}</button>
   `;
   $('back-to-roles').onclick = () => renderServerSettingsPage(serverId, 'roles');
   $('save-role-btn').onclick = async () => {
@@ -1610,8 +1656,8 @@ function openRoleEditor(serverId, roleId, roles, perms) {
     try {
       await API.patch(`/api/servers/${serverId}/roles/${roleId}`, { name: $('re-name').value.trim(), color: $('re-color').value, permissions: newPerms });
       renderServerSettingsPage(serverId, 'roles');
-      showToast('Роль обновлена', 'success');
-    } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+      showToast(t('role_updated'), 'success');
+    } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
   };
 }
 
@@ -1629,32 +1675,32 @@ function renderUserSettingsPage(page) {
   const content = $('us-content');
   if (page === 'profile') {
     content.innerHTML = `
-      <div class="settings-section-title">Мой аккаунт</div>
+      <div class="settings-section-title">${t('my_account')}</div>
       <div class="form-group">
-        <label>Аватар (URL)</label>
+        <label>${t('avatar_url')}</label>
         <input id="us-avatar" value="${escHtml(S.me?.avatar_url||'')}" placeholder="https://...">
       </div>
       <div class="form-group">
-        <label>Цвет аватара</label>
+        <label>${t('avatar_color')}</label>
         <input type="color" id="us-av-color" value="${escHtml(S.me?.avatar_color||'#5865f2')}">
       </div>
       <div class="form-group">
-        <label>Баннер (URL)</label>
+        <label>${t('banner_url')}</label>
         <input id="us-banner" value="${escHtml(S.me?.banner_url||'')}" placeholder="https://...">
       </div>
       <div class="form-group">
-        <label>Цвет баннера</label>
+        <label>${t('banner_color')}</label>
         <input type="color" id="us-banner-color" value="${escHtml(S.me?.banner_color||'#5865f2')}">
       </div>
       <div class="form-group">
-        <label>О себе (до 190 символов)</label>
+        <label>${t('about_me')}</label>
         <textarea id="us-about" maxlength="190">${escHtml(S.me?.about_me||'')}</textarea>
       </div>
       <div class="form-group">
-        <label>Статус</label>
-        <input id="us-status" value="${escHtml(S.me?.custom_status||'')}" placeholder="Чем сейчас занят?">
+        <label>${t('custom_status')}</label>
+        <input id="us-status" value="${escHtml(S.me?.custom_status||'')}">
       </div>
-      <button class="btn btn-primary" id="us-save">Сохранить</button>
+      <button class="btn btn-primary" id="us-save">${t('save')}</button>
     `;
     $('us-save').onclick = async () => {
       try {
@@ -1669,24 +1715,24 @@ function renderUserSettingsPage(page) {
         S.me = updated;
         updateSidebarUser();
         socket?.emit('UPDATE_STATUS', { status: 'online', custom_status: updated.custom_status });
-        showToast('Сохранено', 'success');
-      } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+        showToast(t('saved'), 'success');
+      } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
     };
   } else if (page === 'appearance') {
     content.innerHTML = `
-      <div class="settings-section-title">Оформление</div>
+      <div class="settings-section-title">${t('us_appearance')}</div>
       <div class="form-group">
-        <label>Тема</label>
+        <label>${t('theme')}</label>
         <select id="us-theme">
-          <option value="dark"  ${document.documentElement.dataset.theme==='dark'  ?'selected':''}>Тёмная</option>
-          <option value="light" ${document.documentElement.dataset.theme==='light' ?'selected':''}>Светлая</option>
-          <option value="amoled"${document.documentElement.dataset.theme==='amoled'?'selected':''}>AMOLED</option>
+          <option value="dark"  ${document.documentElement.dataset.theme==='dark'  ?'selected':''}>${t('theme_dark')}</option>
+          <option value="light" ${document.documentElement.dataset.theme==='light' ?'selected':''}>${t('theme_light')}</option>
+          <option value="amoled"${document.documentElement.dataset.theme==='amoled'?'selected':''}>${t('theme_amoled')}</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Размер шрифта</label>
+        <label>${t('font_size')}</label>
         <input type="range" id="us-fontsize" min="12" max="20" value="${parseInt(localStorage.getItem('da_fontSize')||'16')}">
-        <div class="form-hint" id="us-fs-preview">16px</div>
+        <div class="form-hint" id="us-fs-preview">${parseInt(localStorage.getItem('da_fontSize')||'16')}px</div>
       </div>
     `;
     $('us-theme').onchange = e => {
@@ -1699,7 +1745,82 @@ function renderUserSettingsPage(page) {
       localStorage.setItem('da_fontSize', v);
       $('us-fs-preview').textContent = v + 'px';
     };
+  } else if (page === 'language') {
+    const currentLang = getLang();
+    content.innerHTML = `
+      <div class="settings-section-title">${t('language')}</div>
+      <div class="lang-selector">
+        ${Object.entries(LANG_NAMES).map(([code, name]) => `
+          <div class="lang-option ${currentLang === code ? 'active' : ''}" data-lang="${code}">
+            <div class="lang-flag">${code === 'ru' ? '🇷🇺' : code === 'en' ? '🇬🇧' : '🇵🇱'}</div>
+            <div class="lang-name">${name}</div>
+            ${currentLang === code ? '<div class="lang-check">&#10003;</div>' : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+    content.querySelectorAll('.lang-option').forEach(el => {
+      el.onclick = () => {
+        setLang(el.dataset.lang);
+        applyI18nToHtml();
+        openUserSettings('language');
+      };
+    });
   }
+}
+// ─── CLIENT-SIDE PERMISSION HELPER ──────────────────────────────────────────
+function userHasPermissionClient(serverId) {
+  const srv = getServer(serverId);
+  if (!srv || !S.me) return false;
+  if (srv.owner_id === S.me.id) return true;
+  return false; // simplified; full check happens on server
+}
+
+// ─── APPLY STATIC HTML TRANSLATIONS ─────────────────────────────────────────
+function applyI18nToHtml() {
+  // Auth
+  const loginCard = document.querySelector('#auth-login');
+  if (loginCard) {
+    const h2 = loginCard.querySelector('h2');
+    if (h2) h2.textContent = t('welcome_back');
+    const sub = loginCard.querySelector('.sub');
+    if (sub) sub.textContent = t('have_account');
+    const liBtn = $('li-btn');
+    if (liBtn) liBtn.textContent = t('sign_in');
+    const goReg = $('goto-register');
+    if (goReg) goReg.textContent = t('sign_up');
+    const noAcc = loginCard.querySelector('.auth-switch');
+    if (noAcc) { const a = noAcc.querySelector('a'); noAcc.childNodes[0].textContent = t('no_account') + ' '; if (a) a.textContent = t('sign_up'); }
+  }
+  const regCard = document.querySelector('#auth-register');
+  if (regCard) {
+    const h2 = regCard.querySelector('h2');
+    if (h2) h2.textContent = t('create_account');
+    const regBtn = $('reg-btn');
+    if (regBtn) regBtn.textContent = t('sign_up');
+    const hasAcc = regCard.querySelector('.auth-switch');
+    if (hasAcc) { const a = hasAcc.querySelector('a'); hasAcc.childNodes[0].textContent = t('have_account') + ' '; if (a) a.textContent = t('sign_in'); }
+  }
+  // User settings nav
+  const usNav = $('us-nav-items');
+  if (usNav) {
+    const items = usNav.querySelectorAll('[data-page]');
+    items.forEach(el => {
+      if (el.dataset.page === 'profile')    el.textContent = t('us_profile');
+      if (el.dataset.page === 'appearance') el.textContent = t('us_appearance');
+      if (el.dataset.page === 'language')   el.textContent = t('us_language');
+    });
+    const logout = $('us-logout');
+    if (logout) logout.textContent = t('us_logout');
+  }
+  // SS nav leave/delete
+  const ssLeave = $('ss-leave-server');
+  if (ssLeave) ssLeave.textContent = t('confirm_leave_server_btn');
+  const ssDelete = $('ss-delete-server');
+  if (ssDelete) ssDelete.textContent = '🗑 ' + t('delete_server');
+  // Load more
+  const lm = $('messages-load-more');
+  if (lm) lm.textContent = '⬆ ' + t('load_more');
 }
 
 // ─── EVENT LISTENERS ──────────────────────────────────────────────────────────
@@ -1944,6 +2065,7 @@ function hideSplash() {
 
 async function init() {
   setup();
+  applyI18nToHtml();
 
   // Load socket.io if needed
   if (!window.io) {

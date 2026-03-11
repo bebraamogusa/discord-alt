@@ -985,3 +985,17 @@ button { cursor: pointer; }
 /* Invite flow */
 .invite-input-wrap { display: flex; gap: 8px; }
 .invite-input-wrap input { flex: 1; }
+
+/* Language selector */
+.lang-selector { display: flex; flex-direction: column; gap: 8px; }
+.lang-option {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: var(--radius);
+  background: var(--bg-3); cursor: pointer;
+  border: 2px solid transparent; transition: border-color .15s;
+}
+.lang-option:hover { border-color: var(--accent); }
+.lang-option.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-3)); }
+.lang-flag { font-size: 22px; }
+.lang-name { font-size: 15px; font-weight: 500; flex: 1; }
+.lang-check { color: var(--accent); font-size: 18px; font-weight: 700; }
