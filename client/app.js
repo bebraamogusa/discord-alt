@@ -1641,6 +1641,31 @@ function setup() {
   $('li-pass').onkeydown  = e => e.key === 'Enter' && doLogin();
   $('reg-pass').onkeydown = e => e.key === 'Enter' && doRegister();
 
+  // ── Password field debug logs ────────────────────────────────
+  ['li-pass', 'reg-pass'].forEach(id => {
+    const el = $(id);
+    el.addEventListener('focus',   () => console.log(`[pass:${id}] focus | readOnly=${el.readOnly} | disabled=${el.disabled} | tabIndex=${el.tabIndex}`));
+    el.addEventListener('blur',    () => console.log(`[pass:${id}] blur  | value.length=${el.value.length}`));
+    el.addEventListener('click',   () => console.log(`[pass:${id}] click | readOnly=${el.readOnly} | disabled=${el.disabled}`));
+    el.addEventListener('keydown', e  => console.log(`[pass:${id}] keydown  key="${e.key}" code="${e.code}" defaultPrevented=${e.defaultPrevented} propagationStopped=${e._stopped}`));
+    el.addEventListener('keyup',   e  => console.log(`[pass:${id}] keyup    key="${e.key}"`));
+    el.addEventListener('input',   e  => console.log(`[pass:${id}] input    value.length=${el.value.length} inputType=${e.inputType}`));
+    el.addEventListener('paste',   e  => console.log(`[pass:${id}] paste    clipboardData="${e.clipboardData?.getData('text')?.length} chars"`));
+    // Check for readonly/disabled changes via MutationObserver
+    new MutationObserver(muts => {
+      for (const m of muts) {
+        console.log(`[pass:${id}] attr changed: ${m.attributeName} = "${el.getAttribute(m.attributeName)}"`);
+      }
+    }).observe(el, { attributes: true });
+  });
+  // Log initial state
+  setTimeout(() => {
+    ['li-pass', 'reg-pass'].forEach(id => {
+      const el = $(id);
+      console.log(`[pass:${id}] INIT | type=${el.type} readOnly=${el.readOnly} disabled=${el.disabled} tabIndex=${el.tabIndex} pointerEvents=${getComputedStyle(el).pointerEvents}`);
+    });
+  }, 500);
+  // ─────────────────────────────────────────────────────────────
 
   // DM home
   $('btn-home').onclick = () => selectServer('@me');
