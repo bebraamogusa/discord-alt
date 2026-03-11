@@ -1106,7 +1106,7 @@ export const TRANSLATIONS = {
     splash_loading: 'Ładowanie…',
     register_sub: 'Dołącz do nas, to za darmo!',
     register_placeholder_name: 'MójNick',
-    register_placeholder_pass: 'Minimum 8 znaków',
+    register_placeholder_pass: 'Minimum 6 znaków',
     create_server_step: 'Utwórz własny serwer',
     create_server_desc: 'Serwer to miejsce dla ciebie i twoich znajomych.\nWymyśl nazwę i zacznij rozmowę.',
     join_by_link: 'Dołącz przez link',

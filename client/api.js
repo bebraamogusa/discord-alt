@@ -25,7 +25,8 @@ async function tryRefresh() {
 
 export async function api(path, opts = {}) {
   const token = getToken();
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  const headers = { ...(opts.headers || {}) };
+  if (opts.body != null) headers['Content-Type'] = 'application/json';
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let res = await fetch(path, { ...opts, headers });
