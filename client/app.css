@@ -151,6 +151,7 @@ button { cursor: pointer; }
 #app {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -919,8 +920,15 @@ button { cursor: pointer; }
   #chat-header { padding: 0 8px; gap: 6px; }
   #chat-header .ch-topic { display: none; }
 
+  /* Hide Ctrl+K badge on mobile */
+  .header-search-btn kbd { display: none; }
+  .header-search-btn { padding: 6px 8px; }
+
   /* Input area */
-  #input-area { padding: 0 8px 12px; }
+  #input-area { padding: 0 8px calc(12px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Larger touch targets for input buttons */
+  .input-action { min-width: 40px; min-height: 40px; display: flex; align-items: center; justify-content: center; }
 
   /* Auth card: full width on small screens */
   #auth-overlay { padding: 16px; }
@@ -937,7 +945,12 @@ button { cursor: pointer; }
   .settings-close { top: 8px; right: 8px; }
 
   /* Profile card */
-  .profile-card { width: calc(100vw - 32px); max-width: 320px; }
+  .profile-card {
+    width: calc(100vw - 32px) !important;
+    max-width: 320px;
+    left: 50% !important; top: 50% !important; right: auto !important;
+    transform: translate(-50%, -50%) !important;
+  }
 
   /* Toast: bottom center on mobile */
   .toast { right: 50%; transform: translateX(50%) translateY(8px); }
@@ -947,9 +960,53 @@ button { cursor: pointer; }
   .msg-group { padding: 2px 8px; }
   .msg-group.first-in-group { padding-top: 8px; }
 
+  /* Message actions: always show on mobile (no hover) */
+  .msg-group .msg-actions {
+    position: static; opacity: 1; pointer-events: all;
+    margin-top: 4px; justify-content: flex-start;
+    border: none; box-shadow: none; background: transparent;
+  }
+  .msg-action-btn { padding: 4px 10px; font-size: 14px; }
+
   /* Attachment images */
   .att-image { max-width: 100%; }
   .att-video { max-width: 100%; }
+
+  /* Emoji picker: fit mobile */
+  .emoji-picker {
+    position: fixed !important; left: 8px !important; right: 8px !important;
+    bottom: 60px !important; top: auto !important;
+    width: auto !important; max-width: none !important;
+    max-height: 50vh;
+    grid-template-columns: repeat(8, 1fr);
+  }
+
+  /* Context menu: bottom sheet style on mobile */
+  .ctx-menu {
+    position: fixed !important;
+    left: 8px !important; right: 8px !important; bottom: 8px !important;
+    top: auto !important; width: auto !important;
+    max-height: 60vh; overflow-y: auto;
+    border-radius: 12px;
+    animation: ctxSlideUp .2s ease;
+  }
+  @keyframes ctxSlideUp { from { transform: translateY(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* Voice panel: full width */
+  .voice-panel { width: calc(100vw - 32px) !important; max-width: 400px; }
+
+  /* Search overlay */
+  .search-overlay { padding-top: 24px; }
+  .search-results { max-height: 55vh; }
+
+  /* Lightbox */
+  .lightbox-overlay img { max-width: 95vw; max-height: 80vh; }
+  .lightbox-close { top: 12px; right: 12px; width: 40px; height: 40px; font-size: 20px; }
+
+  /* Welcome screen */
+  #welcome-screen { padding: 24px 16px; }
+  .empty-icon { font-size: 36px; }
+  .empty-text { font-size: 18px; }
 }
 
 /* Very small phones */
@@ -957,6 +1014,9 @@ button { cursor: pointer; }
   :root { --serverlist-w: 48px; }
   .server-icon { width: 40px; height: 40px; font-size: 14px; }
   .server-add-btn { width: 40px; height: 40px; }
+  .msg-action-btn { padding: 3px 6px; font-size: 13px; }
+  .header-actions { gap: 2px; }
+  .icon-btn { padding: 4px; }
 }input[type=color] { padding: 2px; width: 48px; height: 32px; border-radius: 3px; border: 1px solid var(--border); background: var(--input-bg); cursor: pointer; }
 
 /* ── Server/channel create step banner ───────────────────────── */
@@ -1251,4 +1311,17 @@ button { cursor: pointer; }
   background: var(--bg-3); padding: 1px 5px;
   border-radius: 3px; font-family: monospace; font-size: 11px;
   border: 1px solid var(--border);
+}
+
+/* ── Tauri desktop app adjustments ────────────────────────────────── */
+body.is-tauri {
+  /* Allow title bar drag on top area */
+  -webkit-user-select: none;
+  user-select: none;
+}
+body.is-tauri #msg-input,
+body.is-tauri input,
+body.is-tauri textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }

@@ -131,11 +131,11 @@ function escHtml(s) {
 
 function fmtTime(ts) {
   const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
-  return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit' });
 }
 function fmtDatetime(ts) {
   const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
-  return d.toLocaleString('ru');
+  return d.toLocaleString(getLang());
 }
 
 function parseMarkdown(text) {
@@ -206,7 +206,7 @@ async function doLogin() {
   $('auth-login-err').textContent = '';
   const email = $('li-email').value.trim();
   const password = $('li-pass').value;
-  if (!email || !password) { $('auth-login-err').textContent = 'Заполните все поля'; return; }
+  if (!email || !password) { $('auth-login-err').textContent = t('fill_fields'); return; }
   try {
     const data = await API.post('/api/auth/login', { email, password });
     API.setToken(data.token);
@@ -214,7 +214,7 @@ async function doLogin() {
     S.me = data.user;
     await bootApp();
   } catch (e) {
-    $('auth-login-err').textContent = e.body?.error || 'Ошибка входа';
+    $('auth-login-err').textContent = e.body?.error || t('login_error');
   }
 }
 
@@ -223,7 +223,7 @@ async function doRegister() {
   const email = $('reg-email').value.trim();
   const username = $('reg-name').value.trim();
   const password = $('reg-pass').value;
-  if (!email || !username || !password) { $('auth-reg-err').textContent = 'Заполните все поля'; return; }
+  if (!email || !username || !password) { $('auth-reg-err').textContent = t('fill_fields'); return; }
   try {
     const data = await API.post('/api/auth/register', { email, username, password });
     API.setToken(data.token);
@@ -231,7 +231,7 @@ async function doRegister() {
     S.me = data.user;
     await bootApp();
   } catch (e) {
-    $('auth-reg-err').textContent = e.body?.error || 'Ошибка регистрации';
+    $('auth-reg-err').textContent = e.body?.error || t('register_error');
   }
 }
 
@@ -278,7 +278,7 @@ function connectGateway() {
       renderChannelList();
       renderServerIcons();
       // Notification sound for messages in other channels (not from self)
-      if (msg.author_id !== S.me?.id) NotifSound.play();
+      if (msg.author_id !== S.me?.id) NotifSound.play(msg.author?.username, msg.content?.slice(0, 100));
     }
   });
 
@@ -393,7 +393,7 @@ function connectGateway() {
     S.servers = S.servers.filter(s => s.id !== server_id);
     if (S.activeServerId === server_id) selectServer('@me');
     renderServerIcons();
-    showToast('Сервер был удалён', 'error');
+    showToast(t('server_deleted'), 'error');
   });
 
   socket.on('ERROR', ({ message }) => console.warn('[GW]', message));
@@ -487,7 +487,7 @@ async function joinVoiceChannel(channelId) {
   try {
     V.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch {
-    showToast('Нет доступа к микрофону', 'error');
+    showToast(t('voice_no_mic'), 'error');
     return;
   }
 
@@ -498,7 +498,7 @@ async function joinVoiceChannel(channelId) {
   renderVoiceBar();
   renderVoicePanel();
   renderChannelList();
-  showToast('🔊 Подключён к голосовому каналу', 'success');
+  showToast(t('voice_connected'), 'success');
 }
 
 async function leaveVoiceChannel() {
@@ -512,7 +512,7 @@ async function leaveVoiceChannel() {
   renderVoiceBar();
   if (S.activeChannelId === prev) renderVoicePanel();
   renderChannelList();
-  showToast('Отключён от голосового канала');
+  showToast(t('voice_disconnected'));
 }
 
 function toggleVoiceMute() {
@@ -552,20 +552,20 @@ function renderVoiceBar() {
         <span class="vcb-dot"></span>
         <span class="vcb-name">${escHtml(ch?.name || 'Voice')}</span>
       </div>
-      <div class="vcb-sub">Голосовой канал активен</div>
+      <div class="vcb-sub">${t('voice_active')}</div>
     </div>
     <div class="vcb-actions">
-      <button class="vcb-btn ${V.muted ? 'active' : ''}" id="vcb-mute" title="${V.muted ? 'Включить микрофон' : 'Отключить микрофон'}">
+      <button class="vcb-btn ${V.muted ? 'active' : ''}" id="vcb-mute" title="${V.muted ? t('voice_unmute') : t('voice_mute')}">
         ${V.muted
           ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>'
           : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>'}
       </button>
-      <button class="vcb-btn ${V.deafened ? 'active' : ''}" id="vcb-deaf" title="${V.deafened ? 'Включить звук' : 'Отключить звук'}">
+      <button class="vcb-btn ${V.deafened ? 'active' : ''}" id="vcb-deaf" title="${V.deafened ? t('voice_undeafen') : t('voice_deafen')}">
         ${V.deafened
           ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
           : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>'}
       </button>
-      <button class="vcb-btn danger" id="vcb-leave" title="Отключиться">
+      <button class="vcb-btn danger" id="vcb-leave" title="${t('voice_disconnect')}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
       </button>
     </div>
@@ -594,7 +594,7 @@ function renderVoicePanel() {
     <div class="vp-header">
       <div class="vp-icon">🔊</div>
       <h2>${escHtml(ch.name)}</h2>
-      <div class="vp-sub">${participants.length > 0 ? `${participants.length} участников в канале` : 'Никого нет в канале'}</div>
+      <div class="vp-sub">${participants.length > 0 ? t('voice_participants', { n: participants.length }) : t('voice_empty')}</div>
     </div>
     <div class="vp-participants">
       ${participants.map(p => `
@@ -604,23 +604,23 @@ function renderVoicePanel() {
             ${p.muted ? '<div class="vp-muted-badge">🔇</div>' : ''}
           </div>
           <div class="vp-name">${escHtml(p.username)}</div>
-          ${p.user_id === V.channelId ? '<div class="vp-you">Вы</div>' : ''}
+          ${p.user_id === V.channelId ? `<div class="vp-you">${t('voice_you')}</div>` : ''}
         </div>
       `).join('')}
     </div>
     ${!inVoice ? `
       <button class="btn btn-primary vp-join-btn" id="vp-join">
-        🔊 Подключиться к каналу
+        ${t('voice_join')}
       </button>
     ` : `
       <div class="vp-controls">
         <button class="btn ${V.muted ? 'btn-danger-solid' : 'btn-outline'}" id="vp-mute">
-          ${V.muted ? '🔇 Включить микрофон' : '🎤 Выключить микрофон'}
+          ${V.muted ? `🔇 ${t('voice_unmute')}` : `🎤 ${t('voice_mute')}`}
         </button>
         <button class="btn ${V.deafened ? 'btn-danger-solid' : 'btn-outline'}" id="vp-deaf">
-          ${V.deafened ? '🔊 Включить звук' : '🔈 Выключить звук'}
+          ${V.deafened ? `🔊 ${t('voice_undeafen')}` : `🔈 ${t('voice_deafen')}`}
         </button>
-        <button class="btn btn-danger-solid" id="vp-leave">Отключиться</button>
+        <button class="btn btn-danger-solid" id="vp-leave">${t('voice_disconnect')}</button>
       </div>
     `}
   `;
@@ -704,7 +704,7 @@ async function selectServer(id) {
   renderServerIcons();
 
   if (id === '@me') {
-    $('sidebar-server-name').textContent = 'Личные сообщения';
+    $('sidebar-server-name').textContent = t('direct_messages');
     $('sidebar-header-arrow').style.display = 'none';
     hideServerDropdown();
     renderChannelList();
@@ -737,15 +737,15 @@ function renderChannelList() {
     // DM mode
     el.insertAdjacentHTML('beforeend', `
       <div class="dm-header">
-        <span>Личные сообщения</span>
-        <button id="btn-new-dm" title="Новое сообщение">＋</button>
+        <span>${t('direct_messages')}</span>
+        <button id="btn-new-dm" title="${t('new_message')}">＋</button>
       </div>
     `);
     for (const ch of S.dmChannels) {
       const isActive = ch.id === S.activeChannelId;
       const name = ch.type === 'dm'
-        ? (ch.recipient?.username || 'Пользователь')
-        : (ch.name || 'Групповой чат');
+        ? (ch.recipient?.username || t('user_fallback'))
+        : (ch.name || t('group_chat'));
       const user = ch.type === 'dm' ? ch.recipient : null;
       const status = user ? (S.presences[user.id]?.status || 'offline') : '';
       el.insertAdjacentHTML('beforeend', `
@@ -794,7 +794,7 @@ function renderChannelGroup(container, cat, channels, srv) {
       <div class="category-row" data-cat-id="${escHtml(cat.id)}">
         <span>▸</span>
         <span class="category-name">${escHtml(cat.name)}</span>
-        <button class="category-add" data-cat-id="${escHtml(cat.id)}" title="Создать канал">＋</button>
+        <button class="category-add" data-cat-id="${escHtml(cat.id)}" title="${t('create_channel')}">＋</button>
       </div>
     `);
   }
@@ -876,7 +876,7 @@ async function selectChannel(id) {
   const icon = ch.type === 'dm' ? '@' : ch.type === 'announcement' ? '📣' : '#';
   $('chat-ch-icon').textContent = icon;
   if (ch.type === 'dm') {
-    $('chat-ch-name').textContent = ch.recipient?.username || 'Личные сообщения';
+    $('chat-ch-name').textContent = ch.recipient?.username || t('direct_messages');
   } else {
     $('chat-ch-name').textContent = ch.name;
   }
@@ -884,8 +884,8 @@ async function selectChannel(id) {
 
   // Update input placeholder
   $('msg-input').placeholder = ch.type === 'dm'
-    ? `Написать @${ch.recipient?.username || 'user'}`
-    : `Написать в #${ch.name}`;
+    ? t('msg_placeholder_dm', { name: ch.recipient?.username || 'user' })
+    : t('msg_placeholder_channel', { name: ch.name });
 
   // Show members panel only for server channels
   if (S.membersVisible && S.activeServerId !== '@me') {
@@ -920,13 +920,13 @@ function showWelcomeScreen() {
   $('welcome-screen').classList.remove('hidden');
   $('welcome-screen').innerHTML = `
     <div class="welcome-icon">💬</div>
-    <div class="welcome-title">${escHtml(t('welcome_screen_title') || 'Добро пожаловать!')}</div>
-    <div class="welcome-sub">Выберите канал на панели слева для начала общения или воспользуйтесь горячими клавишами</div>
+    <div class="welcome-title">${escHtml(t('welcome_title'))}</div>
+    <div class="welcome-sub">${escHtml(t('welcome_sub'))}</div>
     <div class="welcome-shortcuts">
-      <div class="welcome-tip"><span class="tip-icon">🔍</span><span class="tip-text"><kbd>Ctrl+K</kbd> — Поиск сообщений</span></div>
-      <div class="welcome-tip"><span class="tip-icon">💬</span><span class="tip-text"><kbd>Enter</kbd> — Отправить сообщение</span></div>
-      <div class="welcome-tip"><span class="tip-icon">📎</span><span class="tip-text">Перетащите файл для загрузки</span></div>
-      <div class="welcome-tip"><span class="tip-icon">⚙️</span><span class="tip-text">Настройки в нижнем левом углу</span></div>
+      <div class="welcome-tip"><span class="tip-icon">🔍</span><span class="tip-text"><kbd>Ctrl+K</kbd> — ${escHtml(t('tip_search'))}</span></div>
+      <div class="welcome-tip"><span class="tip-icon">💬</span><span class="tip-text"><kbd>Enter</kbd> — ${escHtml(t('tip_send'))}</span></div>
+      <div class="welcome-tip"><span class="tip-icon">📎</span><span class="tip-text">${escHtml(t('tip_drag'))}</span></div>
+      <div class="welcome-tip"><span class="tip-icon">⚙️</span><span class="tip-text">${escHtml(t('tip_settings'))}</span></div>
     </div>
   `;
   $('chat-header').classList.add('hidden');
@@ -953,7 +953,7 @@ async function loadMessages(channelId, before = null) {
     }
     $('messages-load-more').classList.toggle('hidden', msgs.length < 50);
   } catch (e) {
-    showToast('Ошибка загрузки сообщений', 'error');
+    showToast(t('error_load'), 'error');
   }
 }
 
@@ -1008,7 +1008,7 @@ function msgHtml(msg, isFirst) {
         </div>
         <div class="msg-body">
           <div class="msg-meta">
-            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(author.username||'Неизвестный')}</span>
+            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(author.username||t('unknown_user'))}</span>
             <span class="msg-time">${fmtTime(ts)}</span>
           </div>
     `;
@@ -1043,17 +1043,17 @@ function msgHtml(msg, isFirst) {
     </button>
   `).join('');
 
-  const editedMark = msg.is_edited ? '<span class="msg-edited">(ред.)</span>' : '';
+  const editedMark = msg.is_edited ? `<span class="msg-edited">${t('edited_short')}</span>` : '';
   const isMine = msg.author_id === S.me?.id;
 
   const actionsHtml = `
     <div class="msg-actions">
-      <button class="msg-action-btn" data-action="react" data-msg-id="${escHtml(msg.id)}" title="Реакция">😀</button>
+      <button class="msg-action-btn" data-action="react" data-msg-id="${escHtml(msg.id)}" title="${t('react')}">😀</button>
       <button class="msg-action-btn" data-action="reply" data-msg-id="${escHtml(msg.id)}"
               data-username="${escHtml(author.username||'')}"
-              data-content="${escHtml((msg.content||'').slice(0,100))}" title="Ответить">↩</button>
-      ${isMine ? `<button class="msg-action-btn" data-action="edit" data-msg-id="${escHtml(msg.id)}" title="Редактировать">✏</button>` : ''}
-      ${isMine ? `<button class="msg-action-btn danger" data-action="delete" data-msg-id="${escHtml(msg.id)}" title="Удалить">🗑</button>` : ''}
+              data-content="${escHtml((msg.content||'').slice(0,100))}" title="${t('reply')}">↩</button>
+      ${isMine ? `<button class="msg-action-btn" data-action="edit" data-msg-id="${escHtml(msg.id)}" title="${t('edit')}">✏</button>` : ''}
+      ${isMine ? `<button class="msg-action-btn danger" data-action="delete" data-msg-id="${escHtml(msg.id)}" title="${t('delete')}">🗑</button>` : ''}
     </div>
   `;
 
@@ -1208,8 +1208,8 @@ function renderTyping() {
     return m?.username || uid;
   });
   if (!names.length) { el.textContent = ''; return; }
-  if (names.length === 1) el.innerHTML = `<span>${escHtml(names[0])}</span> печатает…`;
-  else el.innerHTML = `<span>${names.slice(0, 3).map(escHtml).join(', ')}</span> печатают…`;
+  if (names.length === 1) el.innerHTML = `<span>${escHtml(names[0])}</span> ${t('typing_singular')}`;
+  else el.innerHTML = `<span>${names.slice(0, 3).map(escHtml).join(', ')}</span> ${t('typing_plural')}`;
 }
 
 function sendTyping() {
@@ -1250,7 +1250,7 @@ async function sendMessage() {
     });
     cancelReply();
   } catch (e) {
-    showToast(e.body?.error || 'Ошибка отправки', 'error');
+    showToast(e.body?.error || t('error_send'), 'error');
     input.value = content;
   }
   _typingSent = false;
@@ -1275,7 +1275,7 @@ async function uploadAndSend(file) {
     });
   } catch (e) {
     bar.remove();
-    showToast(e.message || 'Ошибка загрузки', 'error');
+    showToast(e.message || t('error_upload'), 'error');
   }
 }
 
@@ -1288,7 +1288,7 @@ function startEditMessage(msgId) {
   const original = msg.content;
   contentEl.innerHTML = `
     <textarea class="msg-edit-area" id="edit-ta-${msgId}">${escHtml(original)}</textarea>
-    <div class="msg-edit-hints">Нажмите <kbd>Enter</kbd> для сохранения · <kbd>Esc</kbd> для отмены</div>
+    <div class="msg-edit-hints">${t('edit_hint')}</div>
   `;
   const ta = document.getElementById(`edit-ta-${msgId}`);
   ta.focus();
@@ -1301,7 +1301,7 @@ function startEditMessage(msgId) {
         try {
           await API.patch(`/api/messages/${msgId}`, { content: newContent });
         } catch (err) {
-          showToast(err.body?.error || 'Ошибка', 'error');
+          showToast(err.body?.error || t('error_generic'), 'error');
         }
       } else {
         contentEl.innerHTML = parseMarkdown(original);
@@ -1313,11 +1313,11 @@ function startEditMessage(msgId) {
 }
 
 async function confirmDeleteMessage(msgId) {
-  if (!await daConfirm('Вы уверены, что хотите удалить это сообщение? Это действие необратимо.', { title: 'Удалить сообщение', danger: true })) return;
+  if (!await daConfirm(t('confirm_delete_message'), { title: t('confirm_delete_message_title'), danger: true })) return;
   try {
     await API.del(`/api/messages/${msgId}`);
   } catch (e) {
-    showToast(e.body?.error || 'Ошибка', 'error');
+    showToast(e.body?.error || t('error_generic'), 'error');
   }
 }
 
@@ -1333,11 +1333,11 @@ function renderMembersPanel() {
 
   let html = '';
   if (online.length) {
-    html += `<div class="members-section-title">В сети — ${online.length}</div>`;
+    html += `<div class="members-section-title">${t('members_online', { n: online.length })}</div>`;
     for (const m of online) html += memberItemHtml(m, 'var(--bg-2)');
   }
   if (offline.length) {
-    html += `<div class="members-section-title mt-8">Не в сети — ${offline.length}</div>`;
+    html += `<div class="members-section-title mt-8">${t('members_offline', { n: offline.length })}</div>`;
     for (const m of offline) html += memberItemHtml(m, 'var(--bg-2)');
   }
   panel.innerHTML = html;
@@ -1395,7 +1395,7 @@ async function showProfileCard(userId, anchorEl) {
       <div class="pc-tag">#${escHtml(user.discriminator||'0000')}</div>
       ${p.custom_status ? `<div class="pc-status">${escHtml(p.custom_status)}</div>` : ''}
       ${user.about_me ? `<div class="pc-about">${escHtml(user.about_me)}</div>` : ''}
-      ${!isSelf ? `<div class="pc-actions"><button class="btn btn-primary pc-dm-btn" data-user-id="${escHtml(userId)}">Написать</button></div>` : ''}
+      ${!isSelf ? `<div class="pc-actions"><button class="btn btn-primary pc-dm-btn" data-user-id="${escHtml(userId)}">${t('pc_send_dm')}</button></div>` : ''}
     </div>
   `;
   card.classList.remove('hidden');
@@ -1463,14 +1463,14 @@ function showServerContextMenu(e, serverId) {
   const isOwner = srv.owner_id === S.me?.id;
   showCtxMenu(e.clientX, e.clientY, [
     { icon: '⚙️',  label: t('server_settings_menu'),   onClick: () => openServerSettings(serverId) },
-    { icon: '🔔',  label: 'Уведомления',               onClick: () => showToast('Настройки уведомлений в разработке') },
+    { icon: '🔔',  label: t('notifications'),           onClick: () => showToast(t('notifications_wip')) },
     { icon: '📋',  label: t('invite_people'),           onClick: () => createInvite(serverId) },
     { divider: true },
-    { icon: '📌',  label: 'Закреплённые сообщения',   onClick: () => showToast('Откройте канал и нажмите кнопку 📌') },
-    { icon: '#️⃣', label: 'Создать канал',              onClick: () => openCreateChannelModal(serverId, null) },
-    { icon: '📁',  label: 'Создать категорию',          onClick: () => createCategory(serverId) },
+    { icon: '📌',  label: t('pinned_messages'),          onClick: () => showToast(t('pinned_hint')) },
+    { icon: '#️⃣', label: t('create_channel_menu'),      onClick: () => openCreateChannelModal(serverId, null) },
+    { icon: '📁',  label: t('create_category_menu'),     onClick: () => createCategory(serverId) },
     { divider: true },
-    { icon: '🆔',  label: 'Скопировать ID сервера',    onClick: () => { navigator.clipboard.writeText(serverId); showToast('ID скопирован'); } },
+    { icon: '🆔',  label: t('copy_server_id'),           onClick: () => { navigator.clipboard.writeText(serverId); showToast(t('id_copied')); } },
     { divider: true },
     !isOwner && { icon: '🚪', label: t('leave_server'),  danger: true, onClick: () => leaveServer(serverId) },
     isOwner  && { icon: '🗑️', label: t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
@@ -1489,24 +1489,24 @@ function showChannelContextMenu(e, channelId) {
 
   if (isVoice) {
     if (V.channelId !== channelId) {
-      items.push({ icon: '🔊', label: 'Подключиться к каналу', onClick: () => joinVoiceChannel(channelId) });
+      items.push({ icon: '🔊', label: t('voice_connect'), onClick: () => joinVoiceChannel(channelId) });
     } else {
-      items.push({ icon: '🔇', label: 'Отключиться', danger: true, onClick: leaveVoiceChannel });
+      items.push({ icon: '🔇', label: t('voice_disconnect'), danger: true, onClick: leaveVoiceChannel });
     }
     items.push({ divider: true });
   }
 
   items.push(
-    { icon: '🔔', label: 'Уведомления',  onClick: () => showToast('Настройки уведомлений в разработке') },
-    { icon: '📌', label: 'Закреп',       onClick: () => { S.activeChannelId = channelId; showPins(); } },
-    { icon: '🆔', label: 'Скопировать ID', onClick: () => { navigator.clipboard.writeText(channelId); showToast('ID скопирован'); } },
+    { icon: '🔔', label: t('notifications'),  onClick: () => showToast(t('notifications_wip')) },
+    { icon: '📌', label: t('pins_short'),       onClick: () => { S.activeChannelId = channelId; showPins(); } },
+    { icon: '🆔', label: t('copy_id'), onClick: () => { navigator.clipboard.writeText(channelId); showToast(t('id_copied')); } },
     { divider: true },
   );
 
   if (isOwner) {
     items.push(
       { icon: '✏️',  label: t('rename_channel'), onClick: () => renameChannel(ch) },
-      { icon: '📋',  label: 'Создать инвайт',    onClick: () => createInvite(ch.server_id) },
+      { icon: '📋',  label: t('create_invite_ctx'),    onClick: () => createInvite(ch.server_id) },
       { icon: '🗑️',  label: t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
     );
   }
@@ -1604,7 +1604,7 @@ async function createCategory(serverId) {
     const idx = S.servers.findIndex(s => s.id === serverId);
     if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...srv };
     renderChannelList();
-  } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
 
 // ─── CREATE CHANNEL MODAL ─────────────────────────────────────────────────────
@@ -1634,7 +1634,7 @@ async function showPins() {
   try {
     const pins = await API.get(`/api/channels/${S.activeChannelId}/pins`);
     if (!pins.length) {
-      $('pins-list').innerHTML = '<div class="empty-state"><div class="empty-icon">📌</div><div class="empty-text">Нет закреплённых</div></div>';
+      $('pins-list').innerHTML = '<div class="empty-state"><div class="empty-icon">📌</div><div class="empty-text">' + t('no_pinned_short') + '</div></div>';
       return;
     }
     $('pins-list').innerHTML = pins.map(msg => `
@@ -2051,20 +2051,20 @@ function renderUserSettingsPage(page) {
       </div>
       <button class="btn btn-primary" id="us-save">${t('save')}</button>
 
-      <div class="settings-section-title" style="margin-top:24px">🔒 ${t('change_password') || 'Смена пароля'}</div>
+      <div class="settings-section-title" style="margin-top:24px">🔒 ${t('change_password')}</div>
       <div class="form-group">
-        <label>${t('current_password') || 'Текущий пароль'}</label>
+        <label>${t('current_password')}</label>
         <input type="password" id="us-cur-pass" autocomplete="current-password">
       </div>
       <div class="form-group">
-        <label>${t('new_password') || 'Новый пароль'}</label>
+        <label>${t('new_password')}</label>
         <input type="password" id="us-new-pass" autocomplete="new-password" minlength="6">
       </div>
       <div class="form-group">
-        <label>${t('confirm_password') || 'Подтвердите пароль'}</label>
+        <label>${t('confirm_password')}</label>
         <input type="password" id="us-confirm-pass" autocomplete="new-password">
       </div>
-      <button class="btn btn-danger" id="us-change-pass">${t('change_password') || 'Сменить пароль'}</button>
+      <button class="btn btn-danger" id="us-change-pass">${t('change_password')}</button>
     `;
     $('us-save').onclick = async () => {
       try {
@@ -2086,12 +2086,12 @@ function renderUserSettingsPage(page) {
       const cur = $('us-cur-pass').value;
       const nw  = $('us-new-pass').value;
       const cnf = $('us-confirm-pass').value;
-      if (!cur || !nw) { showToast(t('fill_all_fields') || 'Заполните все поля', 'error'); return; }
-      if (nw.length < 6) { showToast(t('password_min_6') || 'Минимум 6 символов', 'error'); return; }
-      if (nw !== cnf) { showToast(t('passwords_mismatch') || 'Пароли не совпадают', 'error'); return; }
+      if (!cur || !nw) { showToast(t('fill_all_fields'), 'error'); return; }
+      if (nw.length < 6) { showToast(t('password_min_6'), 'error'); return; }
+      if (nw !== cnf) { showToast(t('passwords_mismatch'), 'error'); return; }
       try {
         await API.patch('/api/@me/password', { current_password: cur, new_password: nw });
-        showToast(t('password_changed') || 'Пароль изменён', 'success');
+        showToast(t('password_changed'), 'success');
         $('us-cur-pass').value = '';
         $('us-new-pass').value = '';
         $('us-confirm-pass').value = '';
@@ -2157,7 +2157,11 @@ function userHasPermissionClient(serverId) {
 
 // ─── APPLY STATIC HTML TRANSLATIONS ─────────────────────────────────────────
 function applyI18nToHtml() {
-  // Auth
+  // Splash
+  const splashText = document.querySelector('.splash-text');
+  if (splashText) splashText.textContent = t('splash_loading');
+
+  // Auth login
   const loginCard = document.querySelector('#auth-login');
   if (loginCard) {
     const h2 = loginCard.querySelector('h2');
@@ -2170,16 +2174,176 @@ function applyI18nToHtml() {
     if (goReg) goReg.textContent = t('sign_up');
     const noAcc = loginCard.querySelector('.auth-switch');
     if (noAcc) { const a = noAcc.querySelector('a'); noAcc.childNodes[0].textContent = t('no_account') + ' '; if (a) a.textContent = t('sign_up'); }
+    // Labels & placeholders
+    const liEmail = loginCard.querySelector('label[for="li-email"]');
+    if (liEmail) liEmail.textContent = t('email_label');
+    const liPass = loginCard.querySelector('label[for="li-pass"]');
+    if (liPass) liPass.textContent = t('password_label');
   }
+
+  // Auth register
   const regCard = document.querySelector('#auth-register');
   if (regCard) {
     const h2 = regCard.querySelector('h2');
     if (h2) h2.textContent = t('create_account');
+    const sub = regCard.querySelector('.sub');
+    if (sub) sub.textContent = t('register_sub');
     const regBtn = $('reg-btn');
     if (regBtn) regBtn.textContent = t('sign_up');
     const hasAcc = regCard.querySelector('.auth-switch');
     if (hasAcc) { const a = hasAcc.querySelector('a'); hasAcc.childNodes[0].textContent = t('have_account') + ' '; if (a) a.textContent = t('sign_in'); }
+    // Labels & placeholders
+    const regEmail = regCard.querySelector('label[for="reg-email"]');
+    if (regEmail) regEmail.textContent = t('email_label');
+    const regName = regCard.querySelector('label[for="reg-name"]');
+    if (regName) regName.textContent = t('username_label');
+    const regPassL = regCard.querySelector('label[for="reg-pass"]');
+    if (regPassL) regPassL.textContent = t('password_label');
+    const regPassIn = $('reg-pass');
+    if (regPassIn) regPassIn.placeholder = t('register_placeholder_pass');
+    const regNameIn = $('reg-name');
+    if (regNameIn) regNameIn.placeholder = t('register_placeholder_name');
   }
+
+  // Server list tooltips
+  const homeTooltip = document.querySelector('#btn-home')?.closest('.tooltip-wrapper')?.querySelector('.tooltip-label');
+  if (homeTooltip) homeTooltip.textContent = t('direct_messages');
+  const addServerTooltip = document.querySelector('#btn-add-server')?.closest('.tooltip-wrapper')?.querySelector('.tooltip-label');
+  if (addServerTooltip) addServerTooltip.textContent = t('add_server');
+
+  // Sidebar header (default DM mode)
+  const sidebarName = $('sidebar-server-name');
+  if (sidebarName && S.activeServerId === '@me') sidebarName.textContent = t('direct_messages');
+
+  // Sidebar user tooltips & titles
+  const profileTooltip = document.querySelector('#su-av-wrapper .tooltip-label');
+  if (profileTooltip) profileTooltip.textContent = t('profile_tooltip');
+  const muteBtn = $('btn-toggle-mute');
+  if (muteBtn) muteBtn.title = t('microphone');
+  const setBtn = $('btn-settings');
+  if (setBtn) setBtn.title = t('settings');
+
+  // Welcome screen (HTML default)
+  const welText = document.querySelector('#welcome-screen .empty-text');
+  if (welText) welText.textContent = t('select_channel_start');
+  const welSub = document.querySelector('#welcome-screen .empty-sub');
+  if (welSub) welSub.textContent = t('open_dms_hint');
+
+  // Chat header buttons
+  const menuBtn = $('btn-mobile-menu');
+  if (menuBtn) menuBtn.title = t('menu');
+  const searchBtn = $('btn-search');
+  if (searchBtn) searchBtn.title = t('search_ctrl_k');
+  const pinsBtn = $('btn-pins');
+  if (pinsBtn) pinsBtn.title = t('pinned_btn');
+  const membersBtn = $('btn-members');
+  if (membersBtn) membersBtn.title = t('members_btn');
+
+  // Load more
+  const lm = $('messages-load-more');
+  if (lm) lm.textContent = '⬆ ' + t('load_more');
+
+  // Reply bar
+  const replyBar = $('reply-bar');
+  if (replyBar) {
+    const span = replyBar.querySelector('span:first-child');
+    if (span) {
+      const nameEl = span.querySelector('.reply-name');
+      const nameHtml = nameEl ? nameEl.outerHTML : '';
+      span.innerHTML = t('reply_for') + ' ' + nameHtml;
+    }
+  }
+
+  // Input area
+  const attachBtn = $('btn-attach');
+  if (attachBtn) attachBtn.title = t('attach_file');
+  const emojiBtn = $('btn-emoji');
+  if (emojiBtn) emojiBtn.title = t('emoji');
+  const msgInput = $('msg-input');
+  if (msgInput) msgInput.placeholder = t('msg_placeholder');
+
+  // Add server modal
+  const addServerTitle = $('add-server-title');
+  if (addServerTitle) addServerTitle.textContent = t('add_server');
+  // Step 0
+  const step0 = $('add-server-step0');
+  if (step0) {
+    const title = step0.querySelector('.create-step-title');
+    if (title) title.textContent = t('create_server_step');
+    const sub = step0.querySelector('.create-step-sub');
+    if (sub) sub.innerHTML = t('create_server_desc').replace('\n', '<br>');
+    const createNext = $('btn-create-server-next');
+    if (createNext) createNext.textContent = t('create_server_step');
+    const orDiv = step0.querySelector('div[style*="text-align:center"]');
+    if (orDiv) orDiv.textContent = t('or_separator');
+    const joinNext = $('btn-join-server-next');
+    if (joinNext) joinNext.textContent = t('join_by_link');
+  }
+  // Step create
+  const stepCreate = $('add-server-step-create');
+  if (stepCreate) {
+    const title = stepCreate.querySelector('.create-step-title');
+    if (title) title.textContent = t('configure_server');
+    const label = stepCreate.querySelector('label[for="new-server-name"]');
+    if (label) label.textContent = t('server_name_label');
+    const input = $('new-server-name');
+    if (input) input.placeholder = t('my_server');
+    const btn = $('btn-confirm-create-server');
+    if (btn) btn.textContent = t('create');
+  }
+  // Step join
+  const stepJoin = $('add-server-step-join');
+  if (stepJoin) {
+    const title = stepJoin.querySelector('.create-step-title');
+    if (title) title.textContent = t('join_server');
+    const sub = stepJoin.querySelector('.create-step-sub');
+    if (sub) sub.textContent = t('enter_invite_link');
+    const input = $('join-invite-input');
+    if (input) input.placeholder = t('invite_link_placeholder');
+    const btn = $('btn-confirm-join-server');
+    if (btn) btn.textContent = t('join');
+  }
+
+  // Create channel modal
+  const ccModal = $('modal-create-channel');
+  if (ccModal) {
+    const h3 = ccModal.querySelector('.modal-header h3');
+    if (h3) h3.textContent = t('create_channel_title');
+    const typeLabel = ccModal.querySelector('label[for="new-ch-type"]');
+    if (typeLabel) typeLabel.textContent = t('channel_type_label');
+    const opts = ccModal.querySelectorAll('#new-ch-type option');
+    if (opts[0]) opts[0].textContent = t('text_hash');
+    if (opts[1]) opts[1].textContent = t('voice_speaker');
+    if (opts[2]) opts[2].textContent = t('announcement_icon');
+    const nameLabel = ccModal.querySelector('label[for="new-ch-name"]');
+    if (nameLabel) nameLabel.textContent = t('channel_name_label');
+    const nameInput = $('new-ch-name');
+    if (nameInput) nameInput.placeholder = t('new_channel_placeholder');
+    const topicLabel = ccModal.querySelector('label[for="new-ch-topic"]');
+    if (topicLabel) topicLabel.textContent = t('topic_optional');
+    const topicInput = $('new-ch-topic');
+    if (topicInput) topicInput.placeholder = t('channel_desc_placeholder');
+    const cancelBtn = ccModal.querySelector('.modal-footer .btn-outline');
+    if (cancelBtn) cancelBtn.textContent = t('cancel');
+    const createBtn = $('btn-confirm-create-channel');
+    if (createBtn) createBtn.textContent = t('create');
+  }
+
+  // Pins modal
+  const pinsModal = $('modal-pins');
+  if (pinsModal) {
+    const h3 = pinsModal.querySelector('.modal-header h3');
+    if (h3) h3.textContent = t('pinned_messages');
+  }
+
+  // Server settings default title
+  const ssTitle = $('ss-page-title');
+  if (ssTitle) ssTitle.textContent = t('overview');
+  const ssLeave = $('ss-leave-server');
+  if (ssLeave) ssLeave.textContent = t('leave_server_menu');
+  const ssDelete = $('ss-delete-server');
+  if (ssDelete) ssDelete.textContent = t('delete_server_icon');
+
   // User settings nav
   const usNav = $('us-nav-items');
   if (usNav) {
@@ -2192,14 +2356,8 @@ function applyI18nToHtml() {
     const logout = $('us-logout');
     if (logout) logout.textContent = t('us_logout');
   }
-  // SS nav leave/delete
-  const ssLeave = $('ss-leave-server');
-  if (ssLeave) ssLeave.textContent = t('confirm_leave_server_btn');
-  const ssDelete = $('ss-delete-server');
-  if (ssDelete) ssDelete.textContent = '🗑 ' + t('delete_server');
-  // Load more
-  const lm = $('messages-load-more');
-  if (lm) lm.textContent = '⬆ ' + t('load_more');
+  const usTitle = document.querySelector('#user-settings .settings-nav-title');
+  if (usTitle) usTitle.textContent = t('settings_title');
 }
 
 // ─── EVENT LISTENERS ──────────────────────────────────────────────────────────
@@ -2219,6 +2377,22 @@ function setup() {
   $('mobile-sidebar-overlay').onclick = closeMobileSidebar;
   // Close sidebar after selecting a channel/DM on mobile
   document.addEventListener('da:channel-selected', closeMobileSidebar);
+
+  // Swipe right to open sidebar on mobile
+  let _touchStartX = 0, _touchStartY = 0;
+  document.addEventListener('touchstart', e => {
+    _touchStartX = e.touches[0].clientX;
+    _touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - _touchStartX;
+    const dy = Math.abs(e.changedTouches[0].clientY - _touchStartY);
+    if (dx > 80 && dy < 60 && _touchStartX < 30 && !$('app').classList.contains('mobile-sidebar-open')) {
+      openMobileSidebar();
+    } else if (dx < -80 && dy < 60 && $('app').classList.contains('mobile-sidebar-open')) {
+      closeMobileSidebar();
+    }
+  }, { passive: true });
 
   // DM home
   $('btn-home').onclick = () => selectServer('@me');
@@ -2329,15 +2503,15 @@ function setup() {
   $('btn-confirm-create-server').onclick = async () => {
     $('cs-error').textContent = '';
     const name = $('new-server-name').value.trim();
-    if (!name) { $('cs-error').textContent = 'Введите название'; return; }
+    if (!name) { $('cs-error').textContent = t('enter_name'); return; }
     try {
       const srv = await API.post('/api/servers', { name });
       S.servers.push(srv);
       closeModal('modal-add-server');
       renderServerIcons();
       await selectServer(srv.id);
-      showToast(`Сервер "${name}" создан`, 'success');
-    } catch (e) { $('cs-error').textContent = e.body?.error || 'Ошибка'; }
+      showToast(t('server_created').replace('{name}', name), 'success');
+    } catch (e) { $('cs-error').textContent = e.body?.error || t('error_generic'); }
   };
   $('btn-confirm-join-server').onclick = async () => {
     $('js-error').textContent = '';
@@ -2345,7 +2519,7 @@ function setup() {
     // Extract code from URL if needed
     const m = code.match(/invite=([^&]+)/);
     if (m) code = m[1];
-    if (!code) { $('js-error').textContent = 'Введите код или ссылку'; return; }
+    if (!code) { $('js-error').textContent = t('enter_code'); return; }
     try {
       const inv = await API.get(`/api/invites/${code}`);
       const srv = await API.post(`/api/servers/${inv.server.id}/join`, { invite_code: code });
@@ -2353,7 +2527,7 @@ function setup() {
       closeModal('modal-add-server');
       renderServerIcons();
       await selectServer(srv.id);
-    } catch (e) { $('js-error').textContent = e.body?.error || 'Ошибка'; }
+    } catch (e) { $('js-error').textContent = e.body?.error || t('error_generic'); }
   };
 
   // Create channel confirm
@@ -2365,7 +2539,7 @@ function setup() {
     const type       = $('new-ch-type').value;
     const topic      = $('new-ch-topic').value.trim();
     const categoryId = $('new-ch-category-id').value || null;
-    if (!name) { $('cc-error').textContent = 'Введите название'; return; }
+    if (!name) { $('cc-error').textContent = t('enter_name'); return; }
     try {
       await API.post(`/api/servers/${serverId}/channels`, { name, type, topic, category_id: categoryId });
       closeModal('modal-create-channel');
@@ -2374,7 +2548,7 @@ function setup() {
       const idx = S.servers.findIndex(s => s.id === serverId);
       if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...fresh };
       renderChannelList();
-    } catch (e) { $('cc-error').textContent = e.body?.error || 'Ошибка'; }
+    } catch (e) { $('cc-error').textContent = e.body?.error || t('error_generic'); }
   };
 
   // Close ctx-menu and profile card on outside click
@@ -2416,13 +2590,13 @@ function setup() {
     window.addEventListener('da:authenticated', async () => {
       try {
         const inv = await API.get(`/api/invites/${invCode}`);
-        if (await daConfirm(`Вы хотите вступить на сервер «${inv.server.name}»?`, { title: 'Принять приглашение', confirmText: 'Вступить' })) {
+        if (await daConfirm(t('accept_invite_question').replace('{name}', inv.server.name), { title: t('accept_invite_title'), confirmText: t('join') })) {
           const srv = await API.post(`/api/servers/${inv.server.id}/join`, { invite_code: invCode });
           if (!S.servers.find(s => s.id === srv.id)) S.servers.push(srv);
           renderServerIcons();
           selectServer(srv.id);
         }
-      } catch (e) { showToast('Неверный инвайт', 'error'); }
+      } catch (e) { showToast(t('invalid_invite'), 'error'); }
     }, { once: true });
   }
 
@@ -2470,6 +2644,30 @@ const NotifSound = (() => {
   return { play };
 })();
 
+// ─── TAURI INTEGRATION ────────────────────────────────────────────────────────
+const IS_TAURI = !!(window.__TAURI__);
+
+async function tauriNotify(title, body) {
+  if (!IS_TAURI) return;
+  try {
+    if (window.__TAURI__?.core?.invoke) {
+      await window.__TAURI__.core.invoke('send_notification', { title, body });
+    }
+  } catch (e) { console.warn('[Tauri] notification error:', e); }
+}
+
+// Override notification sound to also send native notification in Tauri
+const _origNotifPlay = NotifSound.play.bind(NotifSound);
+NotifSound.play = function(title, body) {
+  _origNotifPlay();
+  if (IS_TAURI && document.hidden) {
+    tauriNotify(title || 'Discord Alt', body || t('new_message'));
+  }
+};
+
+// Add Tauri class to body for CSS adjustments
+if (IS_TAURI) document.body.classList.add('is-tauri');
+
 // ─── IMAGE LIGHTBOX ───────────────────────────────────────────────────────────
 function openLightbox(src) {
   const overlay = document.createElement('div');
@@ -2487,7 +2685,7 @@ function openLightbox(src) {
 // ─── SEARCH MODAL ─────────────────────────────────────────────────────────────
 let _searchDebounce = null;
 function openSearchModal() {
-  if (!S.activeChannelId) { showToast('Выберите канал для поиска', 'info'); return; }
+  if (!S.activeChannelId) { showToast(t('search_select_channel'), 'info'); return; }
   const existing = document.querySelector('.search-overlay');
   if (existing) { existing.remove(); return; }
   const overlay = document.createElement('div');
@@ -2496,9 +2694,9 @@ function openSearchModal() {
     <div class="search-box">
       <div class="search-input-wrap">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input class="search-input" placeholder="Поиск сообщений..." autofocus>
+        <input class="search-input" placeholder="${t('search_placeholder')}" autofocus>
       </div>
-      <div class="search-hint">Введите минимум 2 символа для поиска в текущем канале</div>
+      <div class="search-hint">${t('search_hint')}</div>
       <div class="search-results"></div>
     </div>
   `;
@@ -2515,7 +2713,7 @@ function openSearchModal() {
     _searchDebounce = setTimeout(async () => {
       try {
         const msgs = await API.get(`/api/channels/${S.activeChannelId}/messages/search?q=${encodeURIComponent(q)}&limit=20`);
-        if (!msgs.length) { results.innerHTML = '<div class="search-empty">Ничего не найдено</div>'; return; }
+        if (!msgs.length) { results.innerHTML = '<div class="search-empty">' + t('search_no_results') + '</div>'; return; }
         results.innerHTML = msgs.map(m => {
           const highlighted = escHtml(m.content || '').replace(new RegExp(escHtml(q).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'gi'), '<mark>$&</mark>');
           return `<div class="search-result" data-msg-id="${escHtml(m.id)}">
@@ -2533,7 +2731,7 @@ function openSearchModal() {
             if (msgEl) { msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); msgEl.style.background = 'var(--mention-bg)'; setTimeout(() => msgEl.style.background = '', 2000); }
           };
         });
-      } catch { results.innerHTML = '<div class="search-empty">Ошибка поиска</div>'; }
+      } catch { results.innerHTML = '<div class="search-empty">' + t('search_error') + '</div>'; }
     }, 300);
   });
 
@@ -2555,7 +2753,7 @@ function setupDragDrop() {
     if (_dragCounter === 1 && S.activeChannelId) {
       dropOverlay = document.createElement('div');
       dropOverlay.className = 'drop-overlay';
-      dropOverlay.innerHTML = `<div class="drop-overlay-inner"><div class="drop-icon">📎</div><div class="drop-text">Перетащите файлы сюда</div><div class="drop-sub">Файлы будут загружены в текущий канал</div></div>`;
+      dropOverlay.innerHTML = `<div class="drop-overlay-inner"><div class="drop-icon">📎</div><div class="drop-text">${t('drop_files')}</div><div class="drop-sub">${t('drop_sub')}</div></div>`;
       document.body.appendChild(dropOverlay);
     }
   });

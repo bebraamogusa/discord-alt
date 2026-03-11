@@ -14,11 +14,20 @@
         "width": 1100,
         "height": 750,
         "minWidth": 800,
-        "minHeight": 500
+        "minHeight": 500,
+        "userAgent": "Discord Alt/1.0 (Tauri)"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.socket.io; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: http: https: tauri:; img-src 'self' http: https: data: blob:; media-src 'self' blob: mediastream:; font-src 'self' data:"
+      "csp": "default-src 'self' https://lolihentai.online; script-src 'self' 'unsafe-inline' https://cdn.socket.io https://lolihentai.online; style-src 'self' 'unsafe-inline' https://lolihentai.online; connect-src 'self' ws: wss: http: https: tauri: ipc:; img-src 'self' http: https: data: blob:; media-src 'self' blob: mediastream:; font-src 'self' data:",
+      "dangerousRemoteDomainIpcAccess": [
+        {
+          "scheme": "https",
+          "domain": "lolihentai.online",
+          "windows": ["main"],
+          "plugins": ["notification"]
+        }
+      ]
     }
   },
   "bundle": {

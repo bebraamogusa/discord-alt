@@ -361,8 +361,11 @@ export default function registerChannelRoutes(app, db, io) {
   app.post('/api/users/:id/dm', { preHandler: authenticate }, async (req, reply) => {
     const targetId = req.params.id;
     if (targetId === req.user.id) return reply.code(400).send({ error: 'Cannot DM yourself' });
-    const target = db.prepare('SELECT id FROM users WHERE id = ?').get(targetId);
+    const target = db.prepare('SELECT id, username, discriminator, avatar_url, avatar_color, custom_status, last_seen FROM users WHERE id = ?').get(targetId);
     if (!target) return reply.code(404).send({ error: 'User not found' });
+
+    // Helper: attach recipient for each user's perspective
+    const withRecipient = (ch, recipientForUser) => ({ ...ch, recipient: recipientForUser });
 
     // Check if DM already exists between these two users
     const existing = db.prepare(`
@@ -373,7 +376,10 @@ export default function registerChannelRoutes(app, db, io) {
       LIMIT 1
     `).get(req.user.id, targetId);
 
-    if (existing) return reply.send(existing);
+    if (existing) {
+      // Return with recipient info attached
+      return reply.send(withRecipient(existing, target));
+    }
 
     const channelId = nanoid(16);
     db.transaction(() => {
@@ -383,10 +389,12 @@ export default function registerChannelRoutes(app, db, io) {
     })();
 
     const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(channelId);
-    // Notify both users
-    io.to(`user:${req.user.id}`).emit('CHANNEL_CREATE', channel);
-    io.to(`user:${targetId}`).emit('CHANNEL_CREATE', channel);
-    return reply.code(201).send(channel);
+    // Get requester info for the target user
+    const requester = db.prepare('SELECT id, username, discriminator, avatar_url, avatar_color, custom_status, last_seen FROM users WHERE id = ?').get(req.user.id);
+    // Notify both users with recipient info from their perspective
+    io.to(`user:${req.user.id}`).emit('CHANNEL_CREATE', withRecipient(channel, target));
+    io.to(`user:${targetId}`).emit('CHANNEL_CREATE', withRecipient(channel, requester));
+    return reply.code(201).send(withRecipient(channel, target));
   });
 
   // GET /api/@me/channels — all my DMs and groups
