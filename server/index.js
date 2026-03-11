@@ -424,9 +424,14 @@ const io = new Server(app.server, {
   maxHttpBufferSize: 1e6,
 });
 
+// ── v2 Socket.IO Gateway (/gateway namespace) ─────────────────────────────
+// Must be set up before routes so gw is available for emit calls.
+const gw = setupGateway(io, db);
+
 // ── v2 API routes ────────────────────────────────────────────────────────────
-registerServerRoutes(app, db, io);
-registerChannelRoutes(app, db, io);
+// Pass gateway namespace (gw) so emits reach clients subscribed via /gateway.
+registerServerRoutes(app, db, gw);
+registerChannelRoutes(app, db, gw);
 
 // Redirect root to the new app
 app.get('/', (_req, reply) => reply.redirect('/app', 301));
@@ -447,9 +452,6 @@ io.use((socket, next) => {
     next(); // don't block on bad token in legacy mode
   }
 });
-
-// ── v2 Socket.IO Gateway (/gateway namespace) ─────────────────────────────
-setupGateway(io, db);
 
 // roomId → Map<socketId, { socketId, username, inCall }>
 const rooms = new Map();
