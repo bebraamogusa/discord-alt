@@ -21,6 +21,8 @@ const S = {
   membersVisible: true,
   pendingChannelCreate: null,
   voiceStates: {},          // { channelId: [participant, ...] }
+  friends: [],              // friend list
+  _friendRequestCount: 0,   // pending incoming friend requests
 };
 
 // Voice connection state
@@ -144,6 +146,8 @@ function parseMarkdown(text) {
   s = s.replace(/```([\s\S]*?)```/g, (_, c) => `<pre><code>${c}</code></pre>`);
   // inline code
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // spoiler
+  s = s.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
   // bold
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // italic
@@ -152,11 +156,56 @@ function parseMarkdown(text) {
   s = s.replace(/__(.+?)__/g, '<u>$1</u>');
   // strikethrough
   s = s.replace(/~~(.+?)~~/g, '<s>$1</s>');
+  // block quotes
+  s = s.replace(/(^|\n)&gt; (.+)/g, '$1<blockquote class="msg-quote">$2</blockquote>');
   // links (filter out javascript: protocol for XSS protection)
   s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
   // newlines
   s = s.replace(/\n/g, '<br>');
   return s;
+}
+
+// ─── LINK EMBED SYSTEM ───────────────────────────────────────────────────────
+const _embedCache = new Map();
+
+async function fetchLinkEmbeds(msgEl) {
+  const contentEl = msgEl.querySelector('.msg-content');
+  if (!contentEl) return;
+  const links = contentEl.querySelectorAll('a[href^="http"]');
+  if (!links.length) return;
+
+  // Only process first 3 links per message
+  const urls = [...links].slice(0, 3).map(a => a.href);
+  for (const url of urls) {
+    // Skip image/video/audio direct links (already handled by attachments)
+    if (/\.(jpg|jpeg|png|gif|webp|mp4|webm|mp3|ogg|wav)$/i.test(url)) continue;
+    // Skip if already embedded
+    if (msgEl.querySelector(`.msg-embed[data-url="${CSS.escape(url)}"]`)) continue;
+
+    try {
+      let meta = _embedCache.get(url);
+      if (!meta) {
+        meta = await API.get(`/api/embed?url=${encodeURIComponent(url)}`);
+        _embedCache.set(url, meta);
+      }
+      if (!meta || (!meta.title && !meta.description)) continue;
+
+      const embedHtml = `
+        <div class="msg-embed" data-url="${escHtml(url)}">
+          ${meta.siteName ? `<div class="embed-provider">${escHtml(meta.siteName)}</div>` : ''}
+          ${meta.title ? `<a class="embed-title" href="${escHtml(url)}" target="_blank" rel="noopener">${escHtml(meta.title)}</a>` : ''}
+          ${meta.description ? `<div class="embed-desc">${escHtml(meta.description.slice(0, 300))}</div>` : ''}
+          ${meta.image ? `<img class="embed-thumb" src="${escHtml(meta.image)}" loading="lazy" onerror="this.remove()">` : ''}
+        </div>
+      `;
+      const attsEl = msgEl.querySelector('.msg-attachments');
+      if (attsEl) attsEl.insertAdjacentHTML('afterend', embedHtml);
+      else {
+        const body = msgEl.querySelector('.msg-content');
+        body?.insertAdjacentHTML('afterend', embedHtml);
+      }
+    } catch { /* ignore embed fetch errors */ }
+  }
 }
 
 function avatarEl(user, size = 32) {
@@ -173,6 +222,87 @@ function statusDotHtml(userId, parentBg = 'var(--bg-2)') {
   const p = S.presences[userId];
   const st = p?.status || 'offline';
   return `<div class="status-dot ${st}" style="border-color:${parentBg}"></div>`;
+}
+
+// ─── STATUS PICKER ────────────────────────────────────────────────────────────
+function showStatusPicker() {
+  let picker = document.querySelector('.status-picker');
+  if (picker) { picker.remove(); return; }
+
+  const myStatus = S.presences[S.me?.id]?.status || 'online';
+  const statuses = [
+    { key: 'online',    icon: '🟢', labelKey: 'status_online'    },
+    { key: 'idle',      icon: '🌙', labelKey: 'status_idle'      },
+    { key: 'dnd',       icon: '⛔', labelKey: 'status_dnd'       },
+    { key: 'invisible', icon: '⚫', labelKey: 'status_invisible' },
+  ];
+
+  picker = document.createElement('div');
+  picker.className = 'status-picker';
+  picker.innerHTML = `
+    <div class="sp-header">${t('set_status')}</div>
+    <div class="sp-custom">
+      <input class="sp-custom-input" placeholder="${t('set_custom_status')}" value="${escHtml(S.me?.custom_status||'')}" maxlength="128">
+      ${S.me?.custom_status ? `<button class="sp-clear">${t('clear_status')}</button>` : ''}
+    </div>
+    <div class="sp-divider"></div>
+    ${statuses.map(s => `
+      <div class="sp-item ${myStatus === s.key ? 'active' : ''}" data-status="${s.key}">
+        <span class="sp-icon">${s.icon}</span>
+        <span class="sp-label">${t(s.labelKey)}</span>
+        ${myStatus === s.key ? '<span class="sp-check">✓</span>' : ''}
+      </div>
+    `).join('')}
+  `;
+
+  const wrapper = $('su-av-wrapper');
+  const rect = wrapper.getBoundingClientRect();
+  picker.style.left = rect.left + 'px';
+  picker.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+  document.body.appendChild(picker);
+
+  // Status item clicks
+  picker.querySelectorAll('.sp-item').forEach(el => {
+    el.onclick = () => {
+      const newStatus = el.dataset.status;
+      localStorage.setItem('da_status', newStatus);
+      const cs = picker.querySelector('.sp-custom-input')?.value.trim() || '';
+      socket?.emit('UPDATE_STATUS', { status: newStatus, custom_status: cs });
+      S.presences[S.me.id] = { status: newStatus === 'invisible' ? 'offline' : newStatus, custom_status: cs };
+      S.me.custom_status = cs;
+      updateSidebarUser();
+      if (S.activeServerId && S.activeServerId !== '@me') renderMembersPanel();
+      picker.remove();
+    };
+  });
+
+  // Custom status input
+  const csInput = picker.querySelector('.sp-custom-input');
+  csInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const cs = csInput.value.trim();
+      const st = localStorage.getItem('da_status') || 'online';
+      socket?.emit('UPDATE_STATUS', { status: st, custom_status: cs });
+      S.me.custom_status = cs;
+      S.presences[S.me.id] = { ...S.presences[S.me.id], custom_status: cs };
+      updateSidebarUser();
+      picker.remove();
+    }
+  });
+
+  // Clear button
+  picker.querySelector('.sp-clear')?.addEventListener('click', () => {
+    const st = localStorage.getItem('da_status') || 'online';
+    socket?.emit('UPDATE_STATUS', { status: st, custom_status: '' });
+    S.me.custom_status = '';
+    S.presences[S.me.id] = { ...S.presences[S.me.id], custom_status: '' };
+    updateSidebarUser();
+    picker.remove();
+  });
+
+  // Close on outside click
+  const close = e => { if (!picker.contains(e.target) && e.target !== wrapper) { picker.remove(); document.removeEventListener('click', close); } };
+  setTimeout(() => document.addEventListener('click', close), 0);
 }
 
 function getServer(id) { return S.servers.find(s => s.id === id); }
@@ -264,6 +394,11 @@ function connectGateway() {
     S.presences = presences;
     S.voiceStates = voice_states || {};
     renderApp();
+    // Restore saved status
+    const savedStatus = localStorage.getItem('da_status');
+    if (savedStatus && savedStatus !== 'online') {
+      socket.emit('UPDATE_STATUS', { status: savedStatus, custom_status: user.custom_status || '' });
+    }
   });
 
   socket.on('MESSAGE_CREATE', (msg) => {
@@ -330,6 +465,27 @@ function connectGateway() {
   socket.on('PRESENCE_UPDATE', ({ user_id, status, custom_status }) => {
     S.presences[user_id] = { status, custom_status };
     if (S.activeServerId && S.activeServerId !== '@me') renderMembersPanel();
+    // Update friends view if open
+    if (S.activeChannelId === 'friends') showFriendsView();
+  });
+
+  // Friend events
+  socket.on('FRIEND_REQUEST', (sender) => {
+    S._friendRequestCount++;
+    renderChannelList();
+    NotifSound.play(sender.username, t('friend_requests'));
+    showToast(`${sender.username} ${t('friend_added')}`, 'info');
+  });
+
+  socket.on('FRIEND_UPDATE', ({ user_id, status: fStatus }) => {
+    if (fStatus === 'accepted') {
+      showToast(t('friend_accepted'), 'success');
+    } else if (fStatus === 'removed') {
+      showToast(t('friend_removed'), 'info');
+    }
+    // Refresh friends view if open
+    if (S.activeChannelId === 'friends') showFriendsView();
+    loadFriendCount();
   });
 
   socket.on('MEMBER_JOIN', ({ server_id, member }) => {
@@ -657,6 +813,7 @@ function renderApp() {
   updateSidebarUser();
   renderServerIcons();
   selectServer('@me');
+  loadFriendCount(); // Load pending friend request count
 }
 
 // ─── SIDEBAR USER ─────────────────────────────────────────────────────────────
@@ -749,6 +906,11 @@ function renderChannelList() {
         <span>${t('direct_messages')}</span>
         <button id="btn-new-dm" title="${t('new_message')}">＋</button>
       </div>
+      <div class="dm-item friends-btn ${S.activeChannelId === 'friends' ? 'active' : ''}" data-ch-id="friends">
+        <div class="dm-avatar"><span style="font-size:20px">👥</span></div>
+        <div class="dm-info"><div class="dm-name">${t('friends')}</div></div>
+        ${S._friendRequestCount > 0 ? `<div class="unread-badge">${S._friendRequestCount}</div>` : ''}
+      </div>
     `);
     for (const ch of S.dmChannels) {
       const isActive = ch.id === S.activeChannelId;
@@ -771,7 +933,15 @@ function renderChannelList() {
       `);
     }
     el.querySelectorAll('.dm-item').forEach(e => {
-      e.addEventListener('click', () => selectChannel(e.dataset.chId));
+      e.addEventListener('click', () => {
+        if (e.dataset.chId === 'friends') {
+          S.activeChannelId = 'friends';
+          renderChannelList();
+          showFriendsView();
+          return;
+        }
+        selectChannel(e.dataset.chId);
+      });
     });
     el.querySelector('#btn-new-dm')?.addEventListener('click', showNewDmModal);
     return;
@@ -854,6 +1024,8 @@ async function selectChannel(id) {
   renderChannelList();
   // Notify mobile layout to close sidebar
   document.dispatchEvent(new CustomEvent('da:channel-selected'));
+  // Hide friends view if open
+  const fv = $('friends-view'); if (fv) fv.classList.add('hidden');
 
   const ch = getChannel(id);
   if (!ch) return;
@@ -926,6 +1098,7 @@ async function selectChannel(id) {
 
 function showWelcomeScreen() {
   $('voice-panel')?.remove();
+  const fv = $('friends-view'); if (fv) fv.classList.add('hidden');
   $('welcome-screen').classList.remove('hidden');
   $('welcome-screen').innerHTML = `
     <div class="welcome-icon">💬</div>
@@ -987,6 +1160,8 @@ function renderMessages() {
     lastTs = ts;
   }
   attachMsgHandlers(container);
+  // Fetch link embeds for visible messages
+  container.querySelectorAll('.msg-group').forEach(el => fetchLinkEmbeds(el));
 }
 
 function appendMessage(msg) {
@@ -1001,6 +1176,8 @@ function appendMessage(msg) {
     ? prev.created_at * 1000 : prev.created_at) : 0;
   const isFirst = !prev || prev.author_id !== msg.author_id || (ts - prevTs) > 5 * 60 * 1000;
   container.insertAdjacentHTML('beforeend', msgHtml(msg, isFirst, true));
+  const newEl = container.querySelector(`[data-msg-id="${msg.id}"]`);
+  if (newEl) fetchLinkEmbeds(newEl);
   attachMsgHandlers(container);
 }
 
@@ -1130,6 +1307,21 @@ function attachMsgHandlers(container) {
       openLightbox(el.dataset.lightbox);
     };
   });
+
+  // Click on reply reference → jump to that message
+  container.querySelectorAll('.msg-reply[data-reply-msg]').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const targetId = el.dataset.replyMsg;
+      const target = document.querySelector(`[data-msg-id="${targetId}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('msg-highlight');
+        setTimeout(() => target.classList.remove('msg-highlight'), 2000);
+      }
+    };
+  });
 }
 
 function updateReactions(msgId, channelId, reactions, actorId) {
@@ -1191,9 +1383,22 @@ function scrollToBottom(smooth = false) {
 }
 
 // ─── QUICK REACT / EMOJI PICKER ──────────────────────────────────────────────
-const QUICK_EMOJIS = ['👍','👎','❤️','😂','😮','😢','🎉','🔥','✅','❌','⭐','🚀','👀','💯','🤔','🙌'];
 const EMOJI_LIST   = ['😀','😂','😍','😎','🥺','😭','😡','🤔','🙏','👍','👎','❤️','🔥','✅','❌','⭐',
   '🎉','🚀','💯','🤩','😴','🥳','😤','🤣','😱','🥰','🤯','😏','🙈','🎮','🎵','🍕','☕','🌟','💎','🏆'];
+
+// Extended emoji list with categories for the improved picker
+const EMOJI_CATEGORIES = {
+  smileys: { icon: '😀', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🫢','🤫','🤔','🫡','🤐','🤨','😐','😑','😶','🫥','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','😎','🥳','🤠','🫣'] },
+  people: { icon: '👋', emojis: ['👋','🤚','🖐️','✋','🖖','🫱','🫲','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫳','🫴','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁️','👅','👄'] },
+  nature: { icon: '🐶', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐻‍❄️','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🪱','🐛','🦋','🐌','🐞','🐜','🪰','🪲','🪳','🐢','🐍','🦎','🦂','🦀','🦞','🦐','🦑','🐙','🌵','🌲','🌳','🍀','🌺','🌻','🌹','🌸'] },
+  food: { icon: '🍕', emojis: ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🧄','🧅','🥔','🍠','🥐','🍞','🥖','🫓','🥨','🧀','🥚','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫔','🌮','🌯','🫔','🥗','🍝','🍜','🍛','🍚','🍱','🍙','🍘'] },
+  activities: { icon: '⚽', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🥍','🏑','🥊','🥋','🏹','🎣','🤿','🏂','🏄','🏇','🚴','🏋️','🤸','🤼','🤽','🤾','⛷️','⛹️','🧗','🧘','🎮','🕹️','🎲','🧩','🎯','🎳','🎻','🎸','🎺','🥁','🎹','🎤','🎧','🎫','🎬','🎨','🎪','🎭','🎠','🎡','🎢'] },
+  travel: { icon: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🛵','🏍️','🚲','🛴','🛺','🚃','🚂','✈️','🚀','🛸','🚁','⛵','🚤','🛥️','🛳️','⛴️','🗺️','🗻','🏔️','⛰️','🌋','🗾','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬'] },
+  objects: { icon: '💡', emojis: ['⌚','📱','💻','⌨️','🖥️','🖨️','🖱️','🖲️','🕹️','🗜️','💾','💿','📀','📼','📷','📹','🎥','📽️','🎞️','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','🧭','⏱️','⏲️','⏰','🕰️','📡','🔋','🔌','💡','🔦','🕯️','🪔','🧯','🛢️','💸','💵','💴','💶','💷','🪙','💰','💳','💎','⚖️','🪜','🧰','🪛','🔧','🔨','⚒️','🔩','⚙️'] },
+  symbols: { icon: '❤️', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮'] },
+};
+
+const QUICK_EMOJIS = EMOJI_LIST.slice(0, 8);
 
 function showQuickReactPicker(btn, msgId) {
   let existing = document.querySelector('.quick-react-popup');
@@ -1219,24 +1424,103 @@ function showQuickReactPicker(btn, msgId) {
 }
 
 function setupEmojiPicker() {
-  const picker = $('emoji-picker');
-  EMOJI_LIST.forEach(em => {
-    const btn = document.createElement('button');
-    btn.textContent = em;
-    btn.onclick = () => {
+  const oldPicker = $('emoji-picker');
+  // We'll build a v2 picker on click instead of using the old static one
+  if (oldPicker) oldPicker.remove();
+
+  $('btn-emoji').addEventListener('click', e => {
+    e.stopPropagation();
+    let picker = document.querySelector('.emoji-picker-v2');
+    if (picker) { picker.remove(); return; }
+
+    const recentEmojis = JSON.parse(localStorage.getItem('da_recent_emojis') || '[]').slice(0, 24);
+    const catKeys = Object.keys(EMOJI_CATEGORIES);
+    const catNameMap = {
+      smileys: 'emoji_smileys', people: 'emoji_people', nature: 'emoji_nature',
+      food: 'emoji_food', activities: 'emoji_activities', travel: 'emoji_travel',
+      objects: 'emoji_objects', symbols: 'emoji_symbols',
+    };
+
+    picker = document.createElement('div');
+    picker.className = 'emoji-picker-v2';
+    picker.innerHTML = `
+      <div class="ep-search"><input placeholder="${t('emoji_search')}" id="ep-search-input"></div>
+      <div class="ep-tabs">
+        ${recentEmojis.length ? `<button class="ep-tab active" data-cat="recent">🕐</button>` : ''}
+        ${catKeys.map((k, i) => `<button class="ep-tab ${!recentEmojis.length && i === 0 ? 'active' : ''}" data-cat="${k}">${EMOJI_CATEGORIES[k].icon}</button>`).join('')}
+      </div>
+      <div class="ep-grid" id="ep-grid"></div>
+    `;
+
+    // Position above emoji button
+    const wrapper = $('btn-emoji').closest('.input-actions') || $('btn-emoji').parentElement;
+    picker.style.position = 'absolute';
+    picker.style.bottom = '100%';
+    picker.style.right = '0';
+    wrapper.style.position = 'relative';
+    wrapper.appendChild(picker);
+
+    const grid = picker.querySelector('#ep-grid');
+    let activeCat = recentEmojis.length ? 'recent' : catKeys[0];
+
+    function renderGrid(cat, filter = '') {
+      let emojis;
+      if (filter) {
+        // Search across all categories
+        emojis = [];
+        for (const c of catKeys) emojis.push(...EMOJI_CATEGORIES[c].emojis);
+        // Simple: just show all (filtering by emoji is not very useful, but works for small sets)
+        grid.innerHTML = emojis.map(em => `<button data-em="${em}">${em}</button>`).join('');
+        return;
+      }
+      if (cat === 'recent') {
+        emojis = recentEmojis;
+        grid.innerHTML = `<div class="ep-cat-label">${t('emoji_recent')}</div>` + emojis.map(em => `<button data-em="${em}">${em}</button>`).join('');
+      } else {
+        emojis = EMOJI_CATEGORIES[cat]?.emojis || [];
+        grid.innerHTML = `<div class="ep-cat-label">${t(catNameMap[cat] || cat)}</div>` + emojis.map(em => `<button data-em="${em}">${em}</button>`).join('');
+      }
+    }
+
+    renderGrid(activeCat);
+
+    // Tab clicks
+    picker.querySelectorAll('.ep-tab').forEach(tab => {
+      tab.onclick = () => {
+        picker.querySelectorAll('.ep-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeCat = tab.dataset.cat;
+        renderGrid(activeCat);
+      };
+    });
+
+    // Search
+    const searchInput = picker.querySelector('#ep-search-input');
+    searchInput?.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      if (q) renderGrid('', q);
+      else renderGrid(activeCat);
+    });
+
+    // Click emoji
+    grid.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-em]');
+      if (!btn) return;
+      const em = btn.dataset.em;
       const txt = $('msg-input');
       const pos = txt.selectionStart;
       txt.value = txt.value.slice(0, pos) + em + txt.value.slice(pos);
       txt.focus();
-      picker.classList.add('hidden');
-    };
-    picker.appendChild(btn);
+      // Save to recent
+      const recent = JSON.parse(localStorage.getItem('da_recent_emojis') || '[]');
+      const updated = [em, ...recent.filter(e => e !== em)].slice(0, 24);
+      localStorage.setItem('da_recent_emojis', JSON.stringify(updated));
+    });
+
+    // Close on outside click
+    const close = ev => { if (!picker.contains(ev.target) && ev.target !== $('btn-emoji')) { picker.remove(); document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 0);
   });
-  $('btn-emoji').addEventListener('click', e => {
-    e.stopPropagation();
-    picker.classList.toggle('hidden');
-  });
-  document.addEventListener('click', () => picker.classList.add('hidden'));
 }
 
 // ─── TYPING ───────────────────────────────────────────────────────────────────
@@ -1438,8 +1722,11 @@ async function showProfileCard(userId, anchorEl) {
       <div class="pc-tag">#${escHtml(user.discriminator||'0000')}</div>
       ${p.custom_status ? `<div class="pc-status">${escHtml(p.custom_status)}</div>` : ''}
       ${user.about_me ? `<div class="pc-about">${escHtml(user.about_me)}</div>` : ''}
-      ${!isSelf ? `<div class="pc-actions"><button class="btn btn-primary pc-dm-btn" data-user-id="${escHtml(userId)}">${t('pc_send_dm')}</button></div>` : ''}
-    </div>
+      <div class="pc-actions">
+        ${!isSelf ? `<button class="btn btn-primary pc-dm-btn" data-user-id="${escHtml(userId)}">${t('pc_send_dm')}</button>` : ''}
+        ${!isSelf && S.activeServerId !== '@me' ? `<button class="btn btn-secondary pc-add-friend-btn" data-user-id="${escHtml(userId)}">${t('add_friend')}</button>` : ''}
+        ${isSelf && S.activeServerId !== '@me' ? `<button class="btn btn-secondary pc-nick-btn">${t('set_nickname')}</button>` : ''}
+      </div>
   `;
   card.classList.remove('hidden');
 
@@ -1460,6 +1747,18 @@ async function showProfileCard(userId, anchorEl) {
       await selectServer('@me');
       selectChannel(dm.id);
     } catch (e) { showToast(e.message, 'error'); }
+  });
+
+  card.querySelector('.pc-add-friend-btn')?.addEventListener('click', async () => {
+    try {
+      const result = await API.post(`/api/@me/friends/${userId}`);
+      showToast(result.status === 'accepted' ? t('friend_accepted') : t('friend_added'), 'success');
+    } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+  });
+
+  card.querySelector('.pc-nick-btn')?.addEventListener('click', () => {
+    closeProfileCard();
+    showNicknameModal();
   });
 
   const closeCard = e => {
@@ -1690,9 +1989,318 @@ async function showPins() {
   } catch {}
 }
 
+// ─── FRIENDS SYSTEM ───────────────────────────────────────────────────────────
+let _friendsTab = 'online';
+
+async function loadFriendCount() {
+  try {
+    const friends = await API.get('/api/@me/friends');
+    S.friends = friends;
+    S._friendRequestCount = friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
+    if (S.activeServerId === '@me') renderChannelList();
+  } catch {}
+}
+
+async function showFriendsView() {
+  $('welcome-screen').classList.add('hidden');
+  $('chat-header').classList.add('hidden');
+  $('messages-wrapper').classList.add('hidden');
+  $('typing-indicator').classList.add('hidden');
+  $('input-area').classList.add('hidden');
+  $('members-panel').classList.add('hidden');
+
+  // Load friends
+  try {
+    S.friends = await API.get('/api/@me/friends');
+    S._friendRequestCount = S.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
+    renderChannelList();
+  } catch {}
+
+  // Render friends view in main area
+  let main = $('friends-view');
+  if (!main) {
+    main = document.createElement('div');
+    main.id = 'friends-view';
+    main.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden';
+    $('main').appendChild(main);
+  }
+  main.classList.remove('hidden');
+
+  const accepted = S.friends.filter(f => f.status === 'accepted');
+  const pending = S.friends.filter(f => f.status === 'pending');
+  const incomingPending = pending.filter(f => f.direction === 'incoming');
+  const onlineFriends = accepted.filter(f => (S.presences[f.user_id]?.status || 'offline') !== 'offline');
+
+  main.innerHTML = `
+    <div class="friends-header">
+      <span class="fh-title">👥 ${t('friends')}</span>
+      <div class="fh-divider"></div>
+      <button class="friends-tab ${_friendsTab === 'online' ? 'active' : ''}" data-tab="online">${t('online_friends')}</button>
+      <button class="friends-tab ${_friendsTab === 'all' ? 'active' : ''}" data-tab="all">${t('all_friends')}</button>
+      <button class="friends-tab ${_friendsTab === 'pending' ? 'active' : ''}" data-tab="pending">${t('pending_friends')}${incomingPending.length ? ` (${incomingPending.length})` : ''}</button>
+      <button class="friends-tab green ${_friendsTab === 'add' ? 'active' : ''}" data-tab="add">${t('add_friend')}</button>
+    </div>
+    ${_friendsTab === 'add' ? `
+      <div class="friend-search-bar">
+        <input id="friend-search-input" placeholder="${t('add_friend_hint')}">
+        <div id="friend-search-results" style="margin-top:8px"></div>
+      </div>
+    ` : ''}
+    <div class="friends-body" id="friends-body"></div>
+  `;
+
+  // Tab clicks
+  main.querySelectorAll('.friends-tab').forEach(btn => {
+    btn.onclick = () => { _friendsTab = btn.dataset.tab; showFriendsView(); };
+  });
+
+  const body = $('friends-body');
+
+  if (_friendsTab === 'online') {
+    body.innerHTML = `<div class="friend-count">${t('online_friends')} — ${onlineFriends.length}</div>`;
+    if (!onlineFriends.length) body.innerHTML += `<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">${t('no_friends')}</div></div>`;
+    for (const f of onlineFriends) body.insertAdjacentHTML('beforeend', friendItemHtml(f));
+  } else if (_friendsTab === 'all') {
+    body.innerHTML = `<div class="friend-count">${t('all_friends')} — ${accepted.length}</div>`;
+    if (!accepted.length) body.innerHTML += `<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">${t('no_friends')}</div></div>`;
+    for (const f of accepted) body.insertAdjacentHTML('beforeend', friendItemHtml(f));
+  } else if (_friendsTab === 'pending') {
+    body.innerHTML = `<div class="friend-count">${t('pending_friends')} — ${pending.length}</div>`;
+    if (!pending.length) body.innerHTML += `<div class="empty-state"><div class="empty-icon">📨</div><div class="empty-text">${t('no_pending')}</div></div>`;
+    for (const f of pending) body.insertAdjacentHTML('beforeend', friendItemHtml(f, true));
+  }
+
+  // Friend item click actions
+  body.querySelectorAll('.friend-item').forEach(el => {
+    el.querySelector('.friend-dm')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        const dm = await API.post(`/api/users/${el.dataset.userId}/dm`);
+        if (dm?.id) selectChannel(dm.id);
+      } catch {}
+    });
+    el.querySelector('.friend-remove')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await API.del(`/api/@me/friends/${el.dataset.userId}`);
+        showToast(t('friend_removed'), 'success');
+        showFriendsView();
+      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+    });
+    el.querySelector('.friend-accept')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await API.post(`/api/@me/friends/${el.dataset.userId}`);
+        showToast(t('friend_accepted'), 'success');
+        showFriendsView();
+      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+    });
+    el.querySelector('.friend-decline')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await API.del(`/api/@me/friends/${el.dataset.userId}`);
+        showFriendsView();
+      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+    });
+  });
+
+  // Add friend search
+  if (_friendsTab === 'add') {
+    const searchInput = $('friend-search-input');
+    let _debounce;
+    searchInput?.addEventListener('input', () => {
+      clearTimeout(_debounce);
+      _debounce = setTimeout(async () => {
+        const q = searchInput.value.trim();
+        const resultsEl = $('friend-search-results');
+        if (!q || q.length < 1) { resultsEl.innerHTML = ''; return; }
+        try {
+          const users = await API.get(`/api/users?q=${encodeURIComponent(q)}&limit=10`);
+          resultsEl.innerHTML = users.map(u => `
+            <div class="friend-item" data-user-id="${escHtml(u.id)}">
+              <div class="friend-av">${avatarEl(u, 36)}</div>
+              <div class="friend-info">
+                <div class="friend-name">${escHtml(u.username)}<span style="color:var(--text-3)">#${escHtml(u.discriminator||'0000')}</span></div>
+              </div>
+              <div class="friend-actions">
+                <button class="friend-add-btn success" title="${t('add_friend')}">➕</button>
+              </div>
+            </div>
+          `).join('') || `<div style="color:var(--text-3);padding:8px">${t('new_dm_no_results')}</div>`;
+          resultsEl.querySelectorAll('.friend-add-btn').forEach(btn => {
+            btn.onclick = async () => {
+              const uid = btn.closest('.friend-item').dataset.userId;
+              try {
+                const result = await API.post(`/api/@me/friends/${uid}`);
+                showToast(result.status === 'accepted' ? t('friend_accepted') : t('friend_added'), 'success');
+                btn.disabled = true;
+                btn.textContent = '✓';
+              } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+            };
+          });
+        } catch {}
+      }, 300);
+    });
+    searchInput?.focus();
+  }
+}
+
+function friendItemHtml(f, isPending = false) {
+  const p = S.presences[f.user_id] || {};
+  const status = p.status || 'offline';
+  const statusText = p.custom_status || t(`status_${status === 'dnd' ? 'dnd' : status}`);
+  return `
+    <div class="friend-item" data-user-id="${escHtml(f.user_id)}">
+      <div class="friend-av">
+        ${f.avatar_url ? `<img src="${escHtml(f.avatar_url)}" style="width:36px;height:36px;border-radius:50%">` : `<div class="av-fallback" style="width:36px;height:36px;font-size:15px;background:${escHtml(f.avatar_color||'#5865f2')}">${(f.username||'?')[0].toUpperCase()}</div>`}
+        <div class="status-dot ${status}" style="border-color:var(--bg-2)"></div>
+      </div>
+      <div class="friend-info">
+        <div class="friend-name">${escHtml(f.username)}</div>
+        <div class="friend-status-text">${escHtml(statusText)}</div>
+      </div>
+      <div class="friend-actions">
+        ${isPending && f.direction === 'incoming' ? `
+          <button class="friend-accept success" title="${t('accept_friend')}">✓</button>
+          <button class="friend-decline danger" title="${t('decline_friend')}">✕</button>
+        ` : isPending ? `
+          <span style="color:var(--text-3);font-size:12px">${t('pending_friends')}...</span>
+        ` : `
+          <button class="friend-dm" title="DM">💬</button>
+          <button class="friend-remove danger" title="${t('remove_friend')}">✕</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+// ─── NICKNAME MODAL ───────────────────────────────────────────────────────────
+function showNicknameModal() {
+  if (!S.activeServerId || S.activeServerId === '@me') return;
+  const member = S.members[S.activeServerId]?.find(m => m.id === S.me?.id);
+  const currentNick = member?.nickname || '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'da-dialog-overlay';
+  overlay.innerHTML = `
+    <div class="da-dialog" style="max-width:360px">
+      <div class="da-dialog-header">${t('set_nickname')}</div>
+      <div class="nick-modal-content">
+        <input id="nick-input" placeholder="${t('nickname_placeholder')}" value="${escHtml(currentNick)}" maxlength="32">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" id="nick-reset">${t('reset_nickname')}</button>
+          <button class="btn btn-primary" id="nick-save">${t('save')}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  const input = $('nick-input');
+  input?.focus();
+
+  $('nick-save').onclick = async () => {
+    try {
+      const nick = input.value.trim();
+      await API.patch(`/api/servers/${S.activeServerId}/members/@me/nickname`, { nickname: nick || null });
+      // Update local state
+      if (member) member.nickname = nick || null;
+      showToast(t('nickname_saved'), 'success');
+      overlay.remove();
+      if (S.activeServerId !== '@me') renderMembersPanel();
+    } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+  };
+
+  $('nick-reset').onclick = async () => {
+    try {
+      await API.patch(`/api/servers/${S.activeServerId}/members/@me/nickname`, { nickname: null });
+      if (member) member.nickname = null;
+      showToast(t('nickname_saved'), 'success');
+      overlay.remove();
+      if (S.activeServerId !== '@me') renderMembersPanel();
+    } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+  };
+
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') $('nick-save').click(); });
+}
+
 // ─── NEW DM MODAL ─────────────────────────────────────────────────────────────
 function showNewDmModal() {
-  showToast(t('dm_hint'), 'error');
+  const overlay = document.createElement('div');
+  overlay.className = 'da-dialog-overlay';
+  overlay.innerHTML = `
+    <div class="da-dialog-box" role="dialog" aria-modal="true" style="max-width:440px;width:100%">
+      <div class="da-dialog-head">
+        <h3>${t('new_dm_title')}</h3>
+        <p style="font-size:13px;color:var(--text-3);margin-top:4px">${t('new_dm_subtitle')}</p>
+      </div>
+      <div class="da-dialog-body" style="padding:0 16px 16px">
+        <input type="text" id="dm-search-input" class="input" placeholder="${t('new_dm_placeholder')}"
+               style="width:100%;margin-bottom:12px" autocomplete="off">
+        <div id="dm-search-results" style="max-height:240px;overflow-y:auto"></div>
+      </div>
+      <div class="da-dialog-foot">
+        <button class="btn btn-outline" id="dm-search-cancel">${t('cancel')}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector('#dm-search-input');
+  const results = overlay.querySelector('#dm-search-results');
+  const close = () => overlay.remove();
+
+  overlay.querySelector('#dm-search-cancel').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  let debounce = null;
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    const q = input.value.trim();
+    if (!q) { results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_type_to_search')}</div>`; return; }
+    debounce = setTimeout(async () => {
+      try {
+        const users = await API.get(`/api/users?q=${encodeURIComponent(q)}&limit=15`);
+        if (!users.length) {
+          results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_no_results')}</div>`;
+          return;
+        }
+        results.innerHTML = users.map(u => `
+          <div class="dm-search-item" data-user-id="${escHtml(u.id)}">
+            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+              ${avatarEl(u, 36)}
+              <div style="min-width:0">
+                <div style="font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.username)}<span style="color:var(--text-3);font-weight:400">#${escHtml(u.discriminator)}</span></div>
+                ${u.custom_status ? `<div style="font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.custom_status)}</div>` : ''}
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm dm-start-btn" data-user-id="${escHtml(u.id)}">${t('new_dm_send')}</button>
+          </div>
+        `).join('');
+
+        results.querySelectorAll('.dm-start-btn').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              const dm = await API.post(`/api/users/${btn.dataset.userId}/dm`);
+              if (!S.dmChannels.find(c => c.id === dm.id)) S.dmChannels.unshift(dm);
+              close();
+              await selectServer('@me');
+              selectChannel(dm.id);
+            } catch (e) {
+              showToast(e.body?.error || t('error_generic'), 'error');
+            }
+          };
+        });
+      } catch {
+        results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px">${t('error_generic')}</div>`;
+      }
+    }, 300);
+  });
+
+  // Initial state
+  results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_type_to_search')}</div>`;
+  setTimeout(() => input.focus(), 50);
 }
 
 // ─── MODAL HELPERS ────────────────────────────────────────────────────────────
@@ -2071,7 +2679,13 @@ function renderUserSettingsPage(page) {
       <div class="settings-section-title">${t('my_account')}</div>
       <div class="form-group">
         <label>${t('avatar_url')}</label>
-        <input id="us-avatar" value="${escHtml(S.me?.avatar_url||'')}" placeholder="https://...">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="us-avatar" value="${escHtml(S.me?.avatar_url||'')}" placeholder="https://..." style="flex:1">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
+            📁 Upload
+            <input type="file" id="us-avatar-upload" accept="image/*" style="display:none">
+          </label>
+        </div>
       </div>
       <div class="form-group">
         <label>${t('avatar_color')}</label>
@@ -2122,9 +2736,19 @@ function renderUserSettingsPage(page) {
         });
         S.me = updated;
         updateSidebarUser();
-        socket?.emit('UPDATE_STATUS', { status: 'online', custom_status: updated.custom_status });
+        socket?.emit('UPDATE_STATUS', { status: localStorage.getItem('da_status') || 'online', custom_status: updated.custom_status });
         showToast(t('saved'), 'success');
       } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+    };
+    // Avatar upload handler
+    $('us-avatar-upload').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const result = await API.uploadFile(file);
+        $('us-avatar').value = result.url;
+        showToast('Avatar uploaded!', 'success');
+      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
     };
     $('us-change-pass').onclick = async () => {
       const cur = $('us-cur-pass').value;
@@ -2512,7 +3136,7 @@ function setup() {
 
   // Settings button
   $('btn-settings').onclick = () => openUserSettings('profile');
-  $('su-av-wrapper').onclick = () => openUserSettings('profile');
+  $('su-av-wrapper').onclick = (e) => { e.stopPropagation(); showStatusPicker(); };
   $('su-info-click').onclick = () => openUserSettings('profile');
 
   // Server settings close

@@ -249,6 +249,54 @@ export const TRANSLATIONS = {
     status_idle: 'Не активен',
     status_dnd: 'Не беспокоить',
     status_offline: 'Не в сети',
+    status_invisible: 'Невидимый',
+    set_status: 'Установить статус',
+    set_custom_status: 'Установить пользовательский статус',
+    clear_status: 'Очистить статус',
+
+    // Friends
+    friends: 'Друзья',
+    friend_requests: 'Запросы в друзья',
+    add_friend: 'Добавить в друзья',
+    remove_friend: 'Удалить из друзей',
+    accept_friend: 'Принять',
+    decline_friend: 'Отклонить',
+    pending_friends: 'Ожидающие',
+    all_friends: 'Все',
+    online_friends: 'В сети',
+    blocked_users: 'Заблокированные',
+    no_friends: 'Пока нет друзей',
+    no_pending: 'Нет ожидающих запросов',
+    friend_added: 'Запрос в друзья отправлен',
+    friend_removed: 'Удалён из друзей',
+    friend_accepted: 'Друг добавлен',
+    already_friends: 'Вы уже друзья',
+    add_friend_hint: 'Введите имя пользователя чтобы добавить в друзья',
+
+    // Emoji picker
+    emoji_search: 'Поиск эмодзи',
+    emoji_recent: 'Недавние',
+    emoji_smileys: 'Смайлики',
+    emoji_people: 'Люди',
+    emoji_nature: 'Природа',
+    emoji_food: 'Еда',
+    emoji_activities: 'Активности',
+    emoji_travel: 'Путешествия',
+    emoji_objects: 'Объекты',
+    emoji_symbols: 'Символы',
+
+    // Nicknames
+    set_nickname: 'Установить никнейм',
+    nickname: 'Никнейм',
+    nickname_placeholder: 'Введите никнейм',
+    nickname_saved: 'Никнейм сохранён',
+    reset_nickname: 'Сбросить никнейм',
+
+    // Embeds
+    link_preview: 'Предпросмотр ссылки',
+
+    // Spoiler
+    spoiler_reveal: 'Нажмите чтобы раскрыть',
 
     // Misc
     enter_server_name: 'Введите название сервера',
@@ -265,6 +313,12 @@ export const TRANSLATIONS = {
     confirm_delete_channel_msg: 'Все сообщения в этом канале будут безвозвратно удалены.',
     invite_copied: 'Ссылка скопирована: {url}',
     dm_hint: 'Используйте ссылку-приглашение, чтобы добавить пользователей',
+    new_dm_title: 'Новое сообщение',
+    new_dm_subtitle: 'Найдите пользователя, чтобы начать диалог',
+    new_dm_placeholder: 'Введите имя пользователя...',
+    new_dm_type_to_search: 'Начните вводить имя пользователя',
+    new_dm_no_results: 'Пользователи не найдены',
+    new_dm_send: 'Написать',
 
     // Voice
     voice_no_mic: 'Нет доступа к микрофону',
@@ -627,6 +681,54 @@ export const TRANSLATIONS = {
     status_idle: 'Idle',
     status_dnd: 'Do Not Disturb',
     status_offline: 'Offline',
+    status_invisible: 'Invisible',
+    set_status: 'Set Status',
+    set_custom_status: 'Set Custom Status',
+    clear_status: 'Clear Status',
+
+    // Friends
+    friends: 'Friends',
+    friend_requests: 'Friend Requests',
+    add_friend: 'Add Friend',
+    remove_friend: 'Remove Friend',
+    accept_friend: 'Accept',
+    decline_friend: 'Decline',
+    pending_friends: 'Pending',
+    all_friends: 'All',
+    online_friends: 'Online',
+    blocked_users: 'Blocked',
+    no_friends: 'No friends yet',
+    no_pending: 'No pending requests',
+    friend_added: 'Friend request sent',
+    friend_removed: 'Removed from friends',
+    friend_accepted: 'Friend added',
+    already_friends: 'Already friends',
+    add_friend_hint: 'Enter a username to add as friend',
+
+    // Emoji picker
+    emoji_search: 'Search Emoji',
+    emoji_recent: 'Recent',
+    emoji_smileys: 'Smileys',
+    emoji_people: 'People',
+    emoji_nature: 'Nature',
+    emoji_food: 'Food',
+    emoji_activities: 'Activities',
+    emoji_travel: 'Travel',
+    emoji_objects: 'Objects',
+    emoji_symbols: 'Symbols',
+
+    // Nicknames
+    set_nickname: 'Set Nickname',
+    nickname: 'Nickname',
+    nickname_placeholder: 'Enter nickname',
+    nickname_saved: 'Nickname saved',
+    reset_nickname: 'Reset Nickname',
+
+    // Embeds
+    link_preview: 'Link Preview',
+
+    // Spoiler
+    spoiler_reveal: 'Click to reveal',
 
     // Misc
     enter_server_name: 'Enter server name',
@@ -643,6 +745,12 @@ export const TRANSLATIONS = {
     confirm_delete_channel_msg: 'All messages in this channel will be permanently deleted.',
     invite_copied: 'Link copied: {url}',
     dm_hint: 'Use an invite link to add users',
+    new_dm_title: 'New Message',
+    new_dm_subtitle: 'Search for a user to start a conversation',
+    new_dm_placeholder: 'Enter a username...',
+    new_dm_type_to_search: 'Start typing a username to search',
+    new_dm_no_results: 'No users found',
+    new_dm_send: 'Message',
 
     // Voice
     voice_no_mic: 'No microphone access',
@@ -1005,6 +1113,54 @@ export const TRANSLATIONS = {
     status_idle: 'Nieaktywny',
     status_dnd: 'Nie przeszkadzać',
     status_offline: 'Offline',
+    status_invisible: 'Niewidzialny',
+    set_status: 'Ustaw status',
+    set_custom_status: 'Ustaw status niestandardowy',
+    clear_status: 'Wyczyść status',
+
+    // Friends
+    friends: 'Znajomi',
+    friend_requests: 'Zaproszenia do znajomych',
+    add_friend: 'Dodaj znajomego',
+    remove_friend: 'Usuń znajomego',
+    accept_friend: 'Akceptuj',
+    decline_friend: 'Odrzuć',
+    pending_friends: 'Oczekujące',
+    all_friends: 'Wszyscy',
+    online_friends: 'Online',
+    blocked_users: 'Zablokowani',
+    no_friends: 'Brak znajomych',
+    no_pending: 'Brak oczekujących zaproszeń',
+    friend_added: 'Zaproszenie wysłane',
+    friend_removed: 'Usunięto ze znajomych',
+    friend_accepted: 'Dodano znajomego',
+    already_friends: 'Już jesteście znajomymi',
+    add_friend_hint: 'Wprowadź nazwę użytkownika aby dodać znajomego',
+
+    // Emoji picker
+    emoji_search: 'Szukaj emoji',
+    emoji_recent: 'Ostatnie',
+    emoji_smileys: 'Buźki',
+    emoji_people: 'Ludzie',
+    emoji_nature: 'Natura',
+    emoji_food: 'Jedzenie',
+    emoji_activities: 'Aktywności',
+    emoji_travel: 'Podróże',
+    emoji_objects: 'Obiekty',
+    emoji_symbols: 'Symbole',
+
+    // Nicknames
+    set_nickname: 'Ustaw pseudonim',
+    nickname: 'Pseudonim',
+    nickname_placeholder: 'Wprowadź pseudonim',
+    nickname_saved: 'Pseudonim zapisany',
+    reset_nickname: 'Resetuj pseudonim',
+
+    // Embeds
+    link_preview: 'Podgląd linku',
+
+    // Spoiler
+    spoiler_reveal: 'Kliknij aby odsłonić',
 
     // Misc
     enter_server_name: 'Wprowadź nazwę serwera',
@@ -1021,6 +1177,12 @@ export const TRANSLATIONS = {
     confirm_delete_channel_msg: 'Wszystkie wiadomości w tym kanale zostaną trwale usunięte.',
     invite_copied: 'Skopiowano link: {url}',
     dm_hint: 'Użyj linku zaproszenia, aby dodać użytkowników',
+    new_dm_title: 'Nowa wiadomość',
+    new_dm_subtitle: 'Wyszukaj użytkownika, aby rozpocząć rozmowę',
+    new_dm_placeholder: 'Wpisz nazwę użytkownika...',
+    new_dm_type_to_search: 'Zacznij wpisywać nazwę użytkownika',
+    new_dm_no_results: 'Nie znaleziono użytkowników',
+    new_dm_send: 'Napisz',
 
     // Voice
     voice_no_mic: 'Brak dostępu do mikrofonu',

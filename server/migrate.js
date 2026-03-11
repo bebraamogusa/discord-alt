@@ -349,6 +349,23 @@ db.transaction(() => {
   `);
 
   /* ══════════════════════════════════════════════════════════════════════════
+     FRIENDS
+  ══════════════════════════════════════════════════════════════════════════ */
+  db.exec(/* sql */`
+    CREATE TABLE IF NOT EXISTS friends (
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      friend_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status     TEXT NOT NULL DEFAULT 'pending'
+                   CHECK(status IN ('pending','accepted','blocked')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (user_id, friend_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_friends_user   ON friends(user_id);
+    CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id);
+  `);
+
+  /* ══════════════════════════════════════════════════════════════════════════
      MIGRATE EXISTING DATA
      Map old flat rooms/messages → new schema where possible
   ══════════════════════════════════════════════════════════════════════════ */

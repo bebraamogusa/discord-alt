@@ -244,6 +244,21 @@ app.get('/api/users/:id', { preHandler: authenticate }, (req, reply) => {
   return reply.send(publicUser(user));
 });
 
+// ── User search (for New DM) ────────────────────────────────────────────────
+app.get('/api/users', { preHandler: authenticate }, (req, reply) => {
+  const q = String(req.query.q || '').trim();
+  if (!q || q.length < 1) return reply.send([]);
+  const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
+  const rows = db.prepare(`
+    SELECT id, username, discriminator, avatar_url, avatar_color, custom_status, last_seen
+    FROM users
+    WHERE id != ? AND username LIKE ?
+    ORDER BY username COLLATE NOCASE ASC
+    LIMIT ?
+  `).all(req.user.id, `%${q}%`, limit);
+  return reply.send(rows);
+});
+
 // ── Password change ─────────────────────────────────────────────────────────
 app.patch('/api/@me/password', { preHandler: authenticate }, async (req, reply) => {
   if (rateLimit(`pwd:${req.user.id}`, 5, 300))
@@ -290,6 +305,145 @@ app.get('/api/channels/:id/messages/search', { preHandler: authenticate }, (req,
     author: { id: r.author_id, username: r.username, discriminator: r.discriminator, avatar_url: r.avatar_url, avatar_color: r.avatar_color },
   }));
   return reply.send(results);
+});
+
+// ── Link Embed / Open Graph Proxy ───────────────────────────────────────────
+const _ogCache = new Map();
+setInterval(() => { // Clear OG cache every 30 minutes
+  const now = Date.now();
+  for (const [url, entry] of _ogCache) {
+    if (now - entry.ts > 30 * 60 * 1000) _ogCache.delete(url);
+  }
+}, 10 * 60 * 1000);
+
+app.get('/api/embed', { preHandler: authenticate }, async (req, reply) => {
+  const url = String(req.query.url || '').trim();
+  if (!url || !/^https?:\/\//i.test(url)) return reply.code(400).send({ error: 'Invalid URL' });
+
+  // Check cache
+  const cached = _ogCache.get(url);
+  if (cached) return reply.send(cached.data);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'DiscordAlt-Bot/1.0 (link preview)' },
+      redirect: 'follow',
+    });
+    clearTimeout(timeout);
+
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('text/html')) return reply.send({});
+
+    const html = await res.text();
+    const og = {};
+
+    const getTag = (prop) => {
+      const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i'))
+        || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, 'i'));
+      return m?.[1] || '';
+    };
+
+    og.title = getTag('og:title') || getTag('twitter:title') || (html.match(/<title[^>]*>([^<]+)/i)?.[1] || '').trim();
+    og.description = getTag('og:description') || getTag('twitter:description') || getTag('description');
+    og.image = getTag('og:image') || getTag('twitter:image');
+    og.siteName = getTag('og:site_name') || '';
+
+    // Make relative image URLs absolute
+    if (og.image && !og.image.startsWith('http')) {
+      try {
+        og.image = new URL(og.image, url).href;
+      } catch { og.image = ''; }
+    }
+
+    const data = { title: og.title, description: og.description?.slice(0, 300), image: og.image, siteName: og.siteName };
+    _ogCache.set(url, { data, ts: Date.now() });
+    return reply.send(data);
+  } catch {
+    return reply.send({});
+  }
+});
+
+// ── Friend System ───────────────────────────────────────────────────────────
+
+// GET /api/@me/friends — list all friends and pending requests
+app.get('/api/@me/friends', { preHandler: authenticate }, (req, reply) => {
+  const rows = db.prepare(`
+    SELECT f.*, 
+      u.id as user_id, u.username, u.discriminator, u.avatar_url, u.avatar_color, u.custom_status,
+      CASE WHEN f.user_id = ? THEN 'outgoing' ELSE 'incoming' END as direction
+    FROM friends f
+    JOIN users u ON u.id = CASE WHEN f.user_id = ? THEN f.friend_id ELSE f.user_id END
+    WHERE f.user_id = ? OR f.friend_id = ?
+    ORDER BY f.created_at DESC
+  `).all(req.user.id, req.user.id, req.user.id, req.user.id);
+  return reply.send(rows);
+});
+
+// POST /api/@me/friends/:id — send friend request (or accept if incoming exists)
+app.post('/api/@me/friends/:id', { preHandler: authenticate }, (req, reply) => {
+  const friendId = req.params.id;
+  if (friendId === req.user.id) return reply.code(400).send({ error: 'Cannot friend yourself' });
+
+  const target = db.prepare('SELECT id FROM users WHERE id = ?').get(friendId);
+  if (!target) return reply.code(404).send({ error: 'User not found' });
+
+  // Check if relationship already exists  
+  const existing = db.prepare(`
+    SELECT * FROM friends
+    WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
+  `).get(req.user.id, friendId, friendId, req.user.id);
+
+  if (existing) {
+    if (existing.status === 'accepted') return reply.code(400).send({ error: 'Already friends' });
+    // If there's a pending request from the other user, accept it
+    if (existing.status === 'pending' && existing.user_id === friendId) {
+      db.prepare('UPDATE friends SET status = ? WHERE user_id = ? AND friend_id = ?')
+        .run('accepted', friendId, req.user.id);
+      // Notify via gateway
+      gw.to(`user:${friendId}`).emit('FRIEND_UPDATE', { user_id: req.user.id, status: 'accepted' });
+      return reply.send({ status: 'accepted' });
+    }
+    return reply.code(400).send({ error: 'Request already sent' });
+  }
+
+  db.prepare('INSERT INTO friends (user_id, friend_id, status) VALUES (?, ?, ?)')
+    .run(req.user.id, friendId, 'pending');
+
+  // Notify the target user
+  const sender = db.prepare('SELECT id, username, discriminator, avatar_url, avatar_color FROM users WHERE id = ?').get(req.user.id);
+  gw.to(`user:${friendId}`).emit('FRIEND_REQUEST', sender);
+
+  return reply.code(201).send({ status: 'pending' });
+});
+
+// DELETE /api/@me/friends/:id — remove friend or decline request
+app.delete('/api/@me/friends/:id', { preHandler: authenticate }, (req, reply) => {
+  const friendId = req.params.id;
+  db.prepare(`
+    DELETE FROM friends
+    WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)
+  `).run(req.user.id, friendId, friendId, req.user.id);
+
+  gw.to(`user:${friendId}`).emit('FRIEND_UPDATE', { user_id: req.user.id, status: 'removed' });
+
+  return reply.send({ ok: true });
+});
+
+// ── Nickname endpoints ──────────────────────────────────────────────────────
+// PATCH /api/servers/:id/members/@me/nickname
+app.patch('/api/servers/:id/members/@me/nickname', { preHandler: authenticate }, (req, reply) => {
+  const serverId = req.params.id;
+  const sm = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, req.user.id);
+  if (!sm) return reply.code(403).send({ error: 'Not a member' });
+
+  const nickname = req.body?.nickname != null ? String(req.body.nickname).slice(0, 32).trim() || null : null;
+  db.prepare('UPDATE server_members SET nickname = ? WHERE server_id = ? AND user_id = ?')
+    .run(nickname, serverId, req.user.id);
+
+  return reply.send({ ok: true, nickname });
 });
 
 // ── Start ───────────────────────────────────────────────────────────────────

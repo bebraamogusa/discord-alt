@@ -141,6 +141,8 @@ button { cursor: pointer; }
   font-weight: 500; cursor: pointer; transition: background .15s;
 }
 .btn-primary:hover { background: var(--accent-h); }
+.btn-secondary { background: var(--bg-3); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--bg-hover); }
 .btn-danger { background: var(--danger); }
 .btn-danger:hover { background: var(--danger-h); }
 .auth-switch { text-align: center; font-size: 14px; color: var(--text-3); margin-top: 8px; }
@@ -413,6 +415,10 @@ button { cursor: pointer; }
 .msg-content pre code { background: none; padding: 0; }
 .msg-content strong { font-weight: 700; }
 .msg-content em { font-style: italic; }
+.msg-content .msg-quote {
+  border-left: 3px solid var(--text-3); margin: 4px 0; padding: 2px 10px;
+  color: var(--text-2); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
 
 /* Continued message (no avatar) */
 .msg-group.continued .msg-body { padding-left: 52px; }
@@ -433,6 +439,14 @@ button { cursor: pointer; }
 .msg-reply .reply-author { font-weight: 600; color: var(--text-2); }
 .msg-reply .reply-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .msg-reply .reply-content:hover { color: var(--text); }
+.msg-reply:hover { background: var(--bg-hover); border-radius: var(--radius-sm); }
+
+/* Message highlight (jump to reply) */
+.msg-highlight { animation: msgFlash 2s ease; }
+@keyframes msgFlash {
+  0%, 40% { background: rgba(88, 101, 242, .15); }
+  100% { background: transparent; }
+}
 
 /* Reactions */
 .msg-reactions {
@@ -1186,6 +1200,15 @@ button { cursor: pointer; }
 .msg-group.msg-new { animation: msgSlideIn .2s ease-out; }
 @keyframes msgSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ── DM search modal ─────────────────────────────────────────────── */
+.dm-search-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: background .1s; gap: 8px;
+}
+.dm-search-item:hover { background: var(--bg-hover); }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+
 /* ── Server icon transition improvement ───────────────────────────── */
 .server-icon { transition: border-radius .2s cubic-bezier(.4,0,.2,1), background .2s, transform .1s; }
 .server-icon:active { transform: scale(.92); }
@@ -1376,3 +1399,184 @@ body.is-tauri textarea {
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* ── Status Picker ────────────────────────────────────────────── */
+.status-picker {
+  position: fixed; z-index: 1000;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  width: 280px; padding: 8px 0;
+  animation: daScaleIn .12s ease;
+}
+.sp-header {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  color: var(--text-3); padding: 8px 12px 4px; letter-spacing: .5px;
+}
+.sp-custom {
+  padding: 4px 12px 8px; display: flex; gap: 6px; align-items: center;
+}
+.sp-custom-input {
+  flex: 1; background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text);
+  font-size: 13px; outline: none;
+}
+.sp-custom-input:focus { border-color: var(--accent); }
+.sp-clear {
+  background: none; border: none; color: var(--text-3);
+  font-size: 11px; cursor: pointer; white-space: nowrap;
+}
+.sp-clear:hover { color: var(--danger); }
+.sp-divider { height: 1px; background: var(--border); margin: 4px 12px; }
+.sp-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; cursor: pointer; transition: background .1s;
+}
+.sp-item:hover { background: var(--bg-hover); }
+.sp-item.active { background: var(--bg-active); }
+.sp-icon { font-size: 16px; width: 20px; text-align: center; }
+.sp-label { flex: 1; font-size: 14px; color: var(--text); }
+.sp-check { color: var(--accent); font-size: 14px; }
+
+/* ── Link Embed Cards ─────────────────────────────────────────── */
+.msg-embed {
+  margin-top: 6px; max-width: 420px;
+  background: var(--bg-2); border-radius: var(--radius);
+  border-left: 4px solid var(--accent);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+  transition: background .15s;
+}
+.msg-embed:hover { background: var(--bg-hover); }
+.embed-provider {
+  font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .3px;
+}
+.embed-title {
+  font-size: 14px; font-weight: 600; color: var(--accent);
+  text-decoration: none; display: block;
+}
+.embed-title:hover { text-decoration: underline; }
+.embed-desc {
+  font-size: 13px; color: var(--text-2); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.embed-thumb {
+  margin-top: 6px; max-width: 100%; max-height: 200px;
+  border-radius: var(--radius-sm); object-fit: cover;
+}
+
+/* ── Spoiler Tags ─────────────────────────────────────────────── */
+.spoiler {
+  background: var(--bg-3); color: transparent; border-radius: 3px;
+  padding: 0 4px; cursor: pointer; transition: all .15s;
+  user-select: none;
+}
+.spoiler.revealed { background: var(--bg-hover); color: var(--text); user-select: text; }
+
+/* ── Improved Emoji Picker ────────────────────────────────────── */
+.emoji-picker-v2 {
+  position: absolute; bottom: 100%; right: 0; z-index: 200;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  width: 352px; height: 380px;
+  display: flex; flex-direction: column;
+  animation: daScaleIn .12s ease;
+}
+.ep-search {
+  padding: 8px; border-bottom: 1px solid var(--border);
+}
+.ep-search input {
+  width: 100%; background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text);
+  font-size: 13px; outline: none;
+}
+.ep-search input:focus { border-color: var(--accent); }
+.ep-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  overflow-x: auto; flex-shrink: 0;
+}
+.ep-tab {
+  padding: 6px 10px; font-size: 18px; cursor: pointer;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  opacity: .5; transition: all .12s;
+}
+.ep-tab:hover { opacity: .8; background: var(--bg-hover); }
+.ep-tab.active { opacity: 1; border-bottom-color: var(--accent); }
+.ep-grid {
+  flex: 1; overflow-y: auto; padding: 8px;
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+}
+.ep-grid button {
+  background: none; border: none; cursor: pointer;
+  font-size: 22px; padding: 4px; border-radius: var(--radius-sm);
+  line-height: 1;
+}
+.ep-grid button:hover { background: var(--bg-hover); }
+.ep-cat-label {
+  grid-column: 1 / -1; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; color: var(--text-3); padding: 6px 4px 2px;
+  letter-spacing: .5px;
+}
+
+/* ── Friend System ────────────────────────────────────────────── */
+.friends-header {
+  display: flex; align-items: center; gap: 12px; padding: 0 16px;
+  height: var(--header-h); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.friends-header .fh-title { font-weight: 600; font-size: 16px; }
+.friends-header .fh-divider { width: 1px; height: 24px; background: var(--border); }
+.friends-tab {
+  background: none; border: none; color: var(--text-3);
+  padding: 4px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 14px; font-weight: 500;
+  transition: background .1s, color .1s;
+}
+.friends-tab:hover { background: var(--bg-hover); color: var(--text-2); }
+.friends-tab.active { background: var(--bg-active); color: var(--text); }
+.friends-tab.green {
+  background: var(--online); color: #fff; border-radius: var(--radius-sm);
+}
+.friends-tab.green:hover { background: #2d8b4e; }
+.friends-body { flex: 1; overflow-y: auto; padding: 16px; }
+.friend-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: var(--radius);
+  border-top: 1px solid var(--border); transition: background .1s;
+}
+.friend-item:first-child { border-top: none; }
+.friend-item:hover { background: var(--bg-hover); }
+.friend-av { position: relative; flex-shrink: 0; }
+.friend-info { flex: 1; min-width: 0; }
+.friend-name { font-weight: 600; font-size: 15px; }
+.friend-status-text { font-size: 13px; color: var(--text-3); }
+.friend-actions { display: flex; gap: 8px; }
+.friend-actions button {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--bg-3); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--text-2); transition: background .1s, color .1s;
+}
+.friend-actions button:hover { background: var(--bg-hover); }
+.friend-actions button.danger:hover { color: var(--danger); }
+.friend-actions button.success:hover { color: var(--online); }
+.friend-search-bar {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.friend-search-bar input {
+  width: 100%; background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text);
+  font-size: 14px; outline: none;
+}
+.friend-search-bar input:focus { border-color: var(--accent); }
+.friend-count { font-size: 12px; text-transform: uppercase; font-weight: 700; color: var(--text-3); margin-bottom: 8px; letter-spacing: .5px; }
+
+/* ── Nickname Modal ───────────────────────────────────────────── */
+.nick-modal-content {
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.nick-modal-content input {
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px;
+  color: var(--text); font-size: 14px; outline: none;
+}
+.nick-modal-content input:focus { border-color: var(--accent); }
+
