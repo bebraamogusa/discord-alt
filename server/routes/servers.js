@@ -57,13 +57,17 @@ function publicServer(s) {
   };
 }
 
-function fullServer(db, serverId) {
+function fullServer(db, serverId, userId = null) {
   const s = db.prepare('SELECT * FROM servers WHERE id = ?').get(serverId);
   if (!s) return null;
   const channels   = db.prepare('SELECT * FROM channels   WHERE server_id = ? ORDER BY position ASC').all(serverId);
   const categories = db.prepare('SELECT * FROM categories WHERE server_id = ? ORDER BY position ASC').all(serverId);
   const roles      = db.prepare('SELECT * FROM roles      WHERE server_id = ? ORDER BY position DESC').all(serverId);
-  return { ...publicServer(s), channels, categories, roles };
+  const result = { ...publicServer(s), channels, categories, roles };
+  if (userId) {
+    result.my_roles = db.prepare('SELECT role_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.server_id = ?').all(userId, serverId).map(r => r.role_id);
+  }
+  return result;
 }
 
 // ─── Route registration ───────────────────────────────────────────────────────
@@ -102,7 +106,7 @@ export default function registerServerRoutes(app, db, io) {
       `).run(nanoid(16), serverId, catId);
     })();
 
-    return reply.code(201).send(fullServer(db, serverId));
+    return reply.code(201).send(fullServer(db, serverId, userId));
   });
 
   // GET /api/servers/@me — list my servers
@@ -119,14 +123,15 @@ export default function registerServerRoutes(app, db, io) {
   // GET /api/servers/:id — full server info
   app.get('/api/servers/:id', { preHandler: authenticate }, (req, reply) => {
     try { requireMember(db, req.params.id, req.user.id); } catch (e) { return reply.code(e.statusCode).send({ error: e.message }); }
-    const server = fullServer(db, req.params.id);
+    const server = fullServer(db, req.params.id, req.user.id);
     if (!server) return reply.code(404).send({ error: 'Server not found' });
     return reply.send(server);
   });
 
   // PATCH /api/servers/:id
   app.patch('/api/servers/:id', { preHandler: authenticate }, async (req, reply) => {
-    try { requireOwner(db, req.params.id, req.user.id); } catch (e) { return reply.code(e.statusCode).send({ error: e.message }); }
+    try { requireMember(db, req.params.id, req.user.id); } catch (e) { return reply.code(e.statusCode).send({ error: e.message }); }
+    if (!userHasPermission(db, req.params.id, req.user.id, 'manage_server')) return reply.code(403).send({ error: 'Insufficient permissions' });
     const allowed = ['name', 'icon_url', 'banner_url', 'description'];
     const fields = {};
     for (const k of allowed) if (req.body?.[k] !== undefined) fields[k] = String(req.body[k]).slice(0, 2048);
@@ -159,7 +164,7 @@ export default function registerServerRoutes(app, db, io) {
     if (banCheck) return reply.code(403).send({ error: 'You are banned from this server' });
 
     const existing = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(server.id, req.user.id);
-    if (existing) return reply.code(200).send(fullServer(db, server.id));
+    if (existing) return reply.code(200).send(fullServer(db, server.id, req.user.id));
 
     // Validate custom invite if provided; otherwise allow via server's built-in code
     if (invite_code) {
@@ -174,7 +179,7 @@ export default function registerServerRoutes(app, db, io) {
     db.prepare('INSERT OR IGNORE INTO server_members (server_id, user_id) VALUES (?, ?)').run(server.id, req.user.id);
     const user = db.prepare('SELECT id, username, discriminator, avatar_url, avatar_color FROM users WHERE id = ?').get(req.user.id);
     io.to(`server:${server.id}`).emit('MEMBER_JOIN', { server_id: server.id, member: { ...user, nickname: null, joined_at: Math.floor(Date.now() / 1000) } });
-    return reply.code(201).send(fullServer(db, server.id));
+    return reply.code(201).send(fullServer(db, server.id, req.user.id));
   });
 
   // POST /api/servers/:id/leave

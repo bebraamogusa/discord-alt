@@ -1677,6 +1677,8 @@ function memberItemHtml(m, bg) {
   const p = S.presences[m.id] || {};
   const status = p.status || 'offline';
   const color = m.roles?.[0]?.color || '';
+  const srv = getServer(S.activeServerId);
+  const isOwner = srv && m.id === srv.owner_id;
   return `
     <div class="member-item" data-user-id="${escHtml(m.id)}">
       <div class="mem-av">
@@ -1684,7 +1686,7 @@ function memberItemHtml(m, bg) {
         <div class="status-dot ${status}" style="border-color:${bg}"></div>
       </div>
       <div class="mem-info">
-        <div class="mem-name" style="${color ? `color:${color}` : ''}">${escHtml(m.nickname || m.username)}</div>
+        <div class="mem-name" style="${color ? `color:${color}` : ''}">${escHtml(m.nickname || m.username)}${isOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">👑</span>' : ''}</div>
         ${p.custom_status ? `<div class="mem-role">${escHtml(p.custom_status)}</div>` : ''}
       </div>
     </div>
@@ -1803,14 +1805,16 @@ function showServerContextMenu(e, serverId) {
   const srv = getServer(serverId);
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
+  const canManageServer   = userHasPermissionClient(serverId, 'manage_server');
+  const canManageChannels = userHasPermissionClient(serverId, 'manage_channels');
   showCtxMenu(e.clientX, e.clientY, [
     { icon: '⚙️',  label: t('server_settings_menu'),   onClick: () => openServerSettings(serverId) },
     { icon: '🔔',  label: t('notifications'),           onClick: () => showToast(t('notifications_wip')) },
     { icon: '📋',  label: t('invite_people'),           onClick: () => createInvite(serverId) },
     { divider: true },
     { icon: '📌',  label: t('pinned_messages'),          onClick: () => showToast(t('pinned_hint')) },
-    { icon: '#️⃣', label: t('create_channel_menu'),      onClick: () => openCreateChannelModal(serverId, null) },
-    { icon: '📁',  label: t('create_category_menu'),     onClick: () => createCategory(serverId) },
+    canManageChannels && { icon: '#️⃣', label: t('create_channel_menu'),      onClick: () => openCreateChannelModal(serverId, null) },
+    canManageChannels && { icon: '📁',  label: t('create_category_menu'),     onClick: () => createCategory(serverId) },
     { divider: true },
     { icon: '🆔',  label: t('copy_server_id'),           onClick: () => { navigator.clipboard.writeText(serverId); showToast(t('id_copied')); } },
     { divider: true },
@@ -1822,7 +1826,7 @@ function showServerContextMenu(e, serverId) {
 function showChannelContextMenu(e, channelId) {
   const ch = getChannel(channelId);
   if (!ch || !ch.server_id) return;
-  const isOwner = getServer(ch.server_id)?.owner_id === S.me?.id;
+  const canManageChannels = userHasPermissionClient(ch.server_id, 'manage_channels');
   const isVoice = ch.type === 'voice';
 
   const items = [
@@ -1845,7 +1849,7 @@ function showChannelContextMenu(e, channelId) {
     { divider: true },
   );
 
-  if (isOwner) {
+  if (canManageChannels) {
     items.push(
       { icon: '✏️',  label: t('rename_channel'), onClick: () => renameChannel(ch) },
       { icon: '📋',  label: t('create_invite_ctx'),    onClick: () => createInvite(ch.server_id) },
@@ -1877,12 +1881,14 @@ function showServerDropdown() {
   const srv = getServer(S.activeServerId);
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
+  const canManageServer   = userHasPermissionClient(srv.id, 'manage_server');
+  const canManageChannels = userHasPermissionClient(srv.id, 'manage_channels');
   const dd = $('server-dropdown');
   dd.innerHTML = `
     <div class="sm-item" id="sm-invite"><span class="sm-icon">📋</span><span class="sm-label">${t('invite_people')}</span><span class="sm-hint">⌘I</span></div>
-    ${isOwner ? `<div class="sm-item" id="sm-settings"><span class="sm-icon">⚙️</span><span class="sm-label">${t('server_settings_menu')}</span></div>` : ''}
-    <div class="sm-item" id="sm-create-ch"><span class="sm-icon">＋</span><span class="sm-label">${t('create_channel')}</span></div>
-    <div class="sm-item" id="sm-create-cat"><span class="sm-icon">📁</span><span class="sm-label">${t('create_category')}</span></div>
+    <div class="sm-item" id="sm-settings"><span class="sm-icon">⚙️</span><span class="sm-label">${t('server_settings_menu')}</span></div>
+    ${canManageChannels ? `<div class="sm-item" id="sm-create-ch"><span class="sm-icon">＋</span><span class="sm-label">${t('create_channel')}</span></div>` : ''}
+    ${canManageChannels ? `<div class="sm-item" id="sm-create-cat"><span class="sm-icon">📁</span><span class="sm-label">${t('create_category')}</span></div>` : ''}
     <div class="sm-divider"></div>
     ${isOwner
       ? `<div class="sm-item danger" id="sm-delete"><span class="sm-icon">🗑️</span><span class="sm-label">${t('delete_server')}</span></div>`
@@ -2312,18 +2318,24 @@ function openServerSettings(serverId) {
   const srv = getServer(serverId);
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
+  const canManageServer = userHasPermissionClient(serverId, 'manage_server');
+  const canManageRoles  = userHasPermissionClient(serverId, 'manage_roles');
+  const canBan          = userHasPermissionClient(serverId, 'ban_members');
+  const canViewAudit    = userHasPermissionClient(serverId, 'view_audit_log') || canManageServer;
+
   $('ss-server-name').textContent = srv.name;
   $('ss-leave-server').classList.toggle('hidden', isOwner);
   $('ss-delete-server').classList.toggle('hidden', !isOwner);
 
-  const pages = [
-    { id: 'overview',  label: t('ss_overview'), icon: '📋' },
-    { id: 'roles',     label: t('ss_roles'),    icon: '🛡️' },
-    { id: 'members',   label: t('ss_members'),  icon: '👥' },
-    { id: 'bans',      label: t('ss_bans'),     icon: '🔨' },
-    { id: 'invites',   label: t('ss_invites'),  icon: '🔗' },
-    { id: 'audit',     label: t('ss_audit'),    icon: '📜' },
+  const allPages = [
+    { id: 'overview',  label: t('ss_overview'), icon: '📋', show: true },
+    { id: 'roles',     label: t('ss_roles'),    icon: '🛡️', show: canManageRoles },
+    { id: 'members',   label: t('ss_members'),  icon: '👥', show: true },
+    { id: 'bans',      label: t('ss_bans'),     icon: '🔨', show: canBan },
+    { id: 'invites',   label: t('ss_invites'),  icon: '🔗', show: canManageServer },
+    { id: 'audit',     label: t('ss_audit'),    icon: '📜', show: canViewAudit },
   ];
+  const pages = allPages.filter(p => p.show);
 
   $('ss-nav-items').innerHTML = pages.map(p => `
     <div class="settings-nav-item ${p.id === 'overview' ? 'active' : ''}" data-ss-page="${p.id}"><span class="nav-icon">${p.icon}</span>${p.label}</div>
@@ -2354,7 +2366,10 @@ async function renderServerSettingsPage(serverId, page) {
 
   if (page === 'overview') {
     const invUrl = `${location.origin}/app?invite=${srv.invite_code}`;
+    const canEdit = userHasPermissionClient(serverId, 'manage_server');
+    const isOwner = srv.owner_id === S.me?.id;
     body.innerHTML = `
+      ${canEdit ? `
       <div class="form-group">
         <label>${t('server_name')}</label>
         <input id="ss-name" value="${escHtml(srv.name)}">
@@ -2372,6 +2387,13 @@ async function renderServerSettingsPage(serverId, page) {
         <input id="ss-banner" value="${escHtml(srv.banner_url||'')}">
       </div>
       <button class="btn btn-primary mt-8" id="ss-save-overview">${t('save_changes')}</button>
+      ` : `
+      <div class="form-group">
+        <label>${t('server_name')}</label>
+        <div style="padding:10px 12px;color:var(--text);font-size:14px">${escHtml(srv.name)}</div>
+      </div>
+      ${srv.description ? `<div class="form-group"><label>${t('server_description')}</label><div style="padding:10px 12px;color:var(--text-2);font-size:14px">${escHtml(srv.description)}</div></div>` : ''}
+      `}
 
       <div class="form-group mt-16">
         <label>${t('invite_link')}</label>
@@ -2381,34 +2403,60 @@ async function renderServerSettingsPage(serverId, page) {
         </div>
       </div>
 
+      <div class="form-group" style="margin-top:12px">
+        <label>${t('server_owner')}</label>
+        <div style="padding:10px 12px;color:var(--text);font-size:14px;display:flex;align-items:center;gap:8px">
+          <span>👑</span>
+          <span id="ss-owner-name">...</span>
+        </div>
+      </div>
+
+      ${isOwner ? `
       <div class="danger-zone">
         <h4>${t('danger_zone')}</h4>
         <button class="btn btn-danger" id="ss-danger-delete">${t('delete_server_btn')}</button>
       </div>
+      ` : ''}
     `;
-    $('ss-save-overview').onclick = async () => {
-      try {
-        const updated = await API.patch(`/api/servers/${serverId}`, {
-          name:        $('ss-name').value.trim(),
-          description: $('ss-desc').value.trim(),
-          icon_url:    $('ss-icon').value.trim(),
-          banner_url:  $('ss-banner').value.trim(),
-        });
-        const idx = S.servers.findIndex(s => s.id === serverId);
-        if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...updated };
-        renderServerIcons();
-        showToast(t('saved'), 'success');
-      } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
-    };
-    $('ss-copy-inv').onclick = () => { navigator.clipboard.writeText(invUrl).catch(()=>{}); showToast(t('copied'), 'success'); };
-    $('ss-danger-delete').onclick = () => deleteServer(serverId);
+    // Load owner username
+    const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
+    if (!S.members[serverId]) S.members[serverId] = members;
+    const ownerMember = members.find(m => m.id === srv.owner_id);
+    const ownerEl = document.getElementById('ss-owner-name');
+    if (ownerEl) ownerEl.textContent = ownerMember?.username || '?';
+
+    if (canEdit) {
+      $('ss-save-overview').onclick = async () => {
+        try {
+          const updated = await API.patch(`/api/servers/${serverId}`, {
+            name:        $('ss-name').value.trim(),
+            description: $('ss-desc').value.trim(),
+            icon_url:    $('ss-icon').value.trim(),
+            banner_url:  $('ss-banner').value.trim(),
+          });
+          const idx = S.servers.findIndex(s => s.id === serverId);
+          if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...updated };
+          renderServerIcons();
+          showToast(t('saved'), 'success');
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    }
+    $('ss-copy-inv')?.addEventListener('click', () => { navigator.clipboard.writeText(invUrl).catch(()=>{}); showToast(t('copied'), 'success'); });
+    if (isOwner) $('ss-danger-delete')?.addEventListener('click', () => deleteServer(serverId));
   }
 
   if (page === 'roles') {
     const roles = await API.get(`/api/servers/${serverId}/roles`).catch(() => []);
-    const isOwner = srv.owner_id === S.me?.id;
-    const canManageRoles = isOwner || userHasPermissionClient(serverId);
+    const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
     const perms = ['send_messages','manage_messages','kick_members','ban_members','manage_channels','manage_server','mention_everyone','manage_roles','view_channel','administrator'];
+    // Calculate member counts per role
+    const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
+    if (!S.members[serverId]) S.members[serverId] = members;
+    const roleCounts = {};
+    for (const r of roles) {
+      if (r.is_default) { roleCounts[r.id] = members.length; continue; }
+      roleCounts[r.id] = members.filter(m => (m.roles || []).some(mr => mr.id === r.id)).length;
+    }
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <span>${t('roles_count', { n: roles.length })}</span>
@@ -2420,11 +2468,11 @@ async function renderServerSettingsPage(serverId, page) {
           ${roles.map(r => `
             <tr data-role-id="${escHtml(r.id)}">
               <td><span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span></td>
-              <td>—</td>
+              <td>${roleCounts[r.id] || 0}</td>
               <td class="table-actions">
-                ${!r.is_default && canManageRoles ? `
+                ${canManageRoles ? `
                   <button class="table-btn edit-role-btn" data-role-id="${escHtml(r.id)}" title="${t('edit')}">&#9998;</button>
-                  <button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="${t('delete')}">&#128465;</button>
+                  ${!r.is_default ? `<button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="${t('delete')}">&#128465;</button>` : ''}
                 ` : ''}
               </td>
             </tr>
@@ -2464,29 +2512,31 @@ async function renderServerSettingsPage(serverId, page) {
     const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
     const roles = getServer(serverId)?.roles?.filter(r => !r.is_default) || [];
-    const isOwner = srv.owner_id === S.me?.id;
-    const canManage = isOwner || userHasPermissionClient(serverId);
+    const canManage = userHasPermissionClient(serverId, 'kick_members');
+    const canBan = userHasPermissionClient(serverId, 'ban_members');
+    const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
     body.innerHTML = `
       <table class="settings-table">
         <thead><tr><th>${t('member_user')}</th><th>${t('member_nick')}</th><th>${t('member_roles')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
         <tbody>
-          ${members.map(m => `
+          ${members.map(m => {
+            const isMemberOwner = m.id === srv.owner_id;
+            const isMe = m.id === S.me?.id;
+            return `
             <tr>
-              <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.username)}</div></td>
+              <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">👑</span>' : ''}</div></td>
               <td>${escHtml(m.nickname||'—')}</td>
               <td>
                 ${(m.roles||[]).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
-                ${canManage && roles.length ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
+                ${canManageRoles && roles.length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
               </td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(m.joined_at)}</td>
               <td class="table-actions">
-                ${m.id !== S.me?.id && canManage ? `
-                  <button class="table-btn del kick-btn" data-user-id="${escHtml(m.id)}" title="${t('kick')}">&#128098;</button>
-                  <button class="table-btn del ban-btn" data-user-id="${escHtml(m.id)}" title="${t('ban')}">&#128296;</button>
-                ` : ''}
+                ${!isMe && !isMemberOwner && canManage ? `<button class="table-btn del kick-btn" data-user-id="${escHtml(m.id)}" title="${t('kick')}">&#128098;</button>` : ''}
+                ${!isMe && !isMemberOwner && canBan ? `<button class="table-btn del ban-btn" data-user-id="${escHtml(m.id)}" title="${t('ban')}">&#128296;</button>` : ''}
               </td>
             </tr>
-          `).join('')}
+          `}).join('')}
         </tbody>
       </table>
     `;
@@ -2816,11 +2866,22 @@ function renderUserSettingsPage(page) {
   }
 }
 // ─── CLIENT-SIDE PERMISSION HELPER ──────────────────────────────────────────
-function userHasPermissionClient(serverId) {
+function userHasPermissionClient(serverId, flag) {
   const srv = getServer(serverId);
   if (!srv || !S.me) return false;
-  if (srv.owner_id === S.me.id) return true;
-  return false; // simplified; full check happens on server
+  if (srv.owner_id === S.me.id) return true; // owner bypasses all
+  const allRoles = srv.roles || [];
+  const myRoleIds = new Set(srv.my_roles || []);
+  // Collect all roles: user-assigned + @everyone
+  const myRoles = allRoles.filter(r => r.is_default || myRoleIds.has(r.id));
+  for (const r of myRoles) {
+    try {
+      const p = JSON.parse(r.permissions || '{}');
+      if (p.administrator) return true;
+      if (flag && (p[flag] || p.manage_server)) return true;
+    } catch {}
+  }
+  return false;
 }
 
 // ─── APPLY STATIC HTML TRANSLATIONS ─────────────────────────────────────────

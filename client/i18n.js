@@ -81,6 +81,7 @@ export const TRANSLATIONS = {
     copied: 'Скопировано!',
     danger_zone: 'Опасная зона',
     delete_server_btn: 'Удалить сервер',
+    server_owner: 'Владелец сервера',
 
     // Roles
     roles_count: '{n} ролей',
@@ -515,6 +516,7 @@ export const TRANSLATIONS = {
     copied: 'Copied!',
     danger_zone: 'Danger Zone',
     delete_server_btn: 'Delete Server',
+    server_owner: 'Server Owner',
 
     // Roles
     roles_count: '{n} roles',
@@ -947,6 +949,7 @@ export const TRANSLATIONS = {
     copied: 'Skopiowano!',
     danger_zone: 'Strefa zagrożenia',
     delete_server_btn: 'Usuń serwer',
+    server_owner: 'Właściciel serwera',
 
     // Roles
     roles_count: '{n} ról',

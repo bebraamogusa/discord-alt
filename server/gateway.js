@@ -79,7 +79,8 @@ function buildReadyPayload(db, userId) {
     const channels   = db.prepare('SELECT * FROM channels   WHERE server_id = ? ORDER BY position ASC').all(s.id);
     const categories = db.prepare('SELECT * FROM categories WHERE server_id = ? ORDER BY position ASC').all(s.id);
     const roles      = db.prepare('SELECT * FROM roles      WHERE server_id = ? ORDER BY position DESC').all(s.id);
-    return { ...s, channels, categories, roles };
+    const myRoles    = db.prepare('SELECT role_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.server_id = ?').all(userId, s.id).map(r => r.role_id);
+    return { ...s, channels, categories, roles, my_roles: myRoles };
   });
 
   // DM / group channels
