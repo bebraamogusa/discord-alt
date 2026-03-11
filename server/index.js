@@ -17,7 +17,6 @@ import {
   refreshTokens,
   revokeSession,
   authenticate,
-  authenticateSocket,
   publicUser,
 } from './auth.js';
 import registerServerRoutes  from './routes/servers.js';
@@ -31,10 +30,6 @@ const PORT           = parseInt(process.env.PORT           || '3000');
 const MAX_FILE_SIZE  = parseInt(process.env.MAX_FILE_SIZE  || '104857600'); // 100 MB
 const UPLOADS_DIR    = process.env.UPLOADS_DIR  || join(ROOT, 'uploads');
 const DB_PATH        = process.env.DB_PATH      || join(ROOT, 'data', 'chat.db');
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-
-// ── Admin tokens (in-memory, reset on restart) ───────────────────────────────
-const adminTokens = new Set();
 
 [UPLOADS_DIR, dirname(DB_PATH)].forEach(d => mkdirSync(d, { recursive: true }));
 
@@ -42,72 +37,6 @@ const adminTokens = new Set();
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
-
-// ── v1 schema bootstrap (only runs if legacy tables don't exist yet)
-// migrate.js renames existing v1 tables to *_legacy before creating v2 tables.
-// These creates are kept so a fresh install without migrate.js still works.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages_legacy (
-    id         TEXT PRIMARY KEY,
-    room       TEXT NOT NULL,
-    username   TEXT NOT NULL,
-    type       TEXT NOT NULL DEFAULT 'text',
-    content    TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_msg_room ON messages_legacy(room, created_at);
-  CREATE TABLE IF NOT EXISTS reactions_legacy (
-    msg_id   TEXT NOT NULL,
-    username TEXT NOT NULL,
-    emoji    TEXT NOT NULL,
-    PRIMARY KEY (msg_id, username, emoji)
-  );
-  CREATE TABLE IF NOT EXISTS users_legacy (
-    username     TEXT PRIMARY KEY,
-    tag          TEXT NOT NULL DEFAULT '0000',
-    avatar_color TEXT NOT NULL DEFAULT '#5865f2',
-    avatar_url   TEXT NOT NULL DEFAULT '',
-    banner_color TEXT NOT NULL DEFAULT '#5865f2',
-    about_me     TEXT NOT NULL DEFAULT '',
-    custom_status TEXT NOT NULL DEFAULT '',
-    created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-  );
-  CREATE TABLE IF NOT EXISTS blocks_legacy (
-    blocker  TEXT NOT NULL,
-    blocked  TEXT NOT NULL,
-    PRIMARY KEY (blocker, blocked)
-  );
-`);
-try { db.exec("ALTER TABLE users_legacy ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''"); } catch {}
-
-const stmtInsert    = db.prepare('INSERT INTO messages_legacy (id,room,username,type,content,created_at) VALUES (?,?,?,?,?,?)');
-const stmtSelect    = db.prepare('SELECT * FROM messages_legacy WHERE room = ? ORDER BY created_at DESC LIMIT ?');
-const stmtSelectBefore = db.prepare('SELECT * FROM messages_legacy WHERE room = ? AND created_at < (SELECT created_at FROM messages_legacy WHERE id = ?) ORDER BY created_at DESC LIMIT ?');
-const stmtDelete    = db.prepare('DELETE FROM messages_legacy WHERE id = ?');
-const stmtClearRoom = db.prepare('DELETE FROM messages_legacy WHERE room = ?');
-const stmtUpdate      = db.prepare("UPDATE messages_legacy SET content = ? WHERE id = ? AND username = ? AND type = 'text'");
-const stmtReactAdd    = db.prepare('INSERT OR IGNORE INTO reactions_legacy (msg_id, username, emoji) VALUES (?,?,?)');
-const stmtReactRemove = db.prepare('DELETE FROM reactions_legacy WHERE msg_id=? AND username=? AND emoji=?');
-const stmtReactForRoom = db.prepare(`
-  SELECT r.msg_id, r.emoji, r.username
-  FROM reactions_legacy r INNER JOIN messages_legacy m ON r.msg_id = m.id
-  WHERE m.room = ?
-`);
-const stmtReactForMsg = db.prepare('SELECT emoji, username FROM reactions_legacy WHERE msg_id=?');
-
-// ── Users (v1 legacy) ──────────────────────────────────────────────────────────
-const stmtUpsertUser   = db.prepare(`
-  INSERT INTO users_legacy (username, tag, avatar_color, banner_color, about_me, custom_status, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(username) DO NOTHING
-`);
-const stmtGetUser      = db.prepare('SELECT * FROM users_legacy WHERE username = ?');
-const stmtUpdateUser   = db.prepare(`
-  UPDATE users_legacy SET avatar_color=?, avatar_url=?, banner_color=?, about_me=?, custom_status=? WHERE username=?
-`);
-const stmtBlock         = db.prepare('INSERT OR IGNORE INTO blocks_legacy (blocker, blocked) VALUES (?,?)');
-const stmtUnblock       = db.prepare('DELETE FROM blocks_legacy WHERE blocker=? AND blocked=?');
-const stmtBlockedList   = db.prepare('SELECT blocked FROM blocks_legacy WHERE blocker=?');
 
 // ── Fastify ─────────────────────────────────────────────────────────────────
 const app = Fastify({ logger: { level: 'warn' } });
@@ -128,9 +57,6 @@ await app.register(fastifyStatic, {
 await app.register(fastifyMultipart, {
   limits: { fileSize: MAX_FILE_SIZE },
 });
-
-// SPA — all /room/* serve index.html
-app.get('/room/:roomId', (_req, reply) => reply.sendFile('index.html'));
 
 // ── CSP & security headers ────────────────────────────────────────────────────
 app.addHook('onSend', (_req, reply, _payload, done) => {
@@ -194,160 +120,6 @@ app.post('/api/upload', async (req, reply) => {
   }
 
   return { url: `/uploads/${name}`, name: file.filename, type: getMessageType(ext) };
-});
-
-// ── Messages history ──────────────────────────────────────────────────────────
-app.get('/api/rooms/:roomId/messages', (req) => {
-  const { roomId } = req.params;
-  const limit  = Math.min(parseInt(req.query.limit || '100'), 200);
-  const before = req.query.before || null;
-  const raw    = before
-    ? stmtSelectBefore.all(roomId, before, limit)
-    : stmtSelect.all(roomId, limit);
-  const msgs = raw.reverse();
-  // attach reactions grouped by msg_id
-  const rawReactions = stmtReactForRoom.all(roomId);
-  const reactionMap = {};
-  for (const r of rawReactions) {
-    if (!reactionMap[r.msg_id]) reactionMap[r.msg_id] = {};
-    if (!reactionMap[r.msg_id][r.emoji]) reactionMap[r.msg_id][r.emoji] = [];
-    reactionMap[r.msg_id][r.emoji].push(r.username);
-  }
-  return msgs.map(m => ({
-    ...m,
-    reactions: Object.entries(reactionMap[m.id] || {}).map(([emoji, users]) => ({ emoji, users }))
-  }));
-});
-
-// ── Link embed proxy ──────────────────────────────────────────────────────────
-app.get('/api/embed', async (req, reply) => {
-  const { url } = req.query;
-  if (!url) return reply.code(400).send({ error: 'Missing url' });
-  let u;
-  try { u = new URL(url); } catch { return reply.code(400).send({ error: 'Invalid url' }); }
-  if (!['http:', 'https:'].includes(u.protocol)) return reply.code(400).send({ error: 'Bad protocol' });
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DiscordAlt/1.0)' },
-      redirect: 'follow',
-    });
-    clearTimeout(timer);
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('text/html')) return reply.code(204).send();
-    const chunks = [];
-    let total = 0;
-    for await (const chunk of res.body) {
-      chunks.push(chunk); total += chunk.length;
-      if (total > 200_000) break;
-    }
-    const html = Buffer.concat(chunks).toString('utf-8');
-    const og = (p) => {
-      return html.match(new RegExp(`<meta[^>]+property=["']og:${p}["'][^>]+content=["']([^"']{1,500})["']`, 'i'))?.[1]
-          || html.match(new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+property=["']og:${p}["']`, 'i'))?.[1]
-          || null;
-    };
-    const mt = (n) => {
-      return html.match(new RegExp(`<meta[^>]+name=["']${n}["'][^>]+content=["']([^"']{1,500})["']`, 'i'))?.[1]
-          || html.match(new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+name=["']${n}["']`, 'i'))?.[1]
-          || null;
-    };
-    const title       = og('title') || mt('title') || html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1] || u.hostname;
-    const description = og('description') || mt('description') || null;
-    const image       = og('image') || null;
-    const site        = og('site_name') || u.hostname;
-    return { title: title?.trim(), description: description?.trim(), image, site, url };
-  } catch { return reply.code(204).send(); }
-});
-
-// ── User profile endpoints ───────────────────────────────────────────────────
-app.get('/api/users/:username', (req, reply) => {
-  const u = stmtGetUser.get(req.params.username);
-  if (!u) return reply.code(404).send({ error: 'Not found' });
-  return u;
-});
-
-app.patch('/api/users/:username', async (req, reply) => {
-  const { username: uname } = req.params;
-  const existing = stmtGetUser.get(uname);
-  if (!existing) return reply.code(404).send({ error: 'User not found' });
-  const body = req.body || {};
-  const avatar_color  = typeof body.avatar_color  === 'string' ? body.avatar_color.slice(0, 32)   : existing.avatar_color;
-  const avatar_url    = typeof body.avatar_url    === 'string' ? body.avatar_url.slice(0, 2048)   : existing.avatar_url;
-  const banner_color  = typeof body.banner_color  === 'string' ? body.banner_color.slice(0, 32)   : existing.banner_color;
-  const about_me      = typeof body.about_me      === 'string' ? body.about_me.slice(0, 190)      : existing.about_me;
-  const custom_status = typeof body.custom_status === 'string' ? body.custom_status.slice(0, 128) : existing.custom_status;
-  stmtUpdateUser.run(avatar_color, avatar_url, banner_color, about_me, custom_status, uname);
-  return stmtGetUser.get(uname);
-});
-
-// ── Blocks endpoints ─────────────────────────────────────────────────────────
-app.post('/api/users/:username/block', (req, reply) => {
-  const { username: blocker } = req.params;
-  const { target } = req.body || {};
-  if (!target || target === blocker) return reply.code(400).send({ error: 'Invalid target' });
-  stmtBlock.run(blocker, target);
-  return { ok: true };
-});
-
-app.delete('/api/users/:username/block/:target', (req, reply) => {
-  stmtUnblock.run(req.params.username, req.params.target);
-  return { ok: true };
-});
-
-app.get('/api/users/:username/blocks', (req) => {
-  return stmtBlockedList.all(req.params.username).map(r => r.blocked);
-});
-
-// ── Admin auth helper ─────────────────────────────────────────────────────────
-function checkAdmin(req, reply) {
-  if (!ADMIN_PASSWORD) { reply.code(404).send({ error: 'Admin not configured' }); return false; }
-  const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-  if (!adminTokens.has(token)) { reply.code(401).send({ error: 'Unauthorized' }); return false; }
-  return true;
-}
-
-// ── Admin endpoints ───────────────────────────────────────────────────────────
-app.post('/api/admin/auth', async (req, reply) => {
-  if (!ADMIN_PASSWORD) return reply.code(404).send({ error: 'Admin not configured' });
-  const { password } = req.body || {};
-  if (password !== ADMIN_PASSWORD) return reply.code(403).send({ error: 'Wrong password' });
-  const token = nanoid(32);
-  adminTokens.add(token);
-  return { token };
-});
-
-app.delete('/api/admin/messages/:id', (req, reply) => {
-  if (!checkAdmin(req, reply)) return;
-  stmtDelete.run(req.params.id);
-  io.emit('message-deleted', { id: req.params.id });
-  return { ok: true };
-});
-
-app.delete('/api/admin/rooms/:roomId/messages', (req, reply) => {
-  if (!checkAdmin(req, reply)) return;
-  stmtClearRoom.run(req.params.roomId);
-  io.to(req.params.roomId).emit('room-cleared');
-  return { ok: true };
-});
-
-app.post('/api/admin/kick', (req, reply) => {
-  if (!checkAdmin(req, reply)) return;
-  const { roomId, username: target } = req.body || {};
-  if (!roomId || !target) return reply.code(400).send({ error: 'Missing params' });
-  const room = rooms.get(roomId);
-  if (room) {
-    for (const [sid, user] of room) {
-      if (user.username === target) {
-        io.to(sid).emit('kicked', { reason: 'Kicked by admin' });
-        io.sockets.sockets.get(sid)?.disconnect(true);
-        break;
-      }
-    }
-  }
-  return { ok: true };
 });
 
 // ── Auth routes ─────────────────────────────────────────────────────────────
@@ -440,203 +212,12 @@ app.get('/', (_req, reply) => reply.redirect('/app', 301));
 app.get('/app', (_req, reply) => reply.sendFile('app.html'));
 app.get('/app/*', (_req, reply) => reply.sendFile('app.html'));
 
-// Optional JWT auth on socket — if token present, attach socket.user.
-// Sockets without a token still connect (legacy client support).
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token
-    || socket.handshake.headers?.authorization?.replace('Bearer ', '');
-  if (!token) return next(); // anonymous / legacy
-  try {
-    authenticateSocket(db)(socket, next);
-  } catch {
-    next(); // don't block on bad token in legacy mode
-  }
+// ── User lookup by ID (v2) ──────────────────────────────────────────────────
+app.get('/api/users/:id', { preHandler: authenticate }, (req, reply) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return reply.code(404).send({ error: 'User not found' });
+  return reply.send(publicUser(user));
 });
-
-// roomId → Map<socketId, { socketId, username, inCall }>
-const rooms = new Map();
-
-function getRoomUsers(roomId) {
-  const r = rooms.get(roomId);
-  return r ? Array.from(r.values()) : [];
-}
-
-io.on('connection', (socket) => {
-  let roomId = null;
-  let username = null;
-  let inCall = false;
-
-  // ── Комната ──────────────────────────────────────────
-  socket.on('join-room', (data) => {
-    if (roomId) leaveRoom();
-
-    roomId = String(data.roomId).slice(0, 64);
-    username = String(data.username).slice(0, 20);
-
-    // Auto-create user profile record if new
-    const tag = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-    stmtUpsertUser.run(username, tag, '#5865f2', '#5865f2', '', '', Date.now());
-
-    socket.join(roomId);
-    if (!rooms.has(roomId)) rooms.set(roomId, new Map());
-    rooms.get(roomId).set(socket.id, { socketId: socket.id, username, inCall: false, status: 'online', lastSeen: Date.now() });
-
-    socket.to(roomId).emit('user-joined', { socketId: socket.id, username });
-    io.to(roomId).emit('room-users', getRoomUsers(roomId));
-
-    // Системное сообщение
-    const msg = {
-      id: nanoid(16),
-      room: roomId,
-      username: 'system',
-      type: 'system',
-      content: `${username} joined`,
-      created_at: Date.now(),
-    };
-    stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
-    io.to(roomId).emit('chat-message', msg);
-  });
-
-  // ── Chat ──────────────────────────────────────────────
-  let _msgTimes = [];
-  socket.on('chat-message', (data) => {
-    if (!roomId || !username) return;
-    // Rate limit: max 5 messages per second
-    const now = Date.now();
-    _msgTimes = _msgTimes.filter(t => now - t < 1000);
-    if (_msgTimes.length >= 5) return;
-    _msgTimes.push(now);
-
-    const content = String(data.content || '').slice(0, 4000);
-    if (!content) return;
-    const VALID = new Set(['text', 'image', 'video', 'audio', 'file']);
-    const type = VALID.has(data.type) ? data.type : 'text';
-    const msg = { id: nanoid(16), room: roomId, username, type, content, created_at: Date.now() };
-    stmtInsert.run(msg.id, msg.room, msg.username, msg.type, msg.content, msg.created_at);
-    io.to(roomId).emit('chat-message', msg);
-  });
-
-  // ── Typing indicator ────────────────────────────────────────
-  socket.on('user-typing', () => {
-    if (!roomId || !username) return;
-    socket.to(roomId).emit('user-typing', { username });
-  });
-
-  // ── Reactions ────────────────────────────────────────
-  function broadcastReactions(msgId) {
-    const rows = stmtReactForMsg.all(msgId);
-    const grouped = {};
-    for (const r of rows) {
-      if (!grouped[r.emoji]) grouped[r.emoji] = [];
-      grouped[r.emoji].push(r.username);
-    }
-    const reactions = Object.entries(grouped).map(([emoji, users]) => ({ emoji, users }));
-    if (roomId) io.to(roomId).emit('reaction-update', { msgId, reactions });
-  }
-  socket.on('reaction-add', ({ msgId, emoji }) => {
-    if (!roomId || !username || !msgId || !emoji) return;
-    stmtReactAdd.run(msgId, username, emoji);
-    broadcastReactions(msgId);
-  });
-  socket.on('reaction-remove', ({ msgId, emoji }) => {
-    if (!roomId || !username || !msgId || !emoji) return;
-    stmtReactRemove.run(msgId, username, emoji);
-    broadcastReactions(msgId);
-  });
-
-  // ── Heartbeat (status: online / away) ────────────────
-  socket.on('heartbeat', () => {
-    if (!roomId) return;
-    const room = rooms.get(roomId);
-    if (room && room.has(socket.id)) {
-      const u = room.get(socket.id);
-      u.lastSeen = Date.now();
-      if (u.status === 'away') {
-        u.status = 'online';
-        io.to(roomId).emit('room-users', getRoomUsers(roomId));
-      }
-    }
-  });
-
-  // ── Edit own message ─────────────────────────────────
-  socket.on('edit-message', (data) => {
-    if (!roomId || !username) return;
-    const id      = String(data.id || '');
-    const content = String(data.content || '').trim().slice(0, 4000);
-    if (!id || !content) return;
-    const info = stmtUpdate.run(content, id, username);
-    if (info.changes > 0) {
-      io.to(roomId).emit('message-edited', { id, content });
-    }
-  });
-  // ── Звонки ───────────────────────────────────────────
-  socket.on('call-join', () => {
-    if (!roomId) return;
-    inCall = true;
-    const room = rooms.get(roomId);
-    if (room && room.has(socket.id)) {
-      room.get(socket.id).inCall = true;
-      socket.to(roomId).emit('call-user-joined', { socketId: socket.id, username });
-      io.to(roomId).emit('room-users', getRoomUsers(roomId));
-    }
-  });
-
-  socket.on('call-leave', () => {
-    if (!roomId) return;
-    inCall = false;
-    const room = rooms.get(roomId);
-    if (room && room.has(socket.id)) {
-      room.get(socket.id).inCall = false;
-      socket.to(roomId).emit('call-user-left', { socketId: socket.id });
-      io.to(roomId).emit('room-users', getRoomUsers(roomId));
-    }
-  });
-
-  // ── WebRTC signaling ─────────────────────────────────
-  socket.on('webrtc-offer', ({ to, offer }) => {
-    io.to(to).emit('webrtc-offer', { from: socket.id, offer });
-  });
-  socket.on('webrtc-answer', ({ to, answer }) => {
-    io.to(to).emit('webrtc-answer', { from: socket.id, answer });
-  });
-  socket.on('webrtc-ice-candidate', ({ to, candidate }) => {
-    io.to(to).emit('webrtc-ice-candidate', { from: socket.id, candidate });
-  });
-
-  // ── Disconnect ───────────────────────────────────────
-  function leaveRoom() {
-    if (!roomId) return;
-    socket.leave(roomId);
-    const room = rooms.get(roomId);
-    if (room) {
-      room.delete(socket.id);
-      if (inCall) socket.to(roomId).emit('call-user-left', { socketId: socket.id });
-      socket.to(roomId).emit('user-left', { socketId: socket.id, username });
-      io.to(roomId).emit('room-users', getRoomUsers(roomId));
-      if (room.size === 0) rooms.delete(roomId);
-    }
-    roomId = null;
-    username = null;
-    inCall = false;
-  }
-
-  socket.on('disconnect', leaveRoom);
-});
-
-// ── Away-status checker (runs every 15 s) ───────────────────────────────────
-setInterval(() => {
-  const now = Date.now();
-  rooms.forEach((room, rId) => {
-    let changed = false;
-    room.forEach(u => {
-      if (u.inCall) return;
-      const age = now - (u.lastSeen || now);
-      const next = age > 35000 ? 'away' : 'online';
-      if (u.status !== next) { u.status = next; changed = true; }
-    });
-    if (changed) io.to(rId).emit('room-users', Array.from(room.values()));
-  });
-}, 15000);
 
 // ── Start ───────────────────────────────────────────────────────────────────
 app.listen({ port: PORT, host: '0.0.0.0' }, (err) => {

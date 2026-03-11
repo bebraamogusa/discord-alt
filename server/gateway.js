@@ -352,17 +352,5 @@ export function setupGateway(io, db) {
     }
   });
 
-  // ── Away status timer (every 30s) ─────────────────────────────────────────
-  setInterval(() => {
-    const now = Math.floor(Date.now() / 1000);
-    db.prepare('SELECT id FROM users WHERE last_seen < ? AND last_seen > 0')
-      .all(now - 300) // 5 min
-      .forEach(({ id }) => {
-        if (presence.has(id)) {
-          // Active socket but idle DB — handled by client heartbeat
-        }
-      });
-  }, 30000);
-
   return gw;
 }

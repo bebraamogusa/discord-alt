@@ -44,7 +44,6 @@ const RTC_CONFIG = {
 let socket = null;   // Socket.IO /gateway socket
 
 const $ = id => document.getElementById(id);
-const qs = (sel, el = document) => el.querySelector(sel);
 
 function showToast(msg, type = '') {
   const t = $('toast');
@@ -652,9 +651,7 @@ function updateSidebarUser() {
   if (!S.me) return;
   $('su-username').textContent = S.me.username;
   $('su-custom-status').textContent = S.me.custom_status || '';
-  const av = $('su-avatar');
   if (S.me.avatar_url) {
-    av.outerHTML; // can't reassign outerHTML easily; use innerHTML trick
     $('su-av-wrapper').innerHTML = `<img src="${escHtml(S.me.avatar_url)}" style="width:32px;height:32px;border-radius:50%" id="su-avatar">${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
   } else {
     const letter = (S.me.username || '?')[0].toUpperCase();
@@ -871,7 +868,7 @@ async function selectChannel(id) {
   $('input-area').classList.remove('hidden');
 
   // Update header
-  const icon = ch.type === 'voice' ? '🔊' : ch.type === 'dm' ? '@' : ch.type === 'announcement' ? '📣' : '#';
+  const icon = ch.type === 'dm' ? '@' : ch.type === 'announcement' ? '📣' : '#';
   $('chat-ch-icon').textContent = icon;
   if (ch.type === 'dm') {
     $('chat-ch-name').textContent = ch.recipient?.username || 'Личные сообщения';
