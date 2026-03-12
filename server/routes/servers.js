@@ -49,6 +49,36 @@ export function userHasPermission(db, serverId, userId, flag) {
   return false;
 }
 
+function getHighestRolePosition(db, serverId, userId) {
+  const isOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, userId);
+  if (isOwner) return Number.POSITIVE_INFINITY;
+  const row = db.prepare(`
+    SELECT MAX(r.position) AS max_pos
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    WHERE ur.user_id = ? AND r.server_id = ?
+  `).get(userId, serverId);
+  return Number(row?.max_pos ?? 0);
+}
+
+function canActOnMemberHierarchy(db, serverId, actorId, targetId) {
+  if (actorId === targetId) return true;
+  const targetIsOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, targetId);
+  if (targetIsOwner) return false;
+  const actorTop = getHighestRolePosition(db, serverId, actorId);
+  const targetTop = getHighestRolePosition(db, serverId, targetId);
+  return actorTop > targetTop;
+}
+
+function canManageRoleHierarchy(db, serverId, actorId, roleId) {
+  const isOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, actorId);
+  if (isOwner) return true;
+  const role = db.prepare('SELECT position FROM roles WHERE id = ? AND server_id = ?').get(roleId, serverId);
+  if (!role) return false;
+  const actorTop = getHighestRolePosition(db, serverId, actorId);
+  return actorTop > Number(role.position ?? 0);
+}
+
 function publicServer(s) {
   return {
     id: s.id, name: s.name, icon_url: s.icon_url, banner_url: s.banner_url,
@@ -63,7 +93,25 @@ function fullServer(db, serverId, userId = null) {
   const channels   = db.prepare('SELECT * FROM channels   WHERE server_id = ? ORDER BY position ASC').all(serverId);
   const categories = db.prepare('SELECT * FROM categories WHERE server_id = ? ORDER BY position ASC').all(serverId);
   const roles      = db.prepare('SELECT * FROM roles      WHERE server_id = ? ORDER BY position DESC').all(serverId);
-  const result = { ...publicServer(s), channels, categories, roles };
+  const channel_overwrites = db.prepare(`
+    SELECT id, channel_id, target_type, target_id, allow_permissions, deny_permissions, created_at
+    FROM channel_overwrites co
+    WHERE EXISTS (
+      SELECT 1 FROM channels ch
+      WHERE ch.id = co.channel_id AND ch.server_id = ?
+    )
+    ORDER BY created_at ASC
+  `).all(serverId).map((row) => ({
+    ...row,
+    allow_permissions: (() => {
+      try { return JSON.parse(row.allow_permissions || '{}'); } catch { return {}; }
+    })(),
+    deny_permissions: (() => {
+      try { return JSON.parse(row.deny_permissions || '{}'); } catch { return {}; }
+    })(),
+  }));
+
+  const result = { ...publicServer(s), channels, categories, roles, channel_overwrites };
   if (userId) {
     result.my_roles = db.prepare('SELECT role_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.server_id = ?').all(userId, serverId).map(r => r.role_id);
   }
@@ -227,6 +275,9 @@ export default function registerServerRoutes(app, db, io) {
       userHasPermission(db, serverId, req.user.id, 'manage_roles') ||
       userHasPermission(db, serverId, req.user.id, 'kick_members');
     if (!canManage) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (req.user.id !== targetId && !canActOnMemberHierarchy(db, serverId, req.user.id, targetId)) {
+      return reply.code(403).send({ error: 'Role hierarchy violation' });
+    }
 
     const exists = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, targetId);
     if (!exists) return reply.code(404).send({ error: 'Member not found' });
@@ -253,6 +304,7 @@ export default function registerServerRoutes(app, db, io) {
     if (!userHasPermission(db, serverId, req.user.id, 'kick_members')) return reply.code(403).send({ error: 'Insufficient permissions' });
     const server = db.prepare('SELECT owner_id FROM servers WHERE id = ?').get(serverId);
     if (server?.owner_id === targetId) return reply.code(400).send({ error: 'Cannot kick server owner' });
+    if (!canActOnMemberHierarchy(db, serverId, req.user.id, targetId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     db.prepare('DELETE FROM server_members WHERE server_id = ? AND user_id = ?').run(serverId, targetId);
     auditLog(db, { server_id: serverId, actor_id: req.user.id, target_id: targetId, action: 'kick' });
     io.to(`server:${serverId}`).emit('MEMBER_LEAVE', { server_id: serverId, user_id: targetId });
@@ -312,6 +364,7 @@ export default function registerServerRoutes(app, db, io) {
   app.post('/api/servers/:id/bans/:userId', { preHandler: authenticate }, async (req, reply) => {
     const { id: serverId, userId: targetId } = req.params;
     if (!userHasPermission(db, serverId, req.user.id, 'ban_members')) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (!canActOnMemberHierarchy(db, serverId, req.user.id, targetId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     const { reason = null } = req.body || {};
     db.transaction(() => {
       db.prepare('INSERT OR REPLACE INTO bans (server_id, user_id, banned_by, reason) VALUES (?, ?, ?, ?)').run(serverId, targetId, req.user.id, reason);
@@ -361,6 +414,7 @@ export default function registerServerRoutes(app, db, io) {
 
   app.patch('/api/servers/:id/roles/:roleId', { preHandler: authenticate }, (req, reply) => {
     if (!userHasPermission(db, req.params.id, req.user.id, 'manage_roles')) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (!canManageRoleHierarchy(db, req.params.id, req.user.id, req.params.roleId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     const { name, color, permissions, position } = req.body || {};
     const fields = {};
     if (name       !== undefined) fields.name        = String(name).slice(0, 50);
@@ -377,6 +431,7 @@ export default function registerServerRoutes(app, db, io) {
 
   app.delete('/api/servers/:id/roles/:roleId', { preHandler: authenticate }, (req, reply) => {
     if (!userHasPermission(db, req.params.id, req.user.id, 'manage_roles')) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (!canManageRoleHierarchy(db, req.params.id, req.user.id, req.params.roleId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     const role = db.prepare('SELECT * FROM roles WHERE id = ? AND server_id = ?').get(req.params.roleId, req.params.id);
     if (!role) return reply.code(404).send({ error: 'Role not found' });
     if (role.is_default) return reply.code(400).send({ error: 'Cannot delete @everyone' });
@@ -387,6 +442,8 @@ export default function registerServerRoutes(app, db, io) {
 
   app.post('/api/servers/:id/members/:userId/roles/:roleId', { preHandler: authenticate }, (req, reply) => {
     if (!userHasPermission(db, req.params.id, req.user.id, 'manage_roles')) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (!canManageRoleHierarchy(db, req.params.id, req.user.id, req.params.roleId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
+    if (!canActOnMemberHierarchy(db, req.params.id, req.user.id, req.params.userId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     db.prepare('INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)').run(req.params.userId, req.params.roleId);
     auditLog(db, { server_id: req.params.id, actor_id: req.user.id, target_id: req.params.userId, action: 'member_update', changes: { added_role: req.params.roleId } });
     return reply.send({ ok: true });
@@ -394,6 +451,8 @@ export default function registerServerRoutes(app, db, io) {
 
   app.delete('/api/servers/:id/members/:userId/roles/:roleId', { preHandler: authenticate }, (req, reply) => {
     if (!userHasPermission(db, req.params.id, req.user.id, 'manage_roles')) return reply.code(403).send({ error: 'Insufficient permissions' });
+    if (!canManageRoleHierarchy(db, req.params.id, req.user.id, req.params.roleId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
+    if (!canActOnMemberHierarchy(db, req.params.id, req.user.id, req.params.userId)) return reply.code(403).send({ error: 'Role hierarchy violation' });
     db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ?').run(req.params.userId, req.params.roleId);
     auditLog(db, { server_id: req.params.id, actor_id: req.user.id, target_id: req.params.userId, action: 'member_update', changes: { removed_role: req.params.roleId } });
     return reply.send({ ok: true });

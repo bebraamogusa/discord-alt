@@ -204,6 +204,19 @@ db.transaction(() => {
 
     CREATE INDEX IF NOT EXISTS idx_channels_server   ON channels(server_id);
     CREATE INDEX IF NOT EXISTS idx_channels_category ON channels(category_id);
+
+    CREATE TABLE IF NOT EXISTS channel_overwrites (
+      id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      channel_id        TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      target_type       TEXT NOT NULL CHECK(target_type IN ('everyone','role','member')),
+      target_id         TEXT,
+      allow_permissions TEXT NOT NULL DEFAULT '{}',
+      deny_permissions  TEXT NOT NULL DEFAULT '{}',
+      created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+      UNIQUE (channel_id, target_type, target_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_channel_overwrites_channel ON channel_overwrites(channel_id);
   `);
 
   /* ══════════════════════════════════════════════════════════════════════════

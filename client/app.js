@@ -1227,7 +1227,11 @@ function renderChannelGroup(container, cat, channels, srv) {
         <div class="ch-voice-users">
           ${voiceParticipants.map(p => `
             <div class="ch-voice-user ${p.muted ? 'muted' : ''}">
-              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">${escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id) || '?')[0].toUpperCase())}</span>
+              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">
+                ${p.avatar_url
+                  ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`
+                  : escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id) || '?')[0].toUpperCase())}
+              </span>
               <span>${escHtml(displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id))}</span>
               ${p.muted ? '<span class="ch-voice-muted">' + IC.voiceMuted + '</span>' : ''}
             </div>

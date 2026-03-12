@@ -15,11 +15,156 @@ function canAccessChannel(db, channelId, userId) {
     const member = db.prepare('SELECT 1 FROM dm_members WHERE channel_id = ? AND user_id = ?').get(channelId, userId);
     if (!member) return null;
   } else {
-    // server channel
-    const sm = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(ch.server_id, userId);
-    if (!sm) return null;
+    if (!hasChannelPermission(db, ch, userId, 'view_channel')) return null;
   }
   return ch;
+}
+
+function parsePermObject(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '{}') : (value || {});
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function normalizePermObject(value) {
+  const parsed = parsePermObject(value);
+  const normalized = {};
+  for (const [key, enabled] of Object.entries(parsed)) {
+    if (enabled === true) normalized[key] = true;
+  }
+  return normalized;
+}
+
+function applyOverwriteLayer(perms, denyObj, allowObj) {
+  for (const [key, enabled] of Object.entries(denyObj || {})) {
+    if (enabled === true) perms[key] = false;
+  }
+  for (const [key, enabled] of Object.entries(allowObj || {})) {
+    if (enabled === true) perms[key] = true;
+  }
+}
+
+function getHighestRolePosition(db, serverId, userId) {
+  const isOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, userId);
+  if (isOwner) return Number.POSITIVE_INFINITY;
+  const row = db.prepare(`
+    SELECT MAX(r.position) AS max_pos
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    WHERE ur.user_id = ? AND r.server_id = ?
+  `).get(userId, serverId);
+  return Number(row?.max_pos ?? 0);
+}
+
+function resolveChannelPermissions(db, channel, userId) {
+  if (!channel?.server_id) return {};
+
+  const server = db.prepare('SELECT owner_id FROM servers WHERE id = ?').get(channel.server_id);
+  if (!server) return null;
+  if (server.owner_id === userId) {
+    return {
+      administrator: true,
+      manage_server: true,
+      manage_channels: true,
+      manage_messages: true,
+      send_messages: true,
+      view_channel: true,
+    };
+  }
+
+  const member = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, userId);
+  if (!member) return null;
+
+  const roleRows = db.prepare(`
+    SELECT r.id, r.permissions, r.position
+    FROM roles r
+    LEFT JOIN user_roles ur
+      ON ur.role_id = r.id
+     AND ur.user_id = ?
+    WHERE r.server_id = ?
+      AND (r.is_default = 1 OR ur.user_id IS NOT NULL)
+    ORDER BY r.position ASC
+  `).all(userId, channel.server_id);
+
+  const perms = {};
+  const roleIds = [];
+  for (const role of roleRows) {
+    roleIds.push(role.id);
+    const rolePerms = parsePermObject(role.permissions);
+    for (const [flag, enabled] of Object.entries(rolePerms)) {
+      if (enabled === true) perms[flag] = true;
+    }
+  }
+
+  if (perms.administrator === true) return perms;
+
+  const overwriteRows = db.prepare(`
+    SELECT target_type, target_id, allow_permissions, deny_permissions
+    FROM channel_overwrites
+    WHERE channel_id = ?
+  `).all(channel.id);
+
+  const everyoneOverwrite = overwriteRows.find((row) => row.target_type === 'everyone');
+  if (everyoneOverwrite) {
+    applyOverwriteLayer(
+      perms,
+      parsePermObject(everyoneOverwrite.deny_permissions),
+      parsePermObject(everyoneOverwrite.allow_permissions)
+    );
+  }
+
+  const roleOverwrites = overwriteRows.filter((row) => row.target_type === 'role' && roleIds.includes(row.target_id));
+  if (roleOverwrites.length) {
+    const roleDeny = {};
+    const roleAllow = {};
+    for (const row of roleOverwrites) {
+      const deny = parsePermObject(row.deny_permissions);
+      const allow = parsePermObject(row.allow_permissions);
+      for (const [flag, enabled] of Object.entries(deny)) if (enabled === true) roleDeny[flag] = true;
+      for (const [flag, enabled] of Object.entries(allow)) if (enabled === true) roleAllow[flag] = true;
+    }
+    applyOverwriteLayer(perms, roleDeny, roleAllow);
+  }
+
+  const memberOverwrite = overwriteRows.find((row) => row.target_type === 'member' && row.target_id === userId);
+  if (memberOverwrite) {
+    applyOverwriteLayer(
+      perms,
+      parsePermObject(memberOverwrite.deny_permissions),
+      parsePermObject(memberOverwrite.allow_permissions)
+    );
+  }
+
+  return perms;
+}
+
+function hasChannelPermission(db, channel, userId, flag) {
+  if (!channel?.server_id) return true;
+  const perms = resolveChannelPermissions(db, channel, userId);
+  if (!perms) return false;
+  if (perms.administrator === true) return true;
+  return perms[flag] === true;
+}
+
+function canManageRoleOverwrite(db, serverId, actorId, roleId) {
+  const isOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, actorId);
+  if (isOwner) return true;
+  const role = db.prepare('SELECT position FROM roles WHERE id = ? AND server_id = ?').get(roleId, serverId);
+  if (!role) return false;
+  return getHighestRolePosition(db, serverId, actorId) > Number(role.position ?? 0);
+}
+
+function canManageMemberOverwrite(db, serverId, actorId, targetId) {
+  if (actorId === targetId) return true;
+  const isOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, actorId);
+  if (isOwner) return true;
+  const targetIsOwner = !!db.prepare('SELECT 1 FROM servers WHERE id = ? AND owner_id = ?').get(serverId, targetId);
+  if (targetIsOwner) return false;
+  return getHighestRolePosition(db, serverId, actorId) > getHighestRolePosition(db, serverId, targetId);
 }
 
 /** Full message object with author, reactions, attachments, reply */
@@ -180,6 +325,161 @@ export default function registerChannelRoutes(app, db, io) {
     return reply.send({ ok: true });
   });
 
+  // GET /api/channels/:id/overwrites
+  app.get('/api/channels/:id/overwrites', { preHandler: authenticate }, (req, reply) => {
+    const ch = canAccessChannel(db, req.params.id, req.user.id);
+    if (!ch) return reply.code(403).send({ error: 'No access' });
+    if (!ch.server_id) return reply.code(400).send({ error: 'Overwrites are only supported for server channels' });
+
+    const rows = db.prepare(`
+      SELECT id, channel_id, target_type, target_id, allow_permissions, deny_permissions, created_at
+      FROM channel_overwrites
+      WHERE channel_id = ?
+      ORDER BY
+        CASE target_type WHEN 'everyone' THEN 0 WHEN 'role' THEN 1 ELSE 2 END,
+        created_at ASC
+    `).all(ch.id);
+
+    return reply.send(rows.map((row) => ({
+      ...row,
+      allow_permissions: parsePermObject(row.allow_permissions),
+      deny_permissions: parsePermObject(row.deny_permissions),
+    })));
+  });
+
+  // PUT /api/channels/:id/overwrites
+  app.put('/api/channels/:id/overwrites', { preHandler: authenticate }, (req, reply) => {
+    const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+    if (!ch) return reply.code(404).send({ error: 'Channel not found' });
+    if (!ch.server_id) return reply.code(400).send({ error: 'Overwrites are only supported for server channels' });
+    if (!hasChannelPermission(db, ch, req.user.id, 'manage_channels')) {
+      return reply.code(403).send({ error: 'Insufficient permissions' });
+    }
+
+    const { target_type, target_id = null } = req.body || {};
+    const allowPermissions = normalizePermObject(req.body?.allow_permissions ?? req.body?.allow ?? {});
+    const denyPermissions = normalizePermObject(req.body?.deny_permissions ?? req.body?.deny ?? {});
+
+    if (!['everyone', 'role', 'member'].includes(target_type)) {
+      return reply.code(400).send({ error: 'Invalid target_type' });
+    }
+
+    let normalizedTargetId = target_id;
+    if (target_type === 'everyone') {
+      normalizedTargetId = null;
+    } else if (target_type === 'role') {
+      const role = db.prepare('SELECT id FROM roles WHERE id = ? AND server_id = ?').get(target_id, ch.server_id);
+      if (!role) return reply.code(404).send({ error: 'Role not found' });
+      if (!canManageRoleOverwrite(db, ch.server_id, req.user.id, target_id)) {
+        return reply.code(403).send({ error: 'Cannot manage overwrite for this role' });
+      }
+    } else if (target_type === 'member') {
+      const member = db.prepare('SELECT user_id FROM server_members WHERE server_id = ? AND user_id = ?').get(ch.server_id, target_id);
+      if (!member) return reply.code(404).send({ error: 'Member not found' });
+      if (!canManageMemberOverwrite(db, ch.server_id, req.user.id, target_id)) {
+        return reply.code(403).send({ error: 'Cannot manage overwrite for this member' });
+      }
+    }
+
+    db.prepare(`
+      INSERT INTO channel_overwrites (id, channel_id, target_type, target_id, allow_permissions, deny_permissions)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(channel_id, target_type, target_id)
+      DO UPDATE SET
+        allow_permissions = excluded.allow_permissions,
+        deny_permissions = excluded.deny_permissions
+    `).run(
+      nanoid(16),
+      ch.id,
+      target_type,
+      normalizedTargetId,
+      JSON.stringify(allowPermissions),
+      JSON.stringify(denyPermissions)
+    );
+
+    const overwrite = db.prepare(`
+      SELECT id, channel_id, target_type, target_id, allow_permissions, deny_permissions, created_at
+      FROM channel_overwrites
+      WHERE channel_id = ? AND target_type = ? AND target_id IS ?
+    `).get(ch.id, target_type, normalizedTargetId);
+
+    const payload = {
+      ...overwrite,
+      allow_permissions: parsePermObject(overwrite.allow_permissions),
+      deny_permissions: parsePermObject(overwrite.deny_permissions),
+    };
+
+    auditLog(db, {
+      server_id: ch.server_id,
+      actor_id: req.user.id,
+      target_id: ch.id,
+      action: 'channel_overwrite_update',
+      changes: { target_type, target_id: normalizedTargetId, allow_permissions: payload.allow_permissions, deny_permissions: payload.deny_permissions },
+    });
+
+    io.to(`server:${ch.server_id}`).emit('CHANNEL_OVERWRITE_UPDATE', payload);
+    return reply.send(payload);
+  });
+
+  // DELETE /api/channels/:id/overwrites?target_type=&target_id=
+  app.delete('/api/channels/:id/overwrites', { preHandler: authenticate }, (req, reply) => {
+    const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+    if (!ch) return reply.code(404).send({ error: 'Channel not found' });
+    if (!ch.server_id) return reply.code(400).send({ error: 'Overwrites are only supported for server channels' });
+    if (!hasChannelPermission(db, ch, req.user.id, 'manage_channels')) {
+      return reply.code(403).send({ error: 'Insufficient permissions' });
+    }
+
+    const targetType = String(req.query?.target_type || '').trim();
+    const targetIdRaw = req.query?.target_id;
+    if (!['everyone', 'role', 'member'].includes(targetType)) {
+      return reply.code(400).send({ error: 'Invalid target_type' });
+    }
+
+    let targetId = targetType === 'everyone' ? null : (targetIdRaw ?? null);
+    if (targetType !== 'everyone' && !targetId) {
+      return reply.code(400).send({ error: 'target_id required' });
+    }
+
+    if (targetType === 'role') {
+      const role = db.prepare('SELECT id FROM roles WHERE id = ? AND server_id = ?').get(targetId, ch.server_id);
+      if (!role) return reply.code(404).send({ error: 'Role not found' });
+      if (!canManageRoleOverwrite(db, ch.server_id, req.user.id, targetId)) {
+        return reply.code(403).send({ error: 'Cannot manage overwrite for this role' });
+      }
+    }
+    if (targetType === 'member') {
+      const member = db.prepare('SELECT user_id FROM server_members WHERE server_id = ? AND user_id = ?').get(ch.server_id, targetId);
+      if (!member) return reply.code(404).send({ error: 'Member not found' });
+      if (!canManageMemberOverwrite(db, ch.server_id, req.user.id, targetId)) {
+        return reply.code(403).send({ error: 'Cannot manage overwrite for this member' });
+      }
+    }
+
+    const removed = db.prepare(`
+      DELETE FROM channel_overwrites
+      WHERE channel_id = ? AND target_type = ? AND target_id IS ?
+    `).run(ch.id, targetType, targetId);
+
+    if (!removed.changes) return reply.code(404).send({ error: 'Overwrite not found' });
+
+    auditLog(db, {
+      server_id: ch.server_id,
+      actor_id: req.user.id,
+      target_id: ch.id,
+      action: 'channel_overwrite_delete',
+      changes: { target_type: targetType, target_id: targetId },
+    });
+
+    io.to(`server:${ch.server_id}`).emit('CHANNEL_OVERWRITE_DELETE', {
+      channel_id: ch.id,
+      target_type: targetType,
+      target_id: targetId,
+    });
+
+    return reply.send({ ok: true });
+  });
+
   /* ── MESSAGES (stage 4) ─────────────────────────────────────────────────── */
 
   // GET /api/channels/:id/messages
@@ -198,7 +498,7 @@ export default function registerChannelRoutes(app, db, io) {
   app.post('/api/channels/:id/messages', { preHandler: authenticate }, async (req, reply) => {
     const ch = canAccessChannel(db, req.params.id, req.user.id);
     if (!ch) return reply.code(403).send({ error: 'No access' });
-    if (ch.server_id && !userHasPermission(db, ch.server_id, req.user.id, 'send_messages'))
+    if (ch.server_id && !hasChannelPermission(db, ch, req.user.id, 'send_messages'))
       return reply.code(403).send({ error: 'Cannot send messages' });
 
     const { content = '', reply_to_id = null, attachments: atts = [] } = req.body || {};
@@ -257,7 +557,7 @@ export default function registerChannelRoutes(app, db, io) {
     if (!msg) return reply.code(404).send({ error: 'Message not found' });
     const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(msg.channel_id);
     const canDelete = msg.author_id === req.user.id ||
-      (ch?.server_id && userHasPermission(db, ch.server_id, req.user.id, 'manage_messages'));
+      (ch?.server_id && hasChannelPermission(db, ch, req.user.id, 'manage_messages'));
     if (!canDelete) return reply.code(403).send({ error: 'Insufficient permissions' });
     db.prepare('DELETE FROM messages WHERE id = ?').run(msg.id);
     if (ch?.server_id) {
@@ -335,7 +635,7 @@ export default function registerChannelRoutes(app, db, io) {
   app.put('/api/channels/:id/pins/:messageId', { preHandler: authenticate }, async (req, reply) => {
     const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
     if (!ch) return reply.code(404).send({ error: 'Channel not found' });
-    if (ch.server_id && !userHasPermission(db, ch.server_id, req.user.id, 'manage_messages'))
+    if (ch.server_id && !hasChannelPermission(db, ch, req.user.id, 'manage_messages'))
       return reply.code(403).send({ error: 'Insufficient permissions' });
     db.prepare('INSERT OR IGNORE INTO pins (channel_id, message_id, pinned_by) VALUES (?, ?, ?)').run(req.params.id, req.params.messageId, req.user.id);
     if (ch.server_id) auditLog(db, { server_id: ch.server_id, actor_id: req.user.id, target_id: req.params.messageId, action: 'pin_add' });
@@ -347,7 +647,7 @@ export default function registerChannelRoutes(app, db, io) {
   app.delete('/api/channels/:id/pins/:messageId', { preHandler: authenticate }, async (req, reply) => {
     const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
     if (!ch) return reply.code(404).send({ error: 'Channel not found' });
-    if (ch.server_id && !userHasPermission(db, ch.server_id, req.user.id, 'manage_messages'))
+    if (ch.server_id && !hasChannelPermission(db, ch, req.user.id, 'manage_messages'))
       return reply.code(403).send({ error: 'Insufficient permissions' });
     db.prepare('DELETE FROM pins WHERE channel_id = ? AND message_id = ?').run(req.params.id, req.params.messageId);
     if (ch.server_id) auditLog(db, { server_id: ch.server_id, actor_id: req.user.id, target_id: req.params.messageId, action: 'pin_remove' });
