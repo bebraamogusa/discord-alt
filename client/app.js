@@ -51,6 +51,7 @@ const RTC_CONFIG = {
 let socket = null;   // Socket.IO /gateway socket
 
 const $ = id => document.getElementById(id);
+const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
 
 // ─── SVG ICON SYSTEM ─────────────────────────────────────────────────────────
 const _ic = (d, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${d}</svg>`;
@@ -366,9 +367,13 @@ function showStatusPicker() {
 
   const wrapper = $('su-av-wrapper');
   const rect = wrapper.getBoundingClientRect();
-  picker.style.left = rect.left + 'px';
-  picker.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
   document.body.appendChild(picker);
+
+  const margin = 8;
+  const left = clamp(rect.left, margin, window.innerWidth - picker.offsetWidth - margin);
+  const top = clamp(rect.top - picker.offsetHeight - 8, margin, window.innerHeight - picker.offsetHeight - margin);
+  picker.style.left = `${left}px`;
+  picker.style.top = `${top}px`;
 
   // Status item clicks
   picker.querySelectorAll('.sp-item').forEach(el => {
@@ -410,7 +415,7 @@ function showStatusPicker() {
   });
 
   // Close on outside click
-  const close = e => { if (!picker.contains(e.target) && e.target !== wrapper) { picker.remove(); document.removeEventListener('click', close); } };
+  const close = e => { if (!picker.contains(e.target) && !wrapper.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); } };
   setTimeout(() => document.addEventListener('click', close), 0);
 }
 
@@ -1445,7 +1450,7 @@ function msgHtml(msg, isFirst, isNew = false) {
           </div>
     `;
   } else {
-    headerHtml = `<div class="msg-body" style="padding-left:52px"><span class="msg-hover-time">${fmtTime(ts)}</span>`;
+    headerHtml = `<div class="msg-body" style="padding-left:44px"><span class="msg-hover-time">${fmtTime(ts)}</span>`;
   }
 
   let replyHtml = '';
@@ -1583,8 +1588,10 @@ function updateReactions(msgId, channelId, reactions, actorId) {
   let reactDiv = group.querySelector('.msg-reactions');
   if (!reactions.length) { reactDiv?.remove(); return; }
   if (!reactDiv) {
-    group.querySelector('.msg-body, .msg-content')?.insertAdjacentHTML('afterend', '<div class="msg-reactions"></div>');
-    reactDiv = group.querySelector('.msg-reactions');
+    const body = group.querySelector('.msg-body');
+    if (!body) return;
+    body.insertAdjacentHTML('beforeend', '<div class="msg-reactions"></div>');
+    reactDiv = body.querySelector('.msg-reactions');
   }
   if (!reactDiv) return;
   reactDiv.innerHTML = reactions.map(r => `
@@ -1635,27 +1642,68 @@ const EMOJI_CATEGORIES = {
   symbols: { icon: '❤️', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮'] },
 };
 
-const QUICK_EMOJIS = EMOJI_LIST.slice(0, 8);
+const DEFAULT_QUICK_EMOJIS = EMOJI_LIST.slice(0, 8);
+
+function normalizeQuickEmojis(value) {
+  if (!Array.isArray(value)) return DEFAULT_QUICK_EMOJIS;
+  const cleaned = value
+    .map(v => String(v || '').trim())
+    .filter(Boolean)
+    .filter((v, idx, arr) => arr.indexOf(v) === idx)
+    .slice(0, 12);
+  return cleaned.length ? cleaned : DEFAULT_QUICK_EMOJIS;
+}
+
+function loadQuickEmojis() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('da_quick_reactions') || '[]');
+    return normalizeQuickEmojis(parsed);
+  } catch {
+    return DEFAULT_QUICK_EMOJIS;
+  }
+}
+
+let QUICK_EMOJIS = loadQuickEmojis();
+
+function saveQuickEmojis(next) {
+  QUICK_EMOJIS = normalizeQuickEmojis(next);
+  localStorage.setItem('da_quick_reactions', JSON.stringify(QUICK_EMOJIS));
+}
 
 function showQuickReactPicker(btn, msgId) {
   let existing = document.querySelector('.quick-react-popup');
   existing?.remove();
   const popEl = document.createElement('div');
   popEl.className = 'quick-react-popup';
-  popEl.style.cssText = 'position:absolute;z-index:200;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;gap:2px;box-shadow:var(--shadow)';
   QUICK_EMOJIS.forEach(em => {
     const b = document.createElement('button');
-    b.style.cssText = 'background:none;border:none;font-size:20px;cursor:pointer;padding:4px;border-radius:4px';
+    b.className = 'quick-react-btn';
     b.textContent = em;
-    b.onmouseenter = () => b.style.background = 'var(--bg-hover)';
-    b.onmouseleave = () => b.style.background = '';
     b.onclick = () => { toggleReaction(msgId, em); popEl.remove(); };
     popEl.appendChild(b);
   });
+
+  const more = document.createElement('button');
+  more.className = 'quick-react-btn more';
+  more.textContent = '+';
+  more.title = 'Настроить быстрые реакции';
+  more.onclick = () => {
+    popEl.remove();
+    openUserSettings('appearance');
+  };
+  popEl.appendChild(more);
+
   const rect = btn.getBoundingClientRect();
-  popEl.style.left = rect.left + 'px';
-  popEl.style.top  = (rect.bottom + 4) + 'px';
   document.body.appendChild(popEl);
+
+  const maxLeft = window.innerWidth - popEl.offsetWidth - 8;
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, maxLeft));
+  const below = rect.bottom + 6;
+  const above = rect.top - popEl.offsetHeight - 6;
+  const top = (below + popEl.offsetHeight <= window.innerHeight - 8) ? below : Math.max(8, above);
+  popEl.style.left = `${left}px`;
+  popEl.style.top = `${top}px`;
+
   const close = e => { if (!popEl.contains(e.target)) { popEl.remove(); document.removeEventListener('click', close); } };
   setTimeout(() => document.addEventListener('click', close), 0);
 }
@@ -1972,12 +2020,14 @@ async function showProfileCard(userId, anchorEl) {
 
   // Position near anchor
   const rect = anchorEl.getBoundingClientRect();
-  const w = 280, h = 300;
-  let left = rect.right + 8, top = rect.top;
-  if (left + w > window.innerWidth) left = rect.left - w - 8;
-  if (top + h > window.innerHeight) top = window.innerHeight - h - 8;
-  card.style.left = left + 'px';
-  card.style.top  = top + 'px';
+  const margin = 8;
+  let left = rect.right + 8;
+  let top = rect.top;
+  const w = card.offsetWidth || 300;
+  const h = card.offsetHeight || 340;
+  if (left + w > window.innerWidth - margin) left = rect.left - w - 8;
+  card.style.left = `${clamp(left, margin, window.innerWidth - w - margin)}px`;
+  card.style.top = `${clamp(top, margin, window.innerHeight - h - margin)}px`;
 
   card.querySelector('.pc-dm-btn')?.addEventListener('click', async () => {
     closeProfileCard();
@@ -2028,8 +2078,11 @@ function showCtxMenu(x, y, items) {
   menu.style.top  = '-9999px';
   menu.classList.remove('hidden');
   const { offsetWidth: mw, offsetHeight: mh } = menu;
-  const cx = x + mw > window.innerWidth  ? x - mw : x;
-  const cy = y + mh > window.innerHeight ? y - mh : y;
+  const margin = 8;
+  const cxRaw = x + mw > window.innerWidth  ? x - mw : x;
+  const cyRaw = y + mh > window.innerHeight ? y - mh : y;
+  const cx = clamp(cxRaw, margin, Math.max(margin, window.innerWidth - mw - margin));
+  const cy = clamp(cyRaw, margin, Math.max(margin, window.innerHeight - mh - margin));
   menu.style.left = cx + 'px';
   menu.style.top  = cy + 'px';
   menu.querySelectorAll('.ctx-item:not(.disabled)').forEach((el, i) => {
@@ -2427,11 +2480,11 @@ function showNicknameModal() {
   const overlay = document.createElement('div');
   overlay.className = 'da-dialog-overlay';
   overlay.innerHTML = `
-    <div class="da-dialog" style="max-width:360px">
-      <div class="da-dialog-header">${t('set_nickname')}</div>
+    <div class="da-dialog-box da-dialog-compact" role="dialog" aria-modal="true">
+      <div class="da-dialog-head"><h3>${t('set_nickname')}</h3></div>
       <div class="nick-modal-content">
         <input id="nick-input" placeholder="${t('nickname_placeholder')}" value="${escHtml(currentNick)}" maxlength="32">
-        <div style="display:flex;gap:8px;justify-content:flex-end">
+        <div class="nick-modal-actions">
           <button class="btn btn-secondary" id="nick-reset">${t('reset_nickname')}</button>
           <button class="btn btn-primary" id="nick-save">${t('save')}</button>
         </div>
@@ -2484,15 +2537,14 @@ function showNewDmModal() {
   const overlay = document.createElement('div');
   overlay.className = 'da-dialog-overlay';
   overlay.innerHTML = `
-    <div class="da-dialog-box" role="dialog" aria-modal="true" style="max-width:440px;width:100%">
+    <div class="da-dialog-box da-dialog-wide" role="dialog" aria-modal="true">
       <div class="da-dialog-head">
         <h3>${t('new_dm_title')}</h3>
-        <p style="font-size:13px;color:var(--text-3);margin-top:4px">${t('new_dm_subtitle')}</p>
+        <p class="da-dialog-subtitle">${t('new_dm_subtitle')}</p>
       </div>
-      <div class="da-dialog-body" style="padding:0 16px 16px">
-        <input type="text" id="dm-search-input" class="input" placeholder="${t('new_dm_placeholder')}"
-               style="width:100%;margin-bottom:12px" autocomplete="off">
-        <div id="dm-search-results" style="max-height:240px;overflow-y:auto"></div>
+      <div class="da-dialog-body da-dialog-body-tight">
+        <input type="text" id="dm-search-input" class="dm-search-input" placeholder="${t('new_dm_placeholder')}" autocomplete="off">
+        <div id="dm-search-results" class="dm-search-results"></div>
       </div>
       <div class="da-dialog-foot">
         <button class="btn btn-outline" id="dm-search-cancel">${t('cancel')}</button>
@@ -2512,21 +2564,21 @@ function showNewDmModal() {
   input.addEventListener('input', () => {
     clearTimeout(debounce);
     const q = input.value.trim();
-    if (!q) { results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_type_to_search')}</div>`; return; }
+    if (!q) { results.innerHTML = `<div class="dm-search-empty">${t('new_dm_type_to_search')}</div>`; return; }
     debounce = setTimeout(async () => {
       try {
         const users = await API.get(`/api/users?q=${encodeURIComponent(q)}&limit=15`);
         if (!users.length) {
-          results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_no_results')}</div>`;
+          results.innerHTML = `<div class="dm-search-empty">${t('new_dm_no_results')}</div>`;
           return;
         }
         results.innerHTML = users.map(u => `
           <div class="dm-search-item" data-user-id="${escHtml(u.id)}">
-            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+            <div class="dm-search-meta">
               ${avatarEl(u, 36)}
-              <div style="min-width:0">
-                <div style="font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.username)}<span style="color:var(--text-3);font-weight:400">#${escHtml(u.discriminator)}</span></div>
-                ${u.custom_status ? `<div style="font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.custom_status)}</div>` : ''}
+              <div class="dm-search-text">
+                <div class="dm-search-name">${escHtml(u.username)}<span class="dm-search-tag">#${escHtml(u.discriminator)}</span></div>
+                ${u.custom_status ? `<div class="dm-search-status">${escHtml(u.custom_status)}</div>` : ''}
               </div>
             </div>
             <button class="btn btn-primary btn-sm dm-start-btn" data-user-id="${escHtml(u.id)}">${t('new_dm_send')}</button>
@@ -2547,13 +2599,13 @@ function showNewDmModal() {
           };
         });
       } catch {
-        results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px">${t('error_generic')}</div>`;
+        results.innerHTML = `<div class="dm-search-empty">${t('error_generic')}</div>`;
       }
     }, 300);
   });
 
   // Initial state
-  results.innerHTML = `<div style="color:var(--text-3);text-align:center;padding:16px;font-size:13px">${t('new_dm_type_to_search')}</div>`;
+  results.innerHTML = `<div class="dm-search-empty">${t('new_dm_type_to_search')}</div>`;
   setTimeout(() => input.focus(), 50);
 }
 
@@ -3130,6 +3182,17 @@ function renderUserSettingsPage(page) {
         <input type="range" id="us-fontsize" min="12" max="20" value="${parseInt(localStorage.getItem('da_fontSize')||'16')}">
         <div class="form-hint" id="us-fs-preview">${parseInt(localStorage.getItem('da_fontSize')||'16')}px</div>
       </div>
+      <div class="form-group quick-react-editor">
+        <label>Быстрые реакции</label>
+        <div class="form-hint">Выбери эмодзи для панели реакций (до 12).</div>
+        <div class="quick-react-list" id="qr-list"></div>
+        <div class="quick-react-controls">
+          <input id="qr-input" maxlength="8" placeholder="😀" aria-label="emoji">
+          <button class="btn btn-outline" id="qr-add" type="button">Добавить</button>
+          <button class="btn btn-outline" id="qr-reset" type="button">Сброс</button>
+        </div>
+        <div class="quick-react-preset" id="qr-preset"></div>
+      </div>
     `;
     $('us-theme').onchange = e => {
       document.documentElement.dataset.theme = e.target.value;
@@ -3141,6 +3204,79 @@ function renderUserSettingsPage(page) {
       localStorage.setItem('da_fontSize', v);
       $('us-fs-preview').textContent = v + 'px';
     };
+
+    const listEl = $('qr-list');
+    const presetEl = $('qr-preset');
+    const inputEl = $('qr-input');
+    const MAX_QR = 12;
+
+    function renderQuickReactionsEditor() {
+      listEl.innerHTML = QUICK_EMOJIS.map((em, idx) => `
+        <button class="qr-chip" data-idx="${idx}" title="Удалить">
+          <span class="qr-em">${escHtml(em)}</span>
+          <span class="qr-del">×</span>
+        </button>
+      `).join('');
+
+      presetEl.innerHTML = EMOJI_LIST.slice(0, 24).map(em => `
+        <button class="qr-preset-btn ${QUICK_EMOJIS.includes(em) ? 'active' : ''}" data-em="${escHtml(em)}">${escHtml(em)}</button>
+      `).join('');
+
+      listEl.querySelectorAll('.qr-chip').forEach(btn => {
+        btn.onclick = () => {
+          const idx = Number(btn.dataset.idx);
+          const next = QUICK_EMOJIS.filter((_, i) => i !== idx);
+          saveQuickEmojis(next.length ? next : DEFAULT_QUICK_EMOJIS);
+          renderQuickReactionsEditor();
+        };
+      });
+
+      presetEl.querySelectorAll('.qr-preset-btn').forEach(btn => {
+        btn.onclick = () => {
+          const em = btn.dataset.em;
+          const exists = QUICK_EMOJIS.includes(em);
+          let next;
+          if (exists) {
+            next = QUICK_EMOJIS.filter(v => v !== em);
+            if (!next.length) next = DEFAULT_QUICK_EMOJIS;
+          } else {
+            next = [...QUICK_EMOJIS, em].slice(0, MAX_QR);
+          }
+          saveQuickEmojis(next);
+          renderQuickReactionsEditor();
+        };
+      });
+    }
+
+    function tryAddQuickReaction(raw) {
+      const em = String(raw || '').trim();
+      if (!em) return;
+      if (QUICK_EMOJIS.includes(em)) {
+        inputEl.value = '';
+        return;
+      }
+      if (QUICK_EMOJIS.length >= MAX_QR) {
+        showToast('Максимум 12 быстрых реакций', 'error');
+        return;
+      }
+      saveQuickEmojis([...QUICK_EMOJIS, em]);
+      inputEl.value = '';
+      renderQuickReactionsEditor();
+    }
+
+    $('qr-add').onclick = () => tryAddQuickReaction(inputEl.value);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        tryAddQuickReaction(inputEl.value);
+      }
+    });
+    $('qr-reset').onclick = () => {
+      saveQuickEmojis(DEFAULT_QUICK_EMOJIS);
+      renderQuickReactionsEditor();
+    };
+
+    renderQuickReactionsEditor();
   } else if (page === 'language') {
     const currentLang = getLang();
     content.innerHTML = `
