@@ -31,8 +31,13 @@ const V = {
   muted: false,
   deafened: false,
   stream: null,             // local MediaStream
+  screenStream: null,       // local screen share stream
+  screenTrack: null,        // local screen video track
+  isScreenSharing: false,
   peers: new Map(),         // userId → RTCPeerConnection
   audios: new Map(),        // userId → HTMLAudioElement
+  remoteStreams: new Map(), // userId → remote MediaStream
+  screenSenders: new Map(), // userId → RTCRtpSender (screen video)
 };
 
 const RTC_CONFIG = {
@@ -110,6 +115,8 @@ const IC = {
   mail:         _s('M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6'),
   clock:        _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
   lock:         _s('M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4'),
+  screen:       _s('M3 4h18v12H3zM8 20h8M12 16v4'),
+  screenOff:    _ic(`<path d="M3 4h18v12H3zM8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="3" y1="3" x2="21" y2="21" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
   smile:        _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>`),
   arrowUp:      _s('M12 19V5M5 12l7-7 7 7'),
   friends:      _f('M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'),
@@ -285,6 +292,39 @@ function avatarEl(user, size = 32) {
   const letter = (u.username || '?')[0].toUpperCase();
   const color  = u.avatar_color || '#5865f2';
   return `<div class="av-fallback" style="width:${size}px;height:${size}px;background:${escHtml(color)};font-size:${Math.round(size*0.4)}px">${escHtml(letter)}</div>`;
+}
+
+function getServerMember(serverId, userId) {
+  if (!serverId || serverId === '@me' || !userId) return null;
+  return S.members[serverId]?.find(m => m.id === userId) || null;
+}
+
+function displayNameFor(userId, fallback = '', serverId = S.activeServerId) {
+  const member = getServerMember(serverId, userId);
+  if (member?.nickname?.trim()) return member.nickname.trim();
+  if (member?.username?.trim()) return member.username.trim();
+  return fallback || userId || '?';
+}
+
+function applySelfProfileToCaches(updated) {
+  if (!updated?.id) return;
+  for (const serverId of Object.keys(S.members)) {
+    const member = S.members[serverId]?.find(m => m.id === updated.id);
+    if (member) {
+      member.avatar_url = updated.avatar_url;
+      member.avatar_color = updated.avatar_color;
+      member.banner_url = updated.banner_url;
+      member.banner_color = updated.banner_color;
+      member.about_me = updated.about_me;
+    }
+  }
+  for (const channelId of Object.keys(S.voiceStates)) {
+    const participant = S.voiceStates[channelId]?.find(p => p.user_id === updated.id);
+    if (participant) {
+      participant.avatar_url = updated.avatar_url;
+      participant.avatar_color = updated.avatar_color;
+    }
+  }
 }
 
 function statusDotHtml(userId, parentBg = 'var(--bg-2)') {
@@ -482,7 +522,10 @@ function connectGateway() {
       renderChannelList();
       renderServerIcons();
       // Notification sound for messages in other channels (not from self)
-      if (msg.author_id !== S.me?.id) NotifSound.play(msg.author?.username, msg.content?.slice(0, 100));
+      if (msg.author_id !== S.me?.id) {
+        const authorName = displayNameFor(msg.author_id, msg.author?.username || t('unknown_user'), S.activeServerId);
+        NotifSound.play(authorName, msg.content?.slice(0, 100));
+      }
     }
   });
 
@@ -559,7 +602,7 @@ function connectGateway() {
 
   socket.on('MEMBER_JOIN', ({ server_id, member }) => {
     if (!S.members[server_id]) S.members[server_id] = [];
-    if (!S.members[server_id].find(m => m.id === member.user_id)) {
+    if (!S.members[server_id].find(m => m.id === member.id)) {
       S.members[server_id].push(member);
     }
     if (S.activeServerId === server_id) renderMembersPanel();
@@ -575,6 +618,22 @@ function connectGateway() {
       renderServerIcons();
     } else if (S.activeServerId === server_id) {
       renderMembersPanel();
+    }
+  });
+
+  socket.on('MEMBER_UPDATE', ({ server_id, member }) => {
+    if (!server_id || !member?.id) return;
+    if (!S.members[server_id]) S.members[server_id] = [];
+    const idx = S.members[server_id].findIndex(m => m.id === member.id);
+    if (idx === -1) S.members[server_id].push(member);
+    else S.members[server_id][idx] = { ...S.members[server_id][idx], ...member };
+
+    if (S.activeServerId === server_id) {
+      renderMembersPanel();
+      if (S.activeChannelId && getChannel(S.activeChannelId)?.type === 'voice') renderVoicePanel();
+      if (S.activeChannelId && getChannel(S.activeChannelId)?.type !== 'voice') renderMessages();
+      renderChannelList();
+      renderTyping();
     }
   });
 
@@ -678,22 +737,33 @@ function getOrCreatePeer(userId) {
   if (V.stream) {
     V.stream.getTracks().forEach(track => pc.addTrack(track, V.stream));
   }
+  if (V.screenTrack && V.screenStream) {
+    const sender = pc.addTrack(V.screenTrack, V.screenStream);
+    V.screenSenders.set(userId, sender);
+  }
 
   // Forward ICE candidates
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) socket.emit('WEBRTC_ICE', { to_user_id: userId, candidate });
   };
 
-  // Receive remote audio
-  pc.ontrack = ({ streams }) => {
+  // Receive remote media
+  pc.ontrack = ({ streams, track }) => {
+    const remoteStream = streams?.[0] || new MediaStream([track]);
+    V.remoteStreams.set(userId, remoteStream);
+
     let audio = V.audios.get(userId);
     if (!audio) {
       audio = new Audio();
       audio.autoplay = true;
       V.audios.set(userId, audio);
     }
-    audio.srcObject = streams[0];
+    audio.srcObject = remoteStream;
     if (V.deafened) audio.muted = true;
+
+    if (track?.kind === 'video' && getChannel(S.activeChannelId)?.type === 'voice') {
+      renderVoicePanel();
+    }
   };
 
   V.peers.set(userId, pc);
@@ -710,6 +780,8 @@ async function createOffer(userId) {
 function closePeer(userId) {
   const pc = V.peers.get(userId);
   if (pc) { pc.close(); V.peers.delete(userId); }
+  V.screenSenders.delete(userId);
+  V.remoteStreams.delete(userId);
   const audio = V.audios.get(userId);
   if (audio) { audio.srcObject = null; V.audios.delete(userId); }
 }
@@ -728,6 +800,7 @@ async function joinVoiceChannel(channelId) {
   V.channelId  = channelId;
   V.muted      = false;
   V.deafened   = false;
+  V.isScreenSharing = false;
   socket.emit('VOICE_JOIN', { channel_id: channelId });
   renderVoiceBar();
   renderVoicePanel();
@@ -737,10 +810,14 @@ async function joinVoiceChannel(channelId) {
 
 async function leaveVoiceChannel() {
   if (!V.channelId) return;
+  if (V.isScreenSharing) await stopScreenShare();
   socket.emit('VOICE_LEAVE');
   // Close all peer connections
   for (const uid of V.peers.keys()) closePeer(uid);
   if (V.stream) { V.stream.getTracks().forEach(t => t.stop()); V.stream = null; }
+  V.screenTrack = null;
+  V.screenStream = null;
+  V.isScreenSharing = false;
   const prev = V.channelId;
   V.channelId = null;
   renderVoiceBar();
@@ -771,6 +848,71 @@ function toggleVoiceDeafen() {
   renderVoiceBar();
 }
 
+async function startScreenShare() {
+  if (!V.channelId || V.isScreenSharing) return;
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+
+    V.screenStream = stream;
+    V.screenTrack = track;
+    V.isScreenSharing = true;
+
+    for (const [uid, pc] of V.peers.entries()) {
+      const sender = pc.addTrack(track, stream);
+      V.screenSenders.set(uid, sender);
+      await createOffer(uid);
+    }
+
+    track.onended = () => { stopScreenShare(); };
+    socket.emit('VOICE_SCREEN', { sharing: true });
+    renderVoiceBar();
+    renderVoicePanel();
+    showToast(t('voice_screen_started'), 'success');
+  } catch {
+    showToast(t('voice_screen_failed'), 'error');
+  }
+}
+
+async function stopScreenShare() {
+  if (!V.isScreenSharing) return;
+
+  for (const [uid, pc] of V.peers.entries()) {
+    const sender = V.screenSenders.get(uid);
+    if (sender) {
+      try { pc.removeTrack(sender); } catch {}
+    }
+    try { await createOffer(uid); } catch {}
+  }
+  V.screenSenders.clear();
+
+  if (V.screenTrack) V.screenTrack.stop();
+  if (V.screenStream) V.screenStream.getTracks().forEach(t => t.stop());
+  V.screenTrack = null;
+  V.screenStream = null;
+  V.isScreenSharing = false;
+
+  socket.emit('VOICE_SCREEN', { sharing: false });
+  renderVoiceBar();
+  renderVoicePanel();
+  showToast(t('voice_screen_stopped'), 'info');
+}
+
+function bindVoiceScreenVideos() {
+  const panel = $('voice-panel');
+  if (!panel) return;
+  panel.querySelectorAll('video[data-screen-user]').forEach(video => {
+    const uid = video.dataset.screenUser;
+    if (uid === S.me?.id) {
+      if (V.screenStream && video.srcObject !== V.screenStream) video.srcObject = V.screenStream;
+      return;
+    }
+    const stream = V.remoteStreams.get(uid);
+    if (stream && video.srcObject !== stream) video.srcObject = stream;
+  });
+}
+
 function renderVoiceBar() {
   const bar = $('voice-connected-bar');
   if (!bar) return;
@@ -799,6 +941,9 @@ function renderVoiceBar() {
           ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
           : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>'}
       </button>
+      <button class="vcb-btn ${V.isScreenSharing ? 'active screen' : ''}" id="vcb-screen" title="${V.isScreenSharing ? t('voice_stop_screen') : t('voice_start_screen')}">
+        ${V.isScreenSharing ? IC.screenOff : IC.screen}
+      </button>
       <button class="vcb-btn danger" id="vcb-leave" title="${t('voice_disconnect')}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
       </button>
@@ -806,6 +951,7 @@ function renderVoiceBar() {
   `;
   $('vcb-mute')?.addEventListener('click', toggleVoiceMute);
   $('vcb-deaf')?.addEventListener('click', toggleVoiceDeafen);
+  $('vcb-screen')?.addEventListener('click', () => V.isScreenSharing ? stopScreenShare() : startScreenShare());
   $('vcb-leave')?.addEventListener('click', leaveVoiceChannel);
 }
 
@@ -814,6 +960,7 @@ function renderVoicePanel() {
   if (!ch || ch.type !== 'voice') return;
 
   const participants = S.voiceStates[ch.id] || [];
+  const screenParticipants = participants.filter(p => p.sharing_screen);
   const inVoice = V.channelId === ch.id;
 
   // Replace messages area with voice panel
@@ -830,15 +977,26 @@ function renderVoicePanel() {
       <h2>${escHtml(ch.name)}</h2>
       <div class="vp-sub">${participants.length > 0 ? t('voice_participants', { n: participants.length }) : t('voice_empty')}</div>
     </div>
+    <div class="vp-stage ${screenParticipants.length ? '' : 'hidden'}">
+      ${screenParticipants.map(p => {
+        const name = displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', ch.server_id || S.activeServerId);
+        return `
+          <div class="vp-screen-tile">
+            <video class="vp-screen-video" data-screen-user="${escHtml(p.user_id)}" autoplay playsinline ${p.user_id === S.me?.id ? 'muted' : ''}></video>
+            <div class="vp-screen-overlay">${IC.screen} ${escHtml(name)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
     <div class="vp-participants">
       ${participants.map(p => `
         <div class="vp-participant">
           <div class="vp-av" style="background:${escHtml(p.avatar_color || '#5865f2')}">
-            ${p.avatar_url ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : escHtml((p.username||'?')[0].toUpperCase())}
+            ${p.avatar_url ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', ch.server_id || S.activeServerId) || '?')[0].toUpperCase())}
             ${p.muted ? '<div class="vp-muted-badge">' + IC.voiceMuted + '</div>' : ''}
           </div>
-          <div class="vp-name">${escHtml(p.username)}</div>
-          ${p.user_id === V.channelId ? `<div class="vp-you">${t('voice_you')}</div>` : ''}
+          <div class="vp-name">${escHtml(displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', ch.server_id || S.activeServerId))}</div>
+          ${p.user_id === S.me?.id ? `<div class="vp-you">${t('voice_you')}</div>` : ''}
         </div>
       `).join('')}
     </div>
@@ -854,6 +1012,9 @@ function renderVoicePanel() {
         <button class="btn ${V.deafened ? 'btn-danger-solid' : 'btn-outline'}" id="vp-deaf">
           ${V.deafened ? IC.speaker + ` ${t('voice_undeafen')}` : IC.speakerMuted + ` ${t('voice_deafen')}`}
         </button>
+        <button class="btn ${V.isScreenSharing ? 'btn-primary' : 'btn-outline'}" id="vp-screen">
+          ${V.isScreenSharing ? IC.screenOff + ` ${t('voice_stop_screen')}` : IC.screen + ` ${t('voice_start_screen')}`}
+        </button>
         <button class="btn btn-danger-solid" id="vp-leave">${t('voice_disconnect')}</button>
       </div>
     `}
@@ -863,7 +1024,9 @@ function renderVoicePanel() {
   $('vp-join')?.addEventListener('click', () => joinVoiceChannel(ch.id));
   $('vp-mute')?.addEventListener('click', toggleVoiceMute);
   $('vp-deaf')?.addEventListener('click', toggleVoiceDeafen);
+  $('vp-screen')?.addEventListener('click', () => V.isScreenSharing ? stopScreenShare() : startScreenShare());
   $('vp-leave')?.addEventListener('click', leaveVoiceChannel);
+  bindVoiceScreenVideos();
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
@@ -1064,8 +1227,8 @@ function renderChannelGroup(container, cat, channels, srv) {
         <div class="ch-voice-users">
           ${voiceParticipants.map(p => `
             <div class="ch-voice-user ${p.muted ? 'muted' : ''}">
-              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">${escHtml((p.username||'?')[0].toUpperCase())}</span>
-              <span>${escHtml(p.username)}</span>
+              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">${escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id) || '?')[0].toUpperCase())}</span>
+              <span>${escHtml(displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id))}</span>
               ${p.muted ? '<span class="ch-voice-muted">' + IC.voiceMuted + '</span>' : ''}
             </div>
           `).join('')}
@@ -1255,6 +1418,7 @@ function msgHtml(msg, isFirst, isNew = false) {
     return `<div class="msg-system" data-msg-id="${msg.id}">${IC.wave} ${escHtml(msg.content)}</div>`;
   }
   const author = msg.author || {};
+  const displayAuthor = displayNameFor(author.id, author.username || t('unknown_user'), S.activeServerId);
   const ts = typeof msg.created_at === 'number' && msg.created_at < 1e12
     ? msg.created_at * 1000 : msg.created_at;
 
@@ -1267,12 +1431,12 @@ function msgHtml(msg, isFirst, isNew = false) {
                data-user-id="${escHtml(author.id)}" style="cursor:pointer">
             ${author.avatar_url
               ? `<img class="msg-avatar" src="${escHtml(author.avatar_url)}" data-user-id="${escHtml(author.id)}">`
-              : (author.username||'?')[0].toUpperCase()}
+              : (displayAuthor||'?')[0].toUpperCase()}
           </div>
         </div>
         <div class="msg-body">
           <div class="msg-meta">
-            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(author.username||t('unknown_user'))}</span>
+            <span class="msg-username" data-user-id="${escHtml(author.id)}">${escHtml(displayAuthor)}</span>
             <span class="msg-time">${fmtTime(ts)}</span>
           </div>
     `;
@@ -1284,7 +1448,7 @@ function msgHtml(msg, isFirst, isNew = false) {
   if (isFirst && msg.reply_to && msg.reply_to_id) {
     replyHtml = `
       <div class="msg-reply" data-reply-msg="${escHtml(msg.reply_to_id)}">
-        <span class="reply-author">${escHtml(msg.reply_to.author?.username||'?')}</span>
+        <span class="reply-author">${escHtml(displayNameFor(msg.reply_to.author?.id, msg.reply_to.author?.username||'?', S.activeServerId))}</span>
         <span class="reply-content">${escHtml((msg.reply_to.content||'').slice(0,80))}</span>
       </div>
     `;
@@ -1314,7 +1478,7 @@ function msgHtml(msg, isFirst, isNew = false) {
     <div class="msg-actions">
       <button class="msg-action-btn" data-action="react" data-msg-id="${escHtml(msg.id)}" title="${t('react')}">${IC.smile}</button>
       <button class="msg-action-btn" data-action="reply" data-msg-id="${escHtml(msg.id)}"
-              data-username="${escHtml(author.username||'')}"
+              data-username="${escHtml(displayAuthor||'')}"
               data-content="${escHtml((msg.content||'').slice(0,100))}" title="${t('reply')}">↩</button>
       ${isMine ? `<button class="msg-action-btn" data-action="edit" data-msg-id="${escHtml(msg.id)}" title="${t('edit')}">${IC.edit}</button>` : ''}
       ${isMine ? `<button class="msg-action-btn danger" data-action="delete" data-msg-id="${escHtml(msg.id)}" title="${t('delete')}">${IC.trash}</button>` : ''}
@@ -1599,10 +1763,7 @@ let _typingTimer = null;
 function renderTyping() {
   const el = $('typing-indicator');
   const users = S.typingUsers[S.activeChannelId] || {};
-  const names = Object.keys(users).map(uid => {
-    const m = S.members[S.activeServerId]?.find(m => m.id === uid);
-    return m?.username || uid;
-  });
+  const names = Object.keys(users).map(uid => displayNameFor(uid, uid, S.activeServerId));
   if (!names.length) { el.textContent = ''; return; }
   if (names.length === 1) el.innerHTML = `<span>${escHtml(names[0])}</span> ${t('typing_singular')}`;
   else el.innerHTML = `<span>${names.slice(0, 3).map(escHtml).join(', ')}</span> ${t('typing_plural')}`;
@@ -1755,7 +1916,7 @@ function memberItemHtml(m, bg) {
         <div class="status-dot ${status}" style="border-color:${bg}"></div>
       </div>
       <div class="mem-info">
-        <div class="mem-name" style="${color ? `color:${color}` : ''}">${escHtml(m.nickname || m.username)}${isOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div>
+        <div class="mem-name" style="${color ? `color:${color}` : ''}">${escHtml(displayNameFor(m.id, m.username || '?', S.activeServerId))}${isOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div>
         ${p.custom_status ? `<div class="mem-role">${escHtml(p.custom_status)}</div>` : ''}
       </div>
     </div>
@@ -1767,16 +1928,19 @@ async function showProfileCard(userId, anchorEl) {
   closeContextMenu();
   closeProfileCard();
 
-  let user = S.members[S.activeServerId]?.find(m => m.id === userId);
-  if (!user) {
-    try { user = await API.get(`/api/users/${userId}`).catch(() => null); } catch {}
-  }
+  const member = S.members[S.activeServerId]?.find(m => m.id === userId) || null;
+  let user = member ? { ...member } : null;
+  try {
+    const fullUser = await API.get(`/api/users/${userId}`).catch(() => null);
+    if (fullUser) user = { ...(user || {}), ...fullUser };
+  } catch {}
   if (!user) return;
 
   const p = S.presences[userId] || {};
   const status = p.status || 'offline';
   const isSelf = userId === S.me?.id;
   const banner = user.banner_url || '';
+  const displayName = displayNameFor(user.id, user.username || '?', S.activeServerId);
   const bannerStyle = banner ? `background:url(${escHtml(banner)}) center/cover` : `background:${user.banner_color || user.avatar_color || '#5865f2'}`;
 
   const card = $('profile-card-popup');
@@ -1789,7 +1953,8 @@ async function showProfileCard(userId, anchorEl) {
       <div class="status-dot ${status}" style="position:absolute;bottom:6px;right:6px;border-color:var(--bg-2)"></div>
     </div>
     <div class="pc-body">
-      <div class="pc-name">${escHtml(user.username)}</div>
+      <div class="pc-name">${escHtml(displayName)}</div>
+      ${(displayName !== user.username && user.username) ? `<div class="pc-tag">@${escHtml(user.username)}</div>` : ''}
       <div class="pc-tag">#${escHtml(user.discriminator||'0000')}</div>
       ${p.custom_status ? `<div class="pc-status">${escHtml(p.custom_status)}</div>` : ''}
       ${user.about_me ? `<div class="pc-about">${escHtml(user.about_me)}</div>` : ''}
@@ -2160,7 +2325,7 @@ async function showFriendsView() {
         await API.del(`/api/@me/friends/${el.dataset.userId}`);
         showToast(t('friend_removed'), 'success');
         showFriendsView();
-      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
     });
     el.querySelector('.friend-accept')?.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -2168,14 +2333,14 @@ async function showFriendsView() {
         await API.post(`/api/@me/friends/${el.dataset.userId}`);
         showToast(t('friend_accepted'), 'success');
         showFriendsView();
-      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
     });
     el.querySelector('.friend-decline')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
         await API.del(`/api/@me/friends/${el.dataset.userId}`);
         showFriendsView();
-      } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
     });
   });
 
@@ -2278,22 +2443,32 @@ function showNicknameModal() {
   $('nick-save').onclick = async () => {
     try {
       const nick = input.value.trim();
-      await API.patch(`/api/servers/${S.activeServerId}/members/@me/nickname`, { nickname: nick || null });
+      await API.patch(`/api/servers/${S.activeServerId}/members/${S.me.id}`, { nickname: nick || null });
       // Update local state
       if (member) member.nickname = nick || null;
       showToast(t('nickname_saved'), 'success');
       overlay.remove();
-      if (S.activeServerId !== '@me') renderMembersPanel();
+      if (S.activeServerId !== '@me') {
+        renderMembersPanel();
+        renderChannelList();
+        if (getChannel(S.activeChannelId)?.type === 'voice') renderVoicePanel();
+        else renderMessages();
+      }
     } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
   };
 
   $('nick-reset').onclick = async () => {
     try {
-      await API.patch(`/api/servers/${S.activeServerId}/members/@me/nickname`, { nickname: null });
+      await API.patch(`/api/servers/${S.activeServerId}/members/${S.me.id}`, { nickname: null });
       if (member) member.nickname = null;
       showToast(t('nickname_saved'), 'success');
       overlay.remove();
-      if (S.activeServerId !== '@me') renderMembersPanel();
+      if (S.activeServerId !== '@me') {
+        renderMembersPanel();
+        renderChannelList();
+        if (getChannel(S.activeChannelId)?.type === 'voice') renderVoicePanel();
+        else renderMessages();
+      }
     } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
   };
 
@@ -2449,11 +2624,23 @@ async function renderServerSettingsPage(serverId, page) {
       </div>
       <div class="form-group">
         <label>${t('server_icon_url')}</label>
-        <input id="ss-icon" value="${escHtml(srv.icon_url||'')}">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="ss-icon" value="${escHtml(srv.icon_url||'')}" style="flex:1">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
+            ${IC.upload} Upload
+            <input type="file" id="ss-icon-upload" accept="image/*" style="display:none">
+          </label>
+        </div>
       </div>
       <div class="form-group">
         <label>${t('server_banner_url')}</label>
-        <input id="ss-banner" value="${escHtml(srv.banner_url||'')}">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="ss-banner" value="${escHtml(srv.banner_url||'')}" style="flex:1">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
+            ${IC.upload} Upload
+            <input type="file" id="ss-banner-upload" accept="image/*" style="display:none">
+          </label>
+        </div>
       </div>
       <button class="btn btn-primary mt-8" id="ss-save-overview">${t('save_changes')}</button>
       ` : `
@@ -2495,6 +2682,25 @@ async function renderServerSettingsPage(serverId, page) {
     if (ownerEl) ownerEl.textContent = ownerMember?.username || '?';
 
     if (canEdit) {
+      $('ss-icon-upload')?.addEventListener('change', async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        try {
+          const result = await API.uploadFile(file);
+          $('ss-icon').value = result.url;
+          showToast('Server icon uploaded', 'success');
+        } catch (e) { showToast(e.body?.error || e.message || t('error_generic'), 'error'); }
+      });
+      $('ss-banner-upload')?.addEventListener('change', async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        try {
+          const result = await API.uploadFile(file);
+          $('ss-banner').value = result.url;
+          showToast('Server banner uploaded', 'success');
+        } catch (e) { showToast(e.body?.error || e.message || t('error_generic'), 'error'); }
+      });
+
       $('ss-save-overview').onclick = async () => {
         try {
           const updated = await API.patch(`/api/servers/${serverId}`, {
@@ -2593,7 +2799,7 @@ async function renderServerSettingsPage(serverId, page) {
             const isMe = m.id === S.me?.id;
             return `
             <tr>
-              <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
+              <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.nickname || m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
               <td>${escHtml(m.nickname||'—')}</td>
               <td>
                 ${(m.roles||[]).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
@@ -2812,7 +3018,13 @@ function renderUserSettingsPage(page) {
       </div>
       <div class="form-group">
         <label>${t('banner_url')}</label>
-        <input id="us-banner" value="${escHtml(S.me?.banner_url||'')}" placeholder="https://...">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="us-banner" value="${escHtml(S.me?.banner_url||'')}" placeholder="https://..." style="flex:1">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
+            ${IC.upload} Upload
+            <input type="file" id="us-banner-upload" accept="image/*" style="display:none">
+          </label>
+        </div>
       </div>
       <div class="form-group">
         <label>${t('banner_color')}</label>
@@ -2854,7 +3066,12 @@ function renderUserSettingsPage(page) {
           custom_status:$('us-status').value.trim(),
         });
         S.me = updated;
+        applySelfProfileToCaches(updated);
         updateSidebarUser();
+        renderChannelList();
+        if (S.activeServerId !== '@me') renderMembersPanel();
+        if (getChannel(S.activeChannelId)?.type === 'voice') renderVoicePanel();
+        else if (S.activeChannelId && S.activeChannelId !== 'friends') renderMessages();
         socket?.emit('UPDATE_STATUS', { status: localStorage.getItem('da_status') || 'online', custom_status: updated.custom_status });
         showToast(t('saved'), 'success');
       } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -2867,6 +3084,15 @@ function renderUserSettingsPage(page) {
         const result = await API.uploadFile(file);
         $('us-avatar').value = result.url;
         showToast('Avatar uploaded!', 'success');
+      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
+    };
+    $('us-banner-upload').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const result = await API.uploadFile(file);
+        $('us-banner').value = result.url;
+        showToast('Banner uploaded!', 'success');
       } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
     };
     $('us-change-pass').onclick = async () => {
@@ -3039,7 +3265,7 @@ function applyI18nToHtml() {
 
   // Load more
   const lm = $('messages-load-more');
-  if (lm) lm.textContent = '⬆ ' + t('load_more');
+  if (lm) lm.innerHTML = `${IC.arrowUp} ${escHtml(t('load_more'))}`;
 
   // Reply bar
   const replyBar = $('reply-bar');

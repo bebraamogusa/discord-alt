@@ -336,6 +336,11 @@ export const TRANSLATIONS = {
     voice_you: 'Вы',
     voice_join: '🔊 Подключиться к каналу',
     voice_connect: 'Подключиться к каналу',
+    voice_start_screen: 'Начать стрим экрана',
+    voice_stop_screen: 'Остановить стрим',
+    voice_screen_started: 'Трансляция экрана запущена',
+    voice_screen_stopped: 'Трансляция экрана остановлена',
+    voice_screen_failed: 'Не удалось запустить трансляцию экрана',
 
     // Members panel
     members_online: 'В сети — {n}',
@@ -769,6 +774,11 @@ export const TRANSLATIONS = {
     voice_you: 'You',
     voice_join: '🔊 Join Voice Channel',
     voice_connect: 'Connect to channel',
+    voice_start_screen: 'Start screen share',
+    voice_stop_screen: 'Stop sharing',
+    voice_screen_started: 'Screen sharing started',
+    voice_screen_stopped: 'Screen sharing stopped',
+    voice_screen_failed: 'Failed to start screen sharing',
 
     // Members panel
     members_online: 'Online — {n}',
@@ -1202,6 +1212,11 @@ export const TRANSLATIONS = {
     voice_you: 'Ty',
     voice_join: '🔊 Dołącz do kanału głosowego',
     voice_connect: 'Połącz z kanałem',
+    voice_start_screen: 'Rozpocznij udostępnianie ekranu',
+    voice_stop_screen: 'Zatrzymaj udostępnianie',
+    voice_screen_started: 'Udostępnianie ekranu uruchomione',
+    voice_screen_stopped: 'Udostępnianie ekranu zatrzymane',
+    voice_screen_failed: 'Nie udało się uruchomić udostępniania ekranu',
 
     // Members panel
     members_online: 'Online — {n}',

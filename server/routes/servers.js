@@ -219,13 +219,32 @@ export default function registerServerRoutes(app, db, io) {
 
   // PATCH /api/servers/:id/members/:userId — nickname change
   app.patch('/api/servers/:id/members/:userId', { preHandler: authenticate }, async (req, reply) => {
-    const { id: serverId, userId: targetId } = req.params;
-    const canManage = req.user.id === targetId || userHasPermission(db, serverId, req.user.id, 'kick_members');
+    const { id: serverId } = req.params;
+    const targetId = req.params.userId === '@me' ? req.user.id : req.params.userId;
+    const canManage =
+      req.user.id === targetId ||
+      userHasPermission(db, serverId, req.user.id, 'manage_server') ||
+      userHasPermission(db, serverId, req.user.id, 'manage_roles') ||
+      userHasPermission(db, serverId, req.user.id, 'kick_members');
     if (!canManage) return reply.code(403).send({ error: 'Insufficient permissions' });
+
+    const exists = db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, targetId);
+    if (!exists) return reply.code(404).send({ error: 'Member not found' });
+
     const { nickname } = req.body || {};
     db.prepare('UPDATE server_members SET nickname = ? WHERE server_id = ? AND user_id = ?')
       .run(nickname ? String(nickname).slice(0, 32) : null, serverId, targetId);
-    return reply.send({ ok: true });
+
+    const member = db.prepare(`
+      SELECT u.id, u.username, u.discriminator, u.avatar_url, u.avatar_color, u.last_seen, u.custom_status,
+             sm.nickname, sm.joined_at
+      FROM server_members sm
+      JOIN users u ON u.id = sm.user_id
+      WHERE sm.server_id = ? AND sm.user_id = ?
+    `).get(serverId, targetId);
+
+    io.to(`server:${serverId}`).emit('MEMBER_UPDATE', { server_id: serverId, member });
+    return reply.send(member || { ok: true });
   });
 
   // DELETE /api/servers/:id/members/:userId — kick

@@ -259,14 +259,18 @@ export function setupGateway(io, db) {
       voiceChannelId = channel_id;
       if (!voiceStates.has(channel_id)) voiceStates.set(channel_id, new Map());
       const user = db.prepare('SELECT username, avatar_url, avatar_color FROM users WHERE id = ?').get(userId);
+      const memberRow = db.prepare('SELECT nickname FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, userId);
       const participant = {
         user_id: userId,
         username: user.username,
+        nickname: memberRow?.nickname || null,
+        display_name: memberRow?.nickname || user.username,
         avatar_url: user.avatar_url,
         avatar_color: user.avatar_color,
         socket_id: socket.id,
         muted: false,
         deafened: false,
+        sharing_screen: false,
       };
       voiceStates.get(channel_id).set(userId, participant);
       socket.join(`voice:${channel_id}`);
@@ -295,6 +299,20 @@ export function setupGateway(io, db) {
           channel_id: voiceChannelId,
           user_id: userId,
           action: 'mute',
+          voice_states: getVoiceList(voiceChannelId),
+        });
+      }
+    });
+
+    socket.on('VOICE_SCREEN', ({ sharing } = {}) => {
+      if (!userId || !voiceChannelId) return;
+      const chMap = voiceStates.get(voiceChannelId);
+      if (chMap && chMap.has(userId)) {
+        chMap.get(userId).sharing_screen = !!sharing;
+        gw.to(`channel:${voiceChannelId}`).emit('VOICE_STATE_UPDATE', {
+          channel_id: voiceChannelId,
+          user_id: userId,
+          action: 'screen',
           voice_states: getVoiceList(voiceChannelId),
         });
       }

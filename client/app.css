@@ -1163,18 +1163,55 @@ button { cursor: pointer; }
 }
 .vcb-btn:hover { background: var(--bg-hover); color: var(--text); }
 .vcb-btn.active { color: var(--danger); }
+.vcb-btn.active.screen { color: var(--accent); }
 .vcb-btn.danger { color: var(--danger); }
 .vcb-btn.danger:hover { background: var(--danger); color: #fff; }
 
 /* ── Voice panel ──────────────────────────────────────────────────── */
 .voice-panel {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 32px; gap: 24px;
+  justify-content: flex-start; padding: 22px 24px 28px; gap: 18px;
+  overflow-y: auto;
 }
 .vp-header { text-align: center; }
-.vp-icon { font-size: 48px; margin-bottom: 8px; }
+.vp-icon { margin-bottom: 8px; color: var(--success); }
+.vp-icon .ic { width: 42px; height: 42px; }
 .vp-header h2 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
 .vp-sub { color: var(--text-3); font-size: 14px; }
+.vp-stage {
+  width: min(980px, 100%);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.vp-screen-tile {
+  position: relative;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+}
+.vp-screen-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+.vp-screen-overlay {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.52);
+  color: #fff;
+  font-size: 12px;
+}
+.vp-screen-overlay .ic { width: 14px; height: 14px; }
 .vp-participants { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; max-width: 640px; }
 .vp-participant { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .vp-av {
@@ -1185,6 +1222,7 @@ button { cursor: pointer; }
 }
 .vp-av.speaking { border-color: var(--success); }
 .vp-muted-badge { position: absolute; bottom: -4px; right: -4px; background: var(--danger); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.vp-muted-badge .ic { width: 11px; height: 11px; }
 .vp-name { font-size: 12px; color: var(--text-2); max-width: 72px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vp-you { font-size: 11px; color: var(--text-3); }
 .vp-join-btn { margin-top: 8px; font-size: 15px; padding: 12px 28px; }
