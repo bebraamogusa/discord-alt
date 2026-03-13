@@ -80,6 +80,29 @@ export function buildSocketServer(httpServer, { db, config }) {
     )
   `);
 
+  const getVoiceStatesForChannel = db.prepare(`
+    SELECT vs.channel_id, vs.user_id, vs.mute, vs.deaf, vs.self_mute, vs.self_deaf, vs.self_stream, vs.self_video,
+           u.username, u.display_name, u.avatar, u.accent_color
+    FROM voice_states vs
+    JOIN users u ON u.id = vs.user_id
+    WHERE vs.channel_id = ?
+  `);
+  const insertVoiceState = db.prepare(`
+    INSERT INTO voice_states (user_id, guild_id, channel_id, mute, deaf, self_mute, self_deaf, self_stream, self_video)
+    VALUES (?, ?, ?, 0, 0, ?, ?, ?, 0)
+    ON CONFLICT(user_id) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      channel_id = excluded.channel_id,
+      self_mute = excluded.self_mute,
+      self_deaf = excluded.self_deaf,
+      self_stream = excluded.self_stream
+  `);
+  const deleteVoiceState = db.prepare('DELETE FROM voice_states WHERE user_id = ?');
+  const getGuildIdForChannel = db.prepare('SELECT guild_id FROM channels WHERE id = ?');
+  const updateVoiceSelfMute = db.prepare('UPDATE voice_states SET self_mute = ? WHERE user_id = ?');
+  const updateVoiceSelfDeaf = db.prepare('UPDATE voice_states SET self_deaf = ? WHERE user_id = ?');
+  const updateVoiceSelfStream = db.prepare('UPDATE voice_states SET self_stream = ? WHERE user_id = ?');
+
   const updatePresence = db.prepare('UPDATE users SET status = ?, custom_status_text = ?, updated_at = ? WHERE id = ?');
   const upsertQr = db.prepare(`
     INSERT INTO qr_login_sessions (qr_id, desktop_socket_id, status, scanned_by_user_id, created_at, expires_at)
@@ -236,9 +259,33 @@ export function buildSocketServer(httpServer, { db, config }) {
     }
   }
 
+  function broadcastVoiceState(channelId, guildId) {
+    if (!channelId || !guildId) return;
+    const voiceStates = getVoiceStatesForChannel.all(channelId).map(row => ({
+      user_id: row.user_id,
+      username: row.username,
+      display_name: row.display_name,
+      avatar_url: row.avatar || '',
+      avatar_color: row.accent_color || '#5865f2',
+      muted: !!row.mute || !!row.self_mute,
+      deafened: !!row.deaf || !!row.self_deaf,
+      sharing_screen: !!row.self_stream,
+      self_video: !!row.self_video,
+    }));
+    gatewayNs.to(`guild:${guildId}`).emit('VOICE_STATE_UPDATE', { channel_id: channelId, voice_states: voiceStates });
+  }
+
   function removeUserSocket(socket) {
     const userId = socket.user?.id;
     if (!userId) return;
+
+    if (socket.voiceChannelId) {
+      deleteVoiceState.run(userId);
+      broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
+      socket.voiceChannelId = null;
+      socket.voiceGuildId = null;
+    }
+
     const set = userSockets.get(userId);
     if (!set) return;
     set.delete(socket.id);
@@ -363,6 +410,57 @@ export function buildSocketServer(httpServer, { db, config }) {
     socket.on('UPDATE_STATUS', (payload = {}) => handlePresenceUpdate(socket, payload));
     socket.on('presence:update', (payload = {}) => handlePresenceUpdate(socket, payload));
     registerQrHandlers(socket, gatewayNs);
+
+    // Voice & WebRTC Signaling
+    socket.on('VOICE_JOIN', ({ channel_id }) => {
+      const channel = getGuildIdForChannel.get(channel_id);
+      if (!channel || !channel.guild_id) return;
+      
+      insertVoiceState.run(socket.user.id, channel.guild_id, channel_id, 0, 0, 0); // mute/deaf/screen
+      socket.voiceChannelId = channel_id;
+      socket.voiceGuildId = channel.guild_id;
+
+      broadcastVoiceState(channel_id, channel.guild_id);
+
+      const peers = getVoiceStatesForChannel.all(channel_id).filter(r => r.user_id !== socket.user.id);
+      socket.emit('VOICE_READY', { channel_id, peers });
+    });
+
+    socket.on('VOICE_MUTE', (payload) => {
+      if (!socket.voiceChannelId) return;
+      if (payload.muted !== undefined) updateVoiceSelfMute.run(payload.muted ? 1 : 0, socket.user.id);
+      if (payload.deafened !== undefined) updateVoiceSelfDeaf.run(payload.deafened ? 1 : 0, socket.user.id);
+      broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
+    });
+
+    socket.on('VOICE_SCREEN', ({ sharing }) => {
+      if (!socket.voiceChannelId) return;
+      updateVoiceSelfStream.run(sharing ? 1 : 0, socket.user.id);
+      broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
+    });
+
+    socket.on('VOICE_LEAVE', () => {
+      if (!socket.voiceChannelId) return;
+      const ch = socket.voiceChannelId;
+      const g = socket.voiceGuildId;
+      deleteVoiceState.run(socket.user.id);
+      socket.voiceChannelId = null;
+      socket.voiceGuildId = null;
+      broadcastVoiceState(ch, g);
+    });
+
+    socket.on('WEBRTC_OFFER', ({ to_user_id, offer }) => {
+      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_OFFER', { from_user_id: socket.user.id, offer });
+    });
+
+    socket.on('WEBRTC_ANSWER', ({ to_user_id, answer }) => {
+      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_ANSWER', { from_user_id: socket.user.id, answer });
+    });
+
+    socket.on('WEBRTC_ICE', ({ to_user_id, candidate }) => {
+      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_ICE', { from_user_id: socket.user.id, candidate });
+    });
+
     socket.on('disconnect', () => removeUserSocket(socket));
   });
 

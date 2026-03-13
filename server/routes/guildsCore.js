@@ -268,11 +268,13 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
   }
 
   function inviteSummary(invite) {
+    const inviter = invite.inviter_id ? getUserById.get(invite.inviter_id) : null;
     return {
       code: invite.code,
       guild_id: invite.guild_id,
       channel_id: invite.channel_id,
       inviter_id: invite.inviter_id,
+      creator_username: inviter ? inviter.username : null,
       max_age: invite.max_age,
       max_uses: invite.max_uses,
       uses: invite.uses,
@@ -1293,6 +1295,20 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
   fastify.patch('/api/guilds/:guildId/roles/:roleId', {
     preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          color: { type: 'integer', minimum: 0, maximum: 16777215 },
+          hoist: { type: 'integer', minimum: 0, maximum: 1 },
+          mentionable: { type: 'integer', minimum: 0, maximum: 1 },
+          position: { type: 'integer' },
+          permissions: { type: 'string', minLength: 1, maxLength: 30 },
+        },
+      },
+    },
   }, async (req, reply) => {
     const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
     if (!guild) return;

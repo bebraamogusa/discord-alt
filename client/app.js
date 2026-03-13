@@ -753,6 +753,58 @@ function connectGateway() {
       try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { }
     }
   });
+
+  // ── Mediasoup producer/consumer events ─────────────────────────────────────
+  socket.on('voice:producer_added', async ({ producerId, user_id, kind, appData }) => {
+    if (user_id === S.me?.id) return; // Don't consume own tracks
+    if (!V.channelId) return;
+
+    try {
+      const consumer = await VoiceClient.consumeTrack(producerId, V.channelId);
+      if (!consumer) return;
+
+      const stream = new MediaStream([consumer.track]);
+
+      if (kind === 'audio') {
+        // Create audio element to play remote audio
+        const audio = document.createElement('audio');
+        audio.srcObject = stream;
+        audio.autoplay = true;
+        audio.muted = V.deafened;
+        audio.dataset.userId = user_id;
+        audio.dataset.producerId = producerId;
+        document.body.appendChild(audio);
+        V.audios.set(user_id, audio);
+      } else if (kind === 'video') {
+        // Store remote video stream for screen share rendering
+        V.remoteStreams.set(user_id, stream);
+        renderVoicePanel();
+        setTimeout(bindVoiceScreenVideos, 100);
+      }
+    } catch (err) {
+      console.error('Failed to consume producer:', err);
+    }
+  });
+
+  socket.on('voice:producer_removed', ({ producerId }) => {
+    // Clean up audio elements that match this producer
+    V.audios.forEach((audio, userId) => {
+      if (audio.dataset?.producerId === producerId) {
+        audio.srcObject = null;
+        audio.remove();
+        V.audios.delete(userId);
+      }
+    });
+
+    // Clean up video streams — check if the removed producer was a video
+    V.remoteStreams.forEach((stream, userId) => {
+      const tracks = stream.getTracks();
+      if (tracks.length === 0 || tracks.every(t => t.readyState === 'ended')) {
+        V.remoteStreams.delete(userId);
+        renderVoicePanel();
+      }
+    });
+  });
 }
 
 // ─── VOICE ────────────────────────────────────────────────────────────────────
@@ -802,8 +854,8 @@ async function leaveVoiceChannel() {
   if (V.stream) { V.stream.getTracks().forEach(t => t.stop()); V.stream = null; }
 
   V.remoteStreams.clear();
-  V.remoteAudioElements.forEach(el => { el.srcObject = null; el.remove(); });
-  V.remoteAudioElements.clear();
+  V.audios.forEach(el => { el.srcObject = null; el.remove(); });
+  V.audios.clear();
   V.screenTrack = null;
   V.screenStream = null;
   V.isScreenSharing = false;
@@ -825,7 +877,7 @@ function toggleVoiceMute() {
 
 function toggleVoiceDeafen() {
   V.deafened = !V.deafened;
-  V.remoteAudioElements.forEach(audio => { audio.muted = V.deafened; });
+  V.audios.forEach(audio => { audio.muted = V.deafened; });
   if (V.deafened && !V.muted) {
     V.muted = true;
     if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = false; });
@@ -2193,7 +2245,8 @@ function hideServerDropdown() { $('server-dropdown').classList.add('hidden'); }
 async function createInvite(serverId) {
   try {
     const inv = await API.post(`/api/guilds/${serverId}/invites`, { max_age: 7 * 24 * 3600 });
-    const url = `${location.origin}/app?invite=${inv.code}`;
+    const code = inv.code || (inv.invite && inv.invite.code) || inv;
+    const url = `${location.origin}/app?invite=${code}`;
     await navigator.clipboard.writeText(url).catch(() => { });
     showToast(t('invite_copied', { url }), 'success');
   } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -2842,7 +2895,8 @@ async function renderServerSettingsPage(serverId, page) {
       if (!name) return;
       const color = await daPrompt(t('role_color') + ' (hex)', { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
       try {
-        const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: color || 0 });
+        const parsedColor = color ? Number.parseInt(color.replace('#', ''), 16) || 0 : 0;
+        const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: parsedColor });
         const idx = S.servers.findIndex(s => s.id === serverId);
         if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles || []), role];
         renderServerSettingsPage(serverId, 'roles');
@@ -2876,20 +2930,20 @@ async function renderServerSettingsPage(serverId, page) {
         <thead><tr><th>${t('member_user')}</th><th>${t('member_nick')}</th><th>${t('member_roles')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
         <tbody>
           ${members.map(m => {
-      const isMemberOwner = m.id === srv.owner_id;
-      const isMe = m.id === S.me?.id;
+      const isMemberOwner = m.user_id === srv.owner_id;
+      const isMe = m.user_id === S.me?.id;
       return `
             <tr>
-              <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.nickname || m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
+              <td><div class="flex-row">${avatarEl({ id: m.user_id, ...m }, 24)} ${escHtml(m.nickname || m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
               <td>${escHtml(m.nickname || '—')}</td>
               <td>
                 ${(m.roles || []).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
-                ${canManageRoles && roles.length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
+                ${canManageRoles && roles.length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.user_id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
               </td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(m.joined_at)}</td>
               <td class="table-actions">
-                ${!isMe && !isMemberOwner && canManage ? `<button class="table-btn del kick-btn" data-user-id="${escHtml(m.id)}" title="${t('kick')}">&#128098;</button>` : ''}
-                ${!isMe && !isMemberOwner && canBan ? `<button class="table-btn del ban-btn" data-user-id="${escHtml(m.id)}" title="${t('ban')}">&#128296;</button>` : ''}
+                ${!isMe && !isMemberOwner && canManage ? `<button class="table-btn del kick-btn" data-user-id="${escHtml(m.user_id)}" title="${t('kick')}">&#128098;</button>` : ''}
+                ${!isMe && !isMemberOwner && canBan ? `<button class="table-btn del ban-btn" data-user-id="${escHtml(m.user_id)}" title="${t('ban')}">&#128296;</button>` : ''}
               </td>
             </tr>
           `}).join('')}
@@ -2916,7 +2970,7 @@ async function renderServerSettingsPage(serverId, page) {
       btn.onclick = async e => {
         e.stopPropagation();
         const memberId = btn.dataset.userId;
-        const member = members.find(m => m.id === memberId);
+        const member = members.find(m => m.user_id === memberId);
         const assignedIds = new Set((member?.roles || []).map(r => r.id));
         const items = roles.map(r => `
           <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
