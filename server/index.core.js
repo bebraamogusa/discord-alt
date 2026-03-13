@@ -20,6 +20,8 @@ import messagesCoreRoutes from './routes/messagesCore.js';
 import { buildSocketServer } from './socket.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
+const CLIENT_ROOT = join(ROOT, 'client');
 
 const db = createDatabase(config.dbPath);
 runMigrations(db, join(__dirname, 'migrations'));
@@ -56,6 +58,11 @@ await app.register(fastifyMultipart, {
 });
 
 await app.register(fastifyStatic, {
+  root: CLIENT_ROOT,
+  prefix: '/',
+});
+
+await app.register(fastifyStatic, {
   root: config.uploadsRoot,
   prefix: '/files/',
   decorateReply: false,
@@ -71,6 +78,14 @@ await app.register(usersRoutes, { db, authenticate, authService, config });
 const io = buildSocketServer(app.server, { db, config });
 await app.register(guildsCoreRoutes, { db, authenticate, snowflake, io });
 await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io });
+
+app.get('/app', async (_req, reply) => {
+  return reply.sendFile('app.html');
+});
+
+app.get('/', async (_req, reply) => {
+  return reply.redirect('/app');
+});
 
 app.get('/api/health', async () => ({
   ok: true,
