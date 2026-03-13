@@ -25,6 +25,7 @@ import voiceRoutes from './routes/voice.js';
 import phase4Routes from './routes/phase4Core.js';
 import auditLogRoutes from './routes/auditLog.js';
 import readStateRoutes from './routes/readStates.js';
+import advancedFeaturesRoutes from './routes/advancedFeatures.js';
 import { buildAuditLogService } from './services/auditLogService.js';
 import { startCronJobs } from './cron.js';
 import { buildSocketServer } from './socket.js';
@@ -104,6 +105,7 @@ await app.register(voiceRoutes, { prefix: '/api/voice', db, authenticate });
 await app.register(phase4Routes, { prefix: '/api/v1', db, authenticate, snowflake, io });
 await app.register(auditLogRoutes, { db, authenticate });
 await app.register(readStateRoutes, { db, authenticate, io });
+await app.register(advancedFeaturesRoutes, { db, authenticate, snowflake, io });
 
 app.get('/app', async (_req, reply) => {
   return reply.sendFile('app.html');

@@ -2005,3 +2005,65 @@ body.is-tauri textarea {
   .qs-box { width: 96vw; }
 }
 
+/* ── Poll Styles ───────────────────────────────────────────────── */
+.poll-container {
+  margin-top: 8px; max-width: 420px;
+  background: var(--bg-2); border-radius: var(--radius);
+  border: 1px solid var(--border); padding: 12px 14px;
+}
+.poll-question {
+  font-weight: 700; font-size: 15px; color: var(--text);
+  margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+}
+.poll-answers { display: flex; flex-direction: column; gap: 6px; }
+.poll-answer {
+  position: relative; cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: border-color .12s, background .12s;
+  overflow: hidden;
+}
+.poll-answer:hover:not(.poll-expired) { border-color: var(--accent); }
+.poll-answer.poll-voted {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-3));
+}
+.poll-answer.poll-expired { cursor: default; opacity: .85; }
+.poll-answer-bar {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: var(--radius-sm); transition: width .3s ease;
+  z-index: 0;
+}
+.poll-answer-text { position: relative; z-index: 1; font-size: 14px; font-weight: 500; color: var(--text); }
+.poll-answer-count { position: relative; z-index: 1; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.poll-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 8px; font-size: 12px; color: var(--text-3);
+}
+
+/* ── Event Card Styles ─────────────────────────────────────────── */
+.event-card {
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px;
+  margin-bottom: 10px; transition: border-color .12s;
+}
+.event-card:hover { border-color: var(--accent); }
+.event-name { font-weight: 700; font-size: 16px; color: var(--text); margin-bottom: 4px; }
+.event-time { font-size: 13px; margin-bottom: 6px; }
+.event-desc { font-size: 13px; margin-bottom: 8px; line-height: 1.4; }
+.event-footer {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.event-users { font-size: 12px; color: var(--text-3); }
+
+/* ── Poll Creation Modal fixes ─────────────────────────────────── */
+.btn-icon-sm {
+  background: none; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-3); font-size: 14px; transition: all .1s;
+}
+.btn-icon-sm:hover { border-color: var(--danger); color: var(--danger); }
+

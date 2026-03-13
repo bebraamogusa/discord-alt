@@ -1095,7 +1095,8 @@ async function selectServer(id) {
     // Load members
     if (!S.members[id] || !S.members[id].length) {
       try {
-        S.members[id] = await API.get(`/api/guilds/${id}/members`);
+        const raw = await API.get(`/api/guilds/${id}/members`);
+        S.members[id] = raw.map(m => ({ ...m, ...m.user, roles: m.role_ids?.map(rid => ({ id: rid })) }));
       } catch { }
     }
     // Auto-join first text channel
@@ -1462,6 +1463,7 @@ function msgHtml(msg, isFirst, isNew = false) {
       <button class="msg-action-btn" data-action="reply" data-msg-id="${escHtml(msg.id)}"
               data-username="${escHtml(displayAuthor || '')}"
               data-content="${escHtml((msg.content || '').slice(0, 100))}" title="${t('reply')}">↩</button>
+      <button class="msg-action-btn" data-action="thread" data-msg-id="${escHtml(msg.id)}" title="Создать ветку">🧵</button>
       ${isMine ? `<button class="msg-action-btn" data-action="edit" data-msg-id="${escHtml(msg.id)}" title="${t('edit')}">${IC.edit}</button>` : ''}
       ${isMine ? `<button class="msg-action-btn danger" data-action="delete" data-msg-id="${escHtml(msg.id)}" title="${t('delete')}">${IC.trash}</button>` : ''}
     </div>
@@ -1477,6 +1479,7 @@ function msgHtml(msg, isFirst, isNew = false) {
         <div class="msg-content" id="msg-content-${msg.id}">${parseMarkdown(msg.content || '')}${editedMark}</div>
         ${atts ? `<div class="msg-attachments">${atts}</div>` : ''}
         ${reactions ? `<div class="msg-reactions">${reactions}</div>` : ''}
+        ${msg.poll ? renderPollHtml(msg) : ''}
       ${closeHeader}
     </div>
   `;
@@ -1497,6 +1500,8 @@ function attachMsgHandlers(container) {
         confirmDeleteMessage(msgId);
       } else if (action === 'react') {
         showQuickReactPicker(btn, msgId);
+      } else if (action === 'thread') {
+        createThread(S.activeChannelId, msgId);
       }
     };
   });
@@ -1505,6 +1510,9 @@ function attachMsgHandlers(container) {
   container.querySelectorAll('.reaction-btn').forEach(btn => {
     btn.onclick = () => toggleReaction(btn.dataset.msgId, btn.dataset.emoji);
   });
+
+  // Poll handlers
+  attachPollHandlers(container);
 
   // Username / avatar clicks → profile card
   container.querySelectorAll('[data-user-id]').forEach(el => {
@@ -1685,6 +1693,12 @@ function setupEmojiPicker() {
   const oldPicker = $('emoji-picker');
   // We'll build a v2 picker on click instead of using the old static one
   if (oldPicker) oldPicker.remove();
+
+  // Poll creation button
+  $('btn-poll')?.addEventListener('click', e => {
+    e.stopPropagation();
+    openPollCreator();
+  });
 
   $('btn-emoji').addEventListener('click', e => {
     e.stopPropagation();
@@ -2115,6 +2129,7 @@ function showChannelContextMenu(e, channelId) {
       { icon: IC.settings, label: 'Настройки канала', onClick: () => openChannelSettings(channelId) },
       { icon: IC.edit, label: t('rename_channel'), onClick: () => renameChannel(ch) },
       { icon: IC.invite, label: t('create_invite_ctx'), onClick: () => createInvite(ch.server_id) },
+      { icon: '🔗', label: 'Вебхуки', onClick: () => showWebhooksPanel(channelId) },
       { icon: IC.trash, label: t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
     );
   }
@@ -2151,6 +2166,7 @@ function showServerDropdown() {
     <div class="sm-item" id="sm-settings"><span class="sm-icon">${IC.settings}</span><span class="sm-label">${t('server_settings_menu')}</span></div>
     ${canManageChannels ? `<div class="sm-item" id="sm-create-ch"><span class="sm-icon">${IC.plus}</span><span class="sm-label">${t('create_channel')}</span></div>` : ''}
     ${canManageChannels ? `<div class="sm-item" id="sm-create-cat"><span class="sm-icon">${IC.folder}</span><span class="sm-label">${t('create_category')}</span></div>` : ''}
+    <div class="sm-item" id="sm-events"><span class="sm-icon">📅</span><span class="sm-label">События</span></div>
     <div class="sm-divider"></div>
     ${isOwner
       ? `<div class="sm-item danger" id="sm-delete"><span class="sm-icon">${IC.trash}</span><span class="sm-label">${t('delete_server')}</span></div>`
@@ -2163,6 +2179,7 @@ function showServerDropdown() {
   dd.querySelector('#sm-create-cat')?.addEventListener('click', () => { createCategory(srv.id); hideServerDropdown(); });
   dd.querySelector('#sm-delete')?.addEventListener('click', () => { deleteServer(srv.id); hideServerDropdown(); });
   dd.querySelector('#sm-leave')?.addEventListener('click', () => { leaveServer(srv.id); hideServerDropdown(); });
+  dd.querySelector('#sm-events')?.addEventListener('click', () => { showEventsPanel(); hideServerDropdown(); });
 
   const closeDD = e => {
     if (!dd.contains(e.target) && !$('sidebar-header').contains(e.target)) { hideServerDropdown(); document.removeEventListener('click', closeDD); }
@@ -4371,6 +4388,427 @@ async function init() {
     API.clearTokens();
     hideSplash();
     showAuth('login');
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════
+// POLLS — Render & Interact
+// ═══════════════════════════════════════════════════════
+
+function renderPollHtml(msg) {
+  const poll = msg.poll;
+  if (!poll) return '';
+  const expired = poll.expiry && poll.expiry < Math.floor(Date.now() / 1000);
+  const totalVotes = poll.answers.reduce((s, a) => s + (a.count || 0), 0);
+  const answersHtml = poll.answers.map(a => {
+    const pct = totalVotes > 0 ? Math.round(((a.count || 0) / totalVotes) * 100) : 0;
+    return `
+      <div class="poll-answer ${a.me ? 'poll-voted' : ''} ${expired ? 'poll-expired' : ''}"
+           data-msg-id="${escHtml(msg.id)}" data-answer-id="${a.id}" data-ch-id="${escHtml(msg.channel_id)}">
+        <div class="poll-answer-bar" style="width:${pct}%"></div>
+        <span class="poll-answer-text">${a.emoji ? escHtml(a.emoji) + ' ' : ''}${escHtml(a.text || '')}</span>
+        <span class="poll-answer-count">${a.count || 0} (${pct}%)</span>
+      </div>
+    `;
+  }).join('');
+
+  const expiryText = expired ? '✅ Голосование завершено' :
+    (poll.expiry ? `⏱ Завершится ${fmtTime(poll.expiry * 1000)}` : '');
+
+  return `
+    <div class="poll-container" data-msg-id="${escHtml(msg.id)}">
+      <div class="poll-question">${IC.poll || '📊'} ${escHtml(poll.question)}</div>
+      <div class="poll-answers">${answersHtml}</div>
+      <div class="poll-footer">
+        <span class="poll-total">${totalVotes} голос${totalVotes === 1 ? '' : totalVotes > 1 && totalVotes < 5 ? 'а' : 'ов'}</span>
+        <span class="poll-expiry">${expiryText}</span>
+      </div>
+    </div>
+  `;
+}
+
+// Attach poll vote handlers (called within attachMsgHandlers)
+function attachPollHandlers(container) {
+  container.querySelectorAll('.poll-answer:not(.poll-expired)').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const msgId = el.dataset.msgId;
+      const answerId = el.dataset.answerId;
+      const chId = el.dataset.chId;
+      const isVoted = el.classList.contains('poll-voted');
+      try {
+        if (isVoted) {
+          await API.del(`/api/channels/${chId}/polls/${msgId}/answers/${answerId}/@me`);
+        } else {
+          await API.put(`/api/channels/${chId}/polls/${msgId}/answers/${answerId}/@me`);
+        }
+      } catch (err) {
+        showToast(err.body?.error || 'Ошибка голосования', 'error');
+      }
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// POLLS — Creation
+// ═══════════════════════════════════════════════════════
+
+let _pollAnswers = [];
+
+function openPollCreator() {
+  _pollAnswers = ['', ''];
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-create-poll';
+  modal.innerHTML = `
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>📊 Создать опрос</h3>
+        <button class="modal-close" id="poll-modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Вопрос</label>
+          <input id="poll-question" type="text" placeholder="Задайте вопрос..." maxlength="300">
+        </div>
+        <div class="form-group">
+          <label>Варианты ответов</label>
+          <div id="poll-answers-list"></div>
+          <button class="btn btn-outline" id="poll-add-answer" style="margin-top:8px">+ Добавить вариант</button>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="poll-multiselect">
+          <label for="poll-multiselect" style="margin:0">Множественный выбор</label>
+        </div>
+        <div class="form-group">
+          <label>Длительность (часы)</label>
+          <input id="poll-duration" type="number" value="24" min="1" max="720" style="width:100px">
+        </div>
+        <div class="auth-error" id="poll-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="poll-cancel">Отмена</button>
+        <button class="btn btn-primary" id="poll-submit">Создать опрос</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  renderPollAnswerInputs();
+
+  $('poll-modal-close').onclick = () => modal.remove();
+  $('poll-cancel').onclick = () => modal.remove();
+  $('poll-add-answer').onclick = () => {
+    if (_pollAnswers.length >= 10) return;
+    _pollAnswers.push('');
+    renderPollAnswerInputs();
+  };
+
+  $('poll-submit').onclick = async () => {
+    const question = $('poll-question').value.trim();
+    if (!question) { $('poll-error').textContent = 'Введите вопрос'; return; }
+    const answers = _pollAnswers.map(a => a.trim()).filter(a => a);
+    if (answers.length < 2) { $('poll-error').textContent = 'Минимум 2 варианта'; return; }
+    const multiselect = $('poll-multiselect').checked;
+    const duration = parseInt($('poll-duration').value) || 24;
+
+    try {
+      await API.post(`/api/channels/${S.activeChannelId}/messages`, {
+        content: '',
+        poll: {
+          question,
+          answers: answers.map((text, i) => ({ id: i + 1, text })),
+          allow_multiselect: multiselect,
+          duration_hours: duration,
+        },
+      });
+      modal.remove();
+    } catch (err) {
+      $('poll-error').textContent = err.body?.error || 'Ошибка создания опроса';
+    }
+  };
+
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+}
+
+function renderPollAnswerInputs() {
+  const list = $('poll-answers-list');
+  if (!list) return;
+  list.innerHTML = _pollAnswers.map((val, i) => `
+    <div class="poll-answer-input" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+      <input type="text" class="poll-answer-field" data-idx="${i}" value="${escHtml(val)}" placeholder="Вариант ${i + 1}" maxlength="55" style="flex:1">
+      ${_pollAnswers.length > 2 ? `<button class="btn-icon-sm poll-remove-answer" data-idx="${i}" title="Удалить">✕</button>` : ''}
+    </div>
+  `).join('');
+  list.querySelectorAll('.poll-answer-field').forEach(inp => {
+    inp.oninput = () => { _pollAnswers[parseInt(inp.dataset.idx)] = inp.value; };
+  });
+  list.querySelectorAll('.poll-remove-answer').forEach(btn => {
+    btn.onclick = () => {
+      _pollAnswers.splice(parseInt(btn.dataset.idx), 1);
+      renderPollAnswerInputs();
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// THREADS — Create from message
+// ═══════════════════════════════════════════════════════
+
+async function createThread(channelId, messageId) {
+  const name = await daPrompt('Название ветки', { title: 'Создать ветку', placeholder: 'Новая ветка', confirmText: 'Создать' });
+  if (!name) return;
+  try {
+    const thread = await API.post(`/api/v1/channels/${channelId}/messages/${messageId}/threads`, { name: name.trim() });
+    showToast('Ветка создана!', 'success');
+    // Switch to thread channel
+    if (thread && thread.id) {
+      const srv = getServer(S.activeServerId);
+      if (srv) {
+        if (!srv.channels.find(c => c.id === thread.id)) {
+          srv.channels.push({
+            id: thread.id, name: thread.name || name, type: 'text',
+            server_id: srv.id, guild_id: srv.id, category_id: null, parent_id: channelId, position: 999
+          });
+        }
+        renderChannelList();
+        selectChannel(thread.id);
+      }
+    }
+  } catch (err) {
+    showToast(err.body?.error || 'Ошибка создания ветки', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SCHEDULED EVENTS — UI
+// ═══════════════════════════════════════════════════════
+
+async function showEventsPanel() {
+  if (!S.activeServerId || S.activeServerId === '@me') return;
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-events';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3>📅 События</h3>
+        <button class="modal-close" data-close-events>✕</button>
+      </div>
+      <div class="modal-body" id="events-list" style="min-height:100px">
+        <div class="text-muted" style="text-align:center;padding:20px">Загрузка...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-create-event">+ Создать событие</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('[data-close-events]').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  try {
+    const events = await API.get(`/api/guilds/${S.activeServerId}/scheduled-events`);
+    const list = $('events-list');
+    if (!events.length) {
+      list.innerHTML = '<div class="text-muted" style="text-align:center;padding:20px">Нет запланированных событий</div>';
+    } else {
+      list.innerHTML = events.map(ev => `
+        <div class="event-card" data-event-id="${escHtml(ev.id)}">
+          <div class="event-name">${escHtml(ev.name)}</div>
+          <div class="event-time text-muted">${fmtTime(ev.scheduled_start_time * 1000)}${ev.scheduled_end_time ? ' — ' + fmtTime(ev.scheduled_end_time * 1000) : ''}</div>
+          ${ev.description ? `<div class="event-desc text-muted">${escHtml(ev.description)}</div>` : ''}
+          <div class="event-footer">
+            <span class="event-users">${ev.user_count || 0} участников</span>
+            <button class="btn btn-outline btn-sm event-rsvp" data-event-id="${escHtml(ev.id)}">Участвовать</button>
+          </div>
+        </div>
+      `).join('');
+
+      list.querySelectorAll('.event-rsvp').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await API.put(`/api/guilds/${S.activeServerId}/scheduled-events/${btn.dataset.eventId}/users/@me`);
+            showToast('Вы записались!', 'success');
+            btn.textContent = '✓ Записан';
+            btn.disabled = true;
+          } catch (err) {
+            showToast(err.body?.error || 'Ошибка', 'error');
+          }
+        };
+      });
+    }
+  } catch (err) {
+    $('events-list').innerHTML = '<div class="text-muted" style="text-align:center;padding:20px">Ошибка загрузки событий</div>';
+  }
+
+  $('btn-create-event').onclick = () => { modal.remove(); openCreateEventModal(); };
+}
+
+async function openCreateEventModal() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-create-event';
+  modal.innerHTML = `
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Создать событие</h3>
+        <button class="modal-close" id="event-modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Название</label>
+          <input id="event-name" type="text" placeholder="Название события" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label>Описание</label>
+          <textarea id="event-desc" rows="3" placeholder="Описание (необязательно)" maxlength="1000" style="width:100%;resize:vertical"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Дата и время начала</label>
+          <input id="event-start" type="datetime-local">
+        </div>
+        <div class="form-group">
+          <label>Дата и время окончания (необязательно)</label>
+          <input id="event-end" type="datetime-local">
+        </div>
+        <div class="auth-error" id="event-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="event-cancel">Отмена</button>
+        <button class="btn btn-primary" id="event-submit">Создать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  $('event-modal-close').onclick = () => modal.remove();
+  $('event-cancel').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  $('event-submit').onclick = async () => {
+    const name = $('event-name').value.trim();
+    const start = $('event-start').value;
+    if (!name) { $('event-error').textContent = 'Введите название'; return; }
+    if (!start) { $('event-error').textContent = 'Выберите время начала'; return; }
+
+    const startTs = Math.floor(new Date(start).getTime() / 1000);
+    const endVal = $('event-end').value;
+    const endTs = endVal ? Math.floor(new Date(endVal).getTime() / 1000) : null;
+
+    try {
+      await API.post(`/api/guilds/${S.activeServerId}/scheduled-events`, {
+        name,
+        description: $('event-desc').value.trim() || null,
+        entity_type: 3, // External
+        scheduled_start_time: startTs,
+        scheduled_end_time: endTs,
+      });
+      modal.remove();
+      showToast('Событие создано!', 'success');
+    } catch (err) {
+      $('event-error').textContent = err.body?.error || 'Ошибка';
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// WEBHOOKS — Management UI
+// ═══════════════════════════════════════════════════════
+
+async function showWebhooksPanel(channelId) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-webhooks';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3>🔗 Вебхуки</h3>
+        <button class="modal-close" id="wh-close">✕</button>
+      </div>
+      <div class="modal-body" id="wh-list" style="min-height:80px">
+        <div class="text-muted" style="text-align:center;padding:20px">Загрузка...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-create-wh">+ Создать вебхук</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  $('wh-close').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  async function loadWebhooks() {
+    try {
+      const webhooks = await API.get(`/api/channels/${channelId}/webhooks`);
+      const list = $('wh-list');
+      if (!webhooks.length) {
+        list.innerHTML = '<div class="text-muted" style="text-align:center;padding:20px">Нет вебхуков</div>';
+      } else {
+        list.innerHTML = webhooks.map(wh => `
+          <div class="wh-card" style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:600">${escHtml(wh.name || 'Webhook')}</div>
+              <div class="text-muted" style="font-size:11px;word-break:break-all">${escHtml(location.origin)}/api/webhooks/${escHtml(wh.id)}/${escHtml(wh.token)}</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-outline btn-sm wh-copy" data-url="${escHtml(location.origin)}/api/webhooks/${escHtml(wh.id)}/${escHtml(wh.token)}">📋</button>
+              <button class="btn btn-outline btn-sm danger wh-del" data-id="${escHtml(wh.id)}">🗑</button>
+            </div>
+          </div>
+        `).join('');
+
+        list.querySelectorAll('.wh-copy').forEach(btn => {
+          btn.onclick = () => { navigator.clipboard.writeText(btn.dataset.url); showToast('URL скопирован!'); };
+        });
+        list.querySelectorAll('.wh-del').forEach(btn => {
+          btn.onclick = async () => {
+            try { await API.del(`/api/webhooks/${btn.dataset.id}`); loadWebhooks(); }
+            catch (err) { showToast(err.body?.error || 'Ошибка', 'error'); }
+          };
+        });
+      }
+    } catch { $('wh-list').innerHTML = '<div class="text-muted" style="text-align:center;padding:20px">Ошибка загрузки</div>'; }
+  }
+
+  loadWebhooks();
+
+  $('btn-create-wh').onclick = async () => {
+    const name = await daPrompt('Название вебхука', { title: 'Создать вебхук', placeholder: 'Мой вебхук', confirmText: 'Создать' });
+    if (!name) return;
+    try {
+      await API.post(`/api/channels/${channelId}/webhooks`, { name: name.trim() });
+      loadWebhooks();
+    } catch (err) { showToast(err.body?.error || 'Ошибка', 'error'); }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// Socket handlers for polls
+// ═══════════════════════════════════════════════════════
+
+function handlePollSocketEvents() {
+  if (!socket) return;
+  socket.on('poll:vote_add', (data) => updatePollInMessage(data));
+  socket.on('poll:vote_remove', (data) => updatePollInMessage(data));
+}
+
+function updatePollInMessage(data) {
+  const { message_id, poll } = data;
+  // Update data model
+  for (const [chId, msgs] of Object.entries(S.messages)) {
+    const msg = msgs.find(m => m.id === message_id);
+    if (msg) {
+      msg.poll = poll;
+      break;
+    }
+  }
+  // Re-render poll in DOM
+  const pollContainer = document.querySelector(`.poll-container[data-msg-id="${message_id}"]`);
+  if (pollContainer) {
+    const msg = { id: message_id, channel_id: S.activeChannelId, poll };
+    pollContainer.outerHTML = renderPollHtml(msg);
+    const parent = $('messages-container');
+    if (parent) attachPollHandlers(parent);
   }
 }
 

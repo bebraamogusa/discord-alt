@@ -226,6 +226,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       nonce: req.body?.nonce ? String(req.body.nonce).trim().slice(0, 128) : null,
       message_reference: req.body?.message_reference && typeof req.body.message_reference === 'object' ? req.body.message_reference : null,
+      poll: req.body?.poll && typeof req.body.poll === 'object' ? req.body.poll : null,
     };
   }
 
@@ -286,6 +287,27 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
             };
           })()
         : null,
+      poll: (() => {
+        const poll = db.prepare('SELECT * FROM polls WHERE message_id = ?').get(row.id);
+        if (!poll) return null;
+        const answers = db.prepare('SELECT * FROM poll_answers WHERE message_id = ? ORDER BY id').all(row.id);
+        const voteCounts = {};
+        for (const vc of db.prepare('SELECT answer_id, COUNT(*) AS count FROM poll_votes WHERE message_id = ? GROUP BY answer_id').all(row.id)) {
+          voteCounts[vc.answer_id] = vc.count;
+        }
+        return {
+          question: poll.question,
+          allow_multiselect: !!poll.allow_multiselect,
+          expiry: poll.expiry,
+          layout_type: poll.layout_type,
+          answers: answers.map(a => ({
+            id: a.id,
+            text: a.text,
+            emoji: a.emoji,
+            count: voteCounts[a.id] || 0,
+          })),
+        };
+      })(),
     };
   }
 
@@ -383,6 +405,16 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
               },
             },
           },
+          reply_to_id: { type: 'string', maxLength: 64 },
+          poll: {
+            type: 'object',
+            properties: {
+              question: { type: 'string', maxLength: 300 },
+              answers: { type: 'array', maxItems: 10 },
+              allow_multiselect: { type: 'boolean' },
+              duration_hours: { type: 'integer', minimum: 1, maximum: 720 },
+            },
+          },
         },
       },
     },
@@ -414,6 +446,12 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     const attachments = input.attachments;
     const nonce = input.nonce || null;
     const messageReference = input.message_reference || null;
+    const pollData = input.poll || (req.body?.poll && typeof req.body.poll === 'object' ? req.body.poll : null);
+
+    // Legacy reply_to_id support
+    if (!messageReference && req.body?.reply_to_id) {
+      input.message_reference = { message_id: req.body.reply_to_id };
+    }
 
     if (nonce) {
       const existingNonce = getMessageNonce.get(req.user.id, channel.id, nonce);
@@ -440,7 +478,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       referenceChannelId = ref.channel_id;
     }
 
-    if (!content && attachments.length === 0) {
+    if (!content && attachments.length === 0 && !pollData) {
       return reply.code(400).send({ error: 'Message content is empty' });
     }
 
@@ -545,6 +583,18 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
         );
       }
       setChannelLastMessage.run(id, ts, channel.id);
+
+      // Create poll if provided
+      if (pollData && pollData.question && Array.isArray(pollData.answers) && pollData.answers.length >= 2) {
+        const durationHours = pollData.duration_hours || 24;
+        const expiry = ts + (durationHours * 3600);
+        db.prepare('INSERT INTO polls (message_id, question, allow_multiselect, expiry, layout_type) VALUES (?, ?, ?, ?, ?)')
+          .run(id, pollData.question, pollData.allow_multiselect ? 1 : 0, expiry, 1);
+        for (const ans of pollData.answers) {
+          db.prepare('INSERT INTO poll_answers (id, message_id, text, emoji) VALUES (?, ?, ?, ?)')
+            .run(ans.id || 0, id, ans.text || '', ans.emoji || null);
+        }
+      }
     })();
 
     const message = enrichMessage(getMessageById.get(id, channel.id));

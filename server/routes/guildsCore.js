@@ -365,21 +365,32 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const channels = getChannelsForGuild.all(guildId).map((row) => ({
       id: row.id,
       guild_id: row.guild_id,
-      type: row.type,
+      server_id: guildId,
+      type: legacyChannelType(row.type),
       name: row.name,
       topic: row.topic,
       position: row.position,
       parent_id: row.parent_id,
+      category_id: row.parent_id,
       nsfw: row.nsfw,
       rate_limit_per_user: row.rate_limit_per_user,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }));
 
+    const categories = channels
+      .filter((c) => c.type === 'category')
+      .map((c) => ({ id: c.id, name: c.name, position: c.position }));
+
+    const nonCatChannels = channels.filter((c) => c.type !== 'category');
+
+    const mapped = mapGuild(guild);
     return {
-      guild: mapGuild(guild),
+      ...mapped,
+      guild: mapped,
       roles,
-      channels,
+      channels: nonCatChannels,
+      categories,
     };
   }
 
