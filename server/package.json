@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "start:core": "node index.core.js",
-    "migrate:legacy-to-core": "node migrate-legacy-to-core.js"
+    "migrate:legacy-to-core": "node migrate-legacy-to-core.js",
+    "inspect:db": "node inspect-db.js"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
