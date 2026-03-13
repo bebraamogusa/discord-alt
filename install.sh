@@ -7,11 +7,20 @@ set -euo pipefail
 # - Keeps host clean with safe cleanup (optional aggressive cleanup)
 
 REPO_URL="${REPO_URL:-https://github.com/bebraamogusa/discord-alt.git}"
-INSTALL_DIR="${INSTALL_DIR:-/opt/discord-alt}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-3000}"
 MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-25}"
 MAX_FILE_SIZE="$((MAX_UPLOAD_MB * 1024 * 1024))"
+
+INSTALL_USER="${INSTALL_USER:-${SUDO_USER:-root}}"
+INSTALL_USER_HOME="${INSTALL_USER_HOME:-$(getent passwd "${INSTALL_USER}" | cut -d: -f6)}"
+if [ -z "${INSTALL_USER_HOME}" ]; then
+  INSTALL_USER_HOME="/root"
+fi
+
+DEFAULT_INSTALL_DIR="${INSTALL_USER_HOME}/discord/discord-alt"
+INSTALL_DIR="${INSTALL_DIR:-${DEFAULT_INSTALL_DIR}}"
+LEGACY_INSTALL_DIR="${LEGACY_INSTALL_DIR:-/opt/discord-alt}"
 
 # Cleanup modes:
 # SAFE_CLEANUP=1  -> prune builder cache + dangling images + apt cache/autoremove
@@ -88,6 +97,47 @@ upsert_env_var() {
   fi
 }
 
+migrate_legacy_install() {
+  if [ "${LEGACY_INSTALL_DIR}" = "${INSTALL_DIR}" ]; then
+    return
+  fi
+
+  if [ ! -d "${LEGACY_INSTALL_DIR}" ]; then
+    return
+  fi
+
+  warn "Found legacy install at ${LEGACY_INSTALL_DIR}"
+
+  if [ -f "${LEGACY_INSTALL_DIR}/docker-compose.yml" ] || [ -f "${LEGACY_INSTALL_DIR}/compose.yml" ]; then
+    info "Stopping legacy containers in ${LEGACY_INSTALL_DIR}"
+    (
+      cd "${LEGACY_INSTALL_DIR}"
+      ${COMPOSE} down --remove-orphans || true
+    )
+  fi
+
+  info "Migrating legacy runtime data to ${INSTALL_DIR} (if present)"
+  mkdir -p "${INSTALL_DIR}"
+
+  if [ -d "${LEGACY_INSTALL_DIR}/uploads" ]; then
+    mkdir -p "${INSTALL_DIR}/uploads"
+    cp -a "${LEGACY_INSTALL_DIR}/uploads/." "${INSTALL_DIR}/uploads/" || true
+  fi
+
+  if [ -d "${LEGACY_INSTALL_DIR}/data" ]; then
+    mkdir -p "${INSTALL_DIR}/data"
+    cp -a "${LEGACY_INSTALL_DIR}/data/." "${INSTALL_DIR}/data/" || true
+  fi
+
+  if [ -f "${LEGACY_INSTALL_DIR}/.env" ] && [ ! -f "${INSTALL_DIR}/.env" ]; then
+    cp -a "${LEGACY_INSTALL_DIR}/.env" "${INSTALL_DIR}/.env"
+  fi
+
+  info "Removing legacy install dir ${LEGACY_INSTALL_DIR}"
+  rm -rf "${LEGACY_INSTALL_DIR}"
+  log "Legacy install removed"
+}
+
 fetch_repo() {
   if [ -d "${INSTALL_DIR}/.git" ]; then
     info "Existing repo detected — updating..."
@@ -106,6 +156,9 @@ fetch_repo() {
 
 prepare_runtime_dirs() {
   mkdir -p "${INSTALL_DIR}/uploads" "${INSTALL_DIR}/data" "${INSTALL_DIR}/nginx/certs"
+  if [ "${INSTALL_USER}" != "root" ]; then
+    chown -R "${INSTALL_USER}:${INSTALL_USER}" "${INSTALL_DIR}" || true
+  fi
   log "Runtime directories prepared (uploads, data, nginx/certs)"
 }
 
@@ -187,6 +240,7 @@ main() {
   install_base_packages
   install_docker
   resolve_compose_cmd
+  migrate_legacy_install
   fetch_repo
   prepare_runtime_dirs
   prepare_env
