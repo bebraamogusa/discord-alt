@@ -19,5 +19,5 @@ ENV PORT=3000
 ENV NODE_ENV=production
 EXPOSE 3000
 
-# Run migrations then start server
-CMD ["sh", "-c", "node server/migrate.js && node server/index.js"]
+# Run legacy schema migration, optional data migration to core, then start core server
+CMD ["sh", "-c", "node server/migrate.js && node server/migrate-legacy-to-core.js && node server/index.core.js"]

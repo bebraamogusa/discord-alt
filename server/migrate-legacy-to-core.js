@@ -1,24 +1,23 @@
-import 'dotenv/config';
 import Database from 'better-sqlite3';
 import { existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { config } from './config.js';
 import { createDatabase, runMigrations } from './database.js';
 import { parsePermissions, serializePermissions } from './services/permissions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const sourcePath = resolve(process.cwd(), process.env.LEGACY_DB_PATH || './data/chat.db');
-const targetPath = resolve(process.cwd(), process.env.DB_PATH || config.dbPath);
+const targetPath = resolve(process.cwd(), process.env.DB_PATH || './data/discord-clone.db');
 
 if (sourcePath === targetPath) {
   throw new Error(`Source and target DB paths are identical: ${sourcePath}`);
 }
 
 if (!existsSync(sourcePath)) {
-  throw new Error(`Legacy DB not found: ${sourcePath}`);
+  console.log(`[legacy->core] skipped: legacy DB not found at ${sourcePath}`);
+  process.exit(0);
 }
 
 console.log(`[legacy->core] source: ${sourcePath}`);
