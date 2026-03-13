@@ -4,21 +4,6 @@
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 export default async function readStateRoutes(fastify, { db, authenticate, io }) {
-    // POST /api/channels/:channelId/messages/:messageId/ack
-    fastify.post('/api/channels/:channelId/messages/:messageId/ack', { preHandler: [authenticate] }, async (req, reply) => {
-        const { channelId, messageId } = req.params;
-        const userId = req.user.id;
-
-        db.prepare(`
-      INSERT INTO read_states (user_id, channel_id, last_read_message_id, mention_count)
-      VALUES (?, ?, ?, 0)
-      ON CONFLICT(user_id, channel_id)
-      DO UPDATE SET last_read_message_id = excluded.last_read_message_id, mention_count = 0
-    `).run(userId, channelId, messageId);
-
-        return reply.code(204).send();
-    });
-
     // GET /api/users/@me/read-states
     fastify.get('/api/users/@me/read-states', { preHandler: [authenticate] }, async (req, reply) => {
         return db.prepare('SELECT channel_id, last_read_message_id, mention_count FROM read_states WHERE user_id = ?').all(req.user.id);
