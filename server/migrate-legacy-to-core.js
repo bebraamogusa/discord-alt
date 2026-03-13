@@ -141,7 +141,7 @@ const importTx = target.transaction(() => {
   const tsNow = nowSec();
 
   const insertUser = target.prepare(`
-    INSERT OR REPLACE INTO users (
+    INSERT INTO users (
       id, username, display_name, email, password_hash,
       avatar, banner, accent_color, bio,
       status, custom_status_text,
@@ -149,28 +149,59 @@ const importTx = target.transaction(() => {
       mfa_enabled, mfa_secret, flags,
       created_at, updated_at, deleted_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'en-US', 'dark', 16, ?, ?, 0, ?, ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET
+      username = excluded.username,
+      display_name = excluded.display_name,
+      email = excluded.email,
+      password_hash = excluded.password_hash,
+      avatar = excluded.avatar,
+      banner = excluded.banner,
+      accent_color = excluded.accent_color,
+      bio = excluded.bio,
+      status = excluded.status,
+      custom_status_text = excluded.custom_status_text,
+      mfa_enabled = excluded.mfa_enabled,
+      mfa_secret = excluded.mfa_secret,
+      updated_at = excluded.updated_at,
+      deleted_at = NULL
   `);
 
   const insertUserSettings = target.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)');
 
   const insertGuild = target.prepare(`
-    INSERT OR REPLACE INTO guilds (
+    INSERT INTO guilds (
       id, name, icon, banner, description, owner_id,
       preferred_locale, features, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, 'en-US', '[]', ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      icon = excluded.icon,
+      banner = excluded.banner,
+      description = excluded.description,
+      owner_id = excluded.owner_id,
+      updated_at = excluded.updated_at
   `);
 
   const insertGuildMember = target.prepare(`
-    INSERT OR REPLACE INTO guild_members (
+    INSERT INTO guild_members (
       guild_id, user_id, nickname, joined_at, deaf, mute, pending, communication_disabled_until, flags
     ) VALUES (?, ?, ?, ?, 0, 0, 0, NULL, 0)
+    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+      nickname = excluded.nickname,
+      joined_at = MIN(guild_members.joined_at, excluded.joined_at)
   `);
 
   const insertRole = target.prepare(`
-    INSERT OR REPLACE INTO roles (
+    INSERT INTO roles (
       id, guild_id, name, color, hoist, icon, unicode_emoji,
       position, permissions, managed, mentionable, flags, created_at
     ) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?, 0, 0, 0, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      name = excluded.name,
+      color = excluded.color,
+      position = excluded.position,
+      permissions = excluded.permissions
   `);
 
   const insertMemberRole = target.prepare(
@@ -178,35 +209,63 @@ const importTx = target.transaction(() => {
   );
 
   const insertChannel = target.prepare(`
-    INSERT OR REPLACE INTO channels (
+    INSERT INTO channels (
       id, guild_id, type, name, topic, position, parent_id, nsfw,
       bitrate, user_limit, rate_limit_per_user,
       created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 64000, 0, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      type = excluded.type,
+      name = excluded.name,
+      topic = excluded.topic,
+      position = excluded.position,
+      parent_id = excluded.parent_id,
+      rate_limit_per_user = excluded.rate_limit_per_user,
+      updated_at = excluded.updated_at
   `);
 
   const insertOverwrite = target.prepare(`
-    INSERT OR REPLACE INTO channel_permission_overwrites (
+    INSERT INTO channel_permission_overwrites (
       channel_id, target_id, target_type, allow, deny
     ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(channel_id, target_id) DO UPDATE SET
+      target_type = excluded.target_type,
+      allow = excluded.allow,
+      deny = excluded.deny
   `);
 
   const insertMessage = target.prepare(`
-    INSERT OR REPLACE INTO messages (
+    INSERT INTO messages (
       id, channel_id, guild_id, author_id, content,
       type, flags, tts, mention_everyone, pinned, edited_at,
       reference_message_id, reference_channel_id,
       embeds, components, sticker_ids, poll,
       created_at, deleted
     ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, NULL, NULL, '[]', '[]', '[]', NULL, ?, 0)
+    ON CONFLICT(id) DO UPDATE SET
+      channel_id = excluded.channel_id,
+      guild_id = excluded.guild_id,
+      author_id = excluded.author_id,
+      content = excluded.content,
+      type = excluded.type,
+      edited_at = excluded.edited_at,
+      deleted = excluded.deleted
   `);
 
   const insertAttachment = target.prepare(`
-    INSERT OR REPLACE INTO attachments (
+    INSERT INTO attachments (
       id, message_id, filename, original_filename, content_type,
       size, url, proxy_url, width, height, duration_secs,
       waveform, description, spoiler, flags
     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0)
+    ON CONFLICT(id) DO UPDATE SET
+      message_id = excluded.message_id,
+      filename = excluded.filename,
+      original_filename = excluded.original_filename,
+      content_type = excluded.content_type,
+      size = excluded.size,
+      url = excluded.url
   `);
 
   const insertReaction = target.prepare(`
@@ -215,17 +274,31 @@ const importTx = target.transaction(() => {
   `);
 
   const insertInvite = target.prepare(`
-    INSERT OR REPLACE INTO invites (
+    INSERT INTO invites (
       code, guild_id, channel_id, inviter_id,
       max_age, max_uses, uses, temporary,
       created_at, expires_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    ON CONFLICT(code) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      channel_id = excluded.channel_id,
+      inviter_id = excluded.inviter_id,
+      max_age = excluded.max_age,
+      max_uses = excluded.max_uses,
+      uses = excluded.uses,
+      expires_at = excluded.expires_at
   `);
 
   const insertBan = target.prepare(`
-    INSERT OR REPLACE INTO bans (guild_id, user_id, reason, banned_by, created_at)
+    INSERT INTO bans (guild_id, user_id, reason, banned_by, created_at)
     VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+      reason = excluded.reason,
+      banned_by = excluded.banned_by,
+      created_at = excluded.created_at
   `);
+
+  const getExistingUserById = target.prepare('SELECT id, username, email FROM users WHERE id = ?');
 
   const usernameUsed = new Set(target.prepare('SELECT username FROM users').all().map((row) => row.username));
   const emailUsed = new Set(target.prepare('SELECT email FROM users').all().map((row) => String(row.email || '').toLowerCase()));
@@ -240,11 +313,16 @@ const importTx = target.transaction(() => {
     const userId = String(user.id || '').trim();
     if (!userId) continue;
 
-    const username = uniqueUsername(user.username || `user_${userId.slice(-6)}`, usernameUsed);
-    const email = uniqueEmail(
+    const existing = getExistingUserById.get(userId);
+
+    const username = existing?.username || uniqueUsername(user.username || `user_${userId.slice(-6)}`, usernameUsed);
+    const email = existing?.email || uniqueEmail(
       user.email || `${username}-${userId.slice(-6)}@legacy.local`,
       emailUsed
     );
+
+    usernameUsed.add(username);
+    emailUsed.add(String(email).toLowerCase());
 
     const passwordHash = String(user.password_hash || '').trim() || '$2b$12$legacymigrationplaceholderhashstringforresetzzzzzzzzzzzzzzzzzzzz';
     const createdAt = Number(user.created_at) || tsNow;
