@@ -1,12 +1,12 @@
 # ── Build stage (compile native deps) ─────────────────
-FROM node:20-alpine AS build
-RUN apk add --no-cache python3 make g++
+FROM node:20-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/server
 COPY server/package.json .
 RUN npm install --production
 
 # ── Runtime stage ─────────────────────────────────────
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 
 COPY --from=build /app/server/node_modules ./server/node_modules
