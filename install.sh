@@ -1,317 +1,199 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ═══════════════════════════════════════════════════════════
-#  Discord Alt — Server Install Script
-#  Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.sh | bash
-#  Or:    wget -qO- https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.sh | bash
-# ═══════════════════════════════════════════════════════════
+# Discord Alt — Docker-only install/update script
+# - Does NOT configure SSL/nginx (you already manage it)
+# - Installs only required packages
+# - Keeps host clean with safe cleanup (optional aggressive cleanup)
 
-REPO="https://github.com/bebraamogusa/discord-alt.git"
-INSTALL_DIR="/opt/discord-alt"
-DOMAIN=""
-PORT=3000
+REPO_URL="${REPO_URL:-https://github.com/bebraamogusa/discord-alt.git}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/discord-alt}"
+BRANCH="${BRANCH:-main}"
+PORT="${PORT:-3000}"
+MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-25}"
+MAX_FILE_SIZE="$((MAX_UPLOAD_MB * 1024 * 1024))"
 
-# ── Colors ───────────────────────────────────────────────
+# Cleanup modes:
+# SAFE_CLEANUP=1  -> prune builder cache + dangling images + apt cache/autoremove
+# AGGRESSIVE_DOCKER_CLEANUP=1 -> additionally prune ALL stopped containers/networks/unused images/volumes globally
+SAFE_CLEANUP="${SAFE_CLEANUP:-1}"
+AGGRESSIVE_DOCKER_CLEANUP="${AGGRESSIVE_DOCKER_CLEANUP:-0}"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-
 log()  { echo -e "${GREEN}[✓]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
-ask()  { echo -en "${CYAN}[?]${NC} $1"; }
+info() { echo -e "${CYAN}[i]${NC} $1"; }
 
-# ── Root check ───────────────────────────────────────────
-if [ "$EUID" -ne 0 ]; then
+if [ "${EUID}" -ne 0 ]; then
   err "Run as root: sudo bash install.sh"
 fi
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║      Discord Alt — Server Setup      ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
-echo ""
+if ! command -v apt-get >/dev/null 2>&1; then
+  err "This script supports Debian/Ubuntu (apt-get)"
+fi
 
-# ── Gather info ──────────────────────────────────────────
-ask "Domain name (leave empty for IP-only access): "
-read -r DOMAIN
-echo ""
+install_base_packages() {
+  info "Installing required host packages..."
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl git gnupg
+  log "Base packages ready"
+}
 
-ask "Server port [3000]: "
-read -r inp_port
-PORT="${inp_port:-3000}"
-
-ask "Max file upload size in MB [10]: "
-read -r inp_size
-MAX_MB="${inp_size:-10}"
-MAX_FILE_SIZE=$((MAX_MB * 1024 * 1024))
-
-echo ""
-
-# ── Install Docker if missing ────────────────────────────
 install_docker() {
-  if command -v docker &>/dev/null; then
+  if command -v docker >/dev/null 2>&1; then
     log "Docker already installed: $(docker --version)"
     return
   fi
+
   warn "Docker not found — installing..."
   curl -fsSL https://get.docker.com | sh
   systemctl enable --now docker
   log "Docker installed"
 }
 
-install_docker_compose() {
-  if docker compose version &>/dev/null; then
-    log "Docker Compose (plugin) available"
+resolve_compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
     COMPOSE="docker compose"
     return
   fi
-  if command -v docker-compose &>/dev/null; then
-    log "docker-compose found: $(docker-compose --version)"
+
+  warn "docker compose plugin missing — installing docker-compose-plugin..."
+  apt-get install -y -qq docker-compose-plugin
+
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+    log "Docker Compose plugin ready"
+    return
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
     COMPOSE="docker-compose"
+    log "Using docker-compose binary"
     return
   fi
-  warn "Installing Docker Compose plugin..."
-  apt-get install -y docker-compose-plugin 2>/dev/null || {
-    local ARCH; ARCH=$(uname -m)
-    [ "$ARCH" = "x86_64" ] && ARCH="x86_64"
-    [ "$ARCH" = "aarch64" ] && ARCH="aarch64"
-    mkdir -p /usr/local/lib/docker/cli-plugins
-    curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${ARCH}" \
-      -o /usr/local/lib/docker/cli-plugins/docker-compose
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-  }
-  COMPOSE="docker compose"
-  log "Docker Compose installed"
+
+  err "Docker Compose is not available after installation"
 }
 
-install_git() {
-  if command -v git &>/dev/null; then
-    log "Git already installed"
-    return
+upsert_env_var() {
+  local env_file="$1"
+  local key="$2"
+  local value="$3"
+
+  if grep -qE "^${key}=" "$env_file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$env_file"
+  else
+    printf "\n%s=%s\n" "$key" "$value" >> "$env_file"
   fi
-  warn "Installing git..."
-  apt-get update -qq && apt-get install -y -qq git
-  log "Git installed"
 }
 
-log "Checking dependencies..."
-install_git
-install_docker
-install_docker_compose
+fetch_repo() {
+  if [ -d "${INSTALL_DIR}/.git" ]; then
+    info "Existing repo detected — updating..."
+    cd "${INSTALL_DIR}"
+    git fetch --all --prune
+    git checkout "${BRANCH}"
+    git pull --ff-only origin "${BRANCH}"
+  else
+    info "Cloning repository..."
+    git clone --branch "${BRANCH}" --single-branch "${REPO_URL}" "${INSTALL_DIR}"
+    cd "${INSTALL_DIR}"
+  fi
 
-# ── Clone / Update repo ─────────────────────────────────
-if [ -d "$INSTALL_DIR/.git" ]; then
-  log "Existing installation found — pulling latest..."
-  cd "$INSTALL_DIR"
-  # .env may still be tracked locally from old commits — untrack it silently
-  git rm --cached .env 2>/dev/null || true
-  # Stash any local changes (e.g. .env) so pull doesn't abort
-  git stash 2>/dev/null || true
-  git pull --ff-only
-  # Restore stashed changes (brings back .env if it existed)
-  git stash pop 2>/dev/null || true
-else
-  log "Cloning repository..."
-  git clone "$REPO" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-fi
+  log "Repository ready at ${INSTALL_DIR}"
+}
 
-# ── Create .env ──────────────────────────────────────────
-cat > "$INSTALL_DIR/.env" <<EOF
+prepare_runtime_dirs() {
+  mkdir -p "${INSTALL_DIR}/uploads" "${INSTALL_DIR}/data" "${INSTALL_DIR}/nginx/certs"
+  log "Runtime directories prepared (uploads, data, nginx/certs)"
+}
+
+prepare_env() {
+  local env_file="${INSTALL_DIR}/.env"
+
+  if [ ! -f "$env_file" ]; then
+    cat > "$env_file" <<EOF
 PORT=${PORT}
 MAX_FILE_SIZE=${MAX_FILE_SIZE}
 EOF
-log "Created .env (port=${PORT}, max upload=${MAX_MB} MB)"
-
-# ── Create data directories ─────────────────────────────
-mkdir -p "$INSTALL_DIR/uploads" "$INSTALL_DIR/data"
-log "Created uploads/ and data/ directories"
-
-# ── Build & Start ────────────────────────────────────────
-log "Building and starting containers..."
-cd "$INSTALL_DIR"
-$COMPOSE down --remove-orphans 2>/dev/null || true
-$COMPOSE up -d --build
-
-echo ""
-log "Server is running on port ${PORT}"
-
-# ── Optional: Nginx for HTTPS ────────────────────────────
-if [ -n "$DOMAIN" ]; then
-  echo ""
-  ask "Install Nginx for reverse proxy + HTTPS? [Y/n]: "
-  read -r do_nginx
-  do_nginx="${do_nginx:-Y}"
-
-  if [[ "$do_nginx" =~ ^[Yy] ]]; then
-
-    # ── Install Nginx ──────────────────────────────────
-    if command -v nginx &>/dev/null; then
-      log "Nginx already installed: $(nginx -v 2>&1)"
-    else
-      warn "Installing Nginx..."
-      apt-get update -qq && apt-get install -y -qq nginx
-      log "Nginx installed"
-    fi
-
-    # ── Install Certbot ────────────────────────────────
-    if ! command -v certbot &>/dev/null; then
-      warn "Installing Certbot..."
-      apt-get install -y -qq certbot python3-certbot-nginx
-      log "Certbot installed"
-    fi
-
-    # ── Detect port 443 situation ──────────────────────
-    PORT443_PID=$(ss -tlnp 'sport = :443' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
-    PORT443_PROC=""
-    if [ -n "$PORT443_PID" ]; then
-      PORT443_PROC=$(ps -p "$PORT443_PID" -o comm= 2>/dev/null || echo "unknown")
-    fi
-
-    NGINX_CONF="/etc/nginx/sites-available/discord-alt"
-    NGINX_LINK="/etc/nginx/sites-enabled/discord-alt"
-
-    # Remove default site if exists
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-
-    if [ -n "$PORT443_PID" ] && [ "$PORT443_PROC" != "nginx" ]; then
-      # 443 is taken by another process (e.g. xray)
-      # Nginx listens on :80 only — xray can SNI-split to it
-      warn "Port 443 is used by ${PORT443_PROC} (PID ${PORT443_PID})"
-      warn "Nginx will listen on :80 only (no automatic HTTPS)"
-
-      cat > "$NGINX_CONF" <<EOF
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    # Max upload size
-    client_max_body_size 110m;
-
-    location / {
-        proxy_pass         http://127.0.0.1:${PORT};
-        proxy_http_version 1.1;
-
-        # WebSocket support (Socket.io)
-        proxy_set_header   Upgrade \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-
-        proxy_read_timeout  3600;
-        proxy_send_timeout  3600;
-    }
-}
-EOF
-      ln -sf "$NGINX_CONF" "$NGINX_LINK"
-      nginx -t && systemctl reload nginx
-      systemctl enable nginx 2>/dev/null || true
-      log "Nginx configured: http://${DOMAIN} → localhost:${PORT}"
-      warn "For HTTPS: configure ${PORT443_PROC} to forward ${DOMAIN} → 127.0.0.1:80"
-      warn "  Or pass TLS locally and point xray fallback → 127.0.0.1:80"
-
-    else
-      # Port 443 is free — full HTTP + auto-HTTPS via certbot
-      cat > "$NGINX_CONF" <<EOF
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    # Max upload size
-    client_max_body_size 110m;
-
-    location / {
-        proxy_pass         http://127.0.0.1:${PORT};
-        proxy_http_version 1.1;
-
-        # WebSocket support (Socket.io)
-        proxy_set_header   Upgrade \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-
-        proxy_read_timeout  3600;
-        proxy_send_timeout  3600;
-    }
-}
-EOF
-      ln -sf "$NGINX_CONF" "$NGINX_LINK"
-
-      if nginx -t; then
-        systemctl enable --now nginx
-        log "Nginx started on :80"
-      else
-        err "Nginx config test failed. Check /etc/nginx/sites-available/discord-alt"
-      fi
-
-      # ── Request SSL certificate ────────────────────
-      ask "Request Let's Encrypt SSL certificate for ${DOMAIN}? [Y/n]: "
-      read -r do_ssl
-      do_ssl="${do_ssl:-Y}"
-
-      if [[ "$do_ssl" =~ ^[Yy] ]]; then
-        ask "Email for Let's Encrypt notifications: "
-        read -r LE_EMAIL
-        LE_EMAIL="${LE_EMAIL:-admin@${DOMAIN}}"
-
-        if certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${LE_EMAIL}" --redirect; then
-          log "SSL certificate issued — https://${DOMAIN}"
-          # Enable auto-renewal
-          systemctl enable certbot.timer 2>/dev/null || \
-            (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet") | crontab -
-          log "Auto-renewal configured"
-        else
-          warn "Certbot failed. Common reasons: DNS not pointed to this server yet."
-          warn "Run manually later: certbot --nginx -d ${DOMAIN}"
-        fi
-      else
-        warn "Skipped SSL. Run later: certbot --nginx -d ${DOMAIN}"
-        log "App available at http://${DOMAIN}"
-      fi
-    fi
-
-    echo ""
-    echo "  ─── Nginx config ───"
-    cat "$NGINX_CONF"
-    echo "  ────────────────────"
-
+    log "Created .env"
   else
-    warn "Skipped Nginx. Set up your own reverse proxy for HTTPS."
-    echo ""
-    log "Open http://YOUR_IP:${PORT} in your browser"
+    upsert_env_var "$env_file" "PORT" "${PORT}"
+    upsert_env_var "$env_file" "MAX_FILE_SIZE" "${MAX_FILE_SIZE}"
+    log "Updated .env (PORT, MAX_FILE_SIZE)"
   fi
-else
+}
+
+deploy_compose() {
+  cd "${INSTALL_DIR}"
+
+  info "Stopping old project containers (this project only)..."
+  ${COMPOSE} down --remove-orphans || true
+
+  info "Building and starting containers..."
+  ${COMPOSE} up -d --build --remove-orphans
+
+  log "Containers are up"
+}
+
+safe_cleanup() {
+  if [ "${SAFE_CLEANUP}" != "1" ]; then
+    warn "Safe cleanup skipped (SAFE_CLEANUP=${SAFE_CLEANUP})"
+    return
+  fi
+
+  info "Running safe cleanup (no deletion of active containers/volumes)..."
+  docker builder prune -f >/dev/null 2>&1 || true
+  docker image prune -f >/dev/null 2>&1 || true
+  apt-get autoremove -y -qq >/dev/null 2>&1 || true
+  apt-get clean -y >/dev/null 2>&1 || true
+  log "Safe cleanup completed"
+}
+
+aggressive_docker_cleanup() {
+  if [ "${AGGRESSIVE_DOCKER_CLEANUP}" != "1" ]; then
+    return
+  fi
+
+  warn "Running AGGRESSIVE Docker cleanup (global prune, may remove unused resources of other projects)..."
+  docker system prune -af --volumes || true
+  log "Aggressive Docker cleanup completed"
+}
+
+print_summary() {
   echo ""
-  log "Open http://YOUR_IP:${PORT} in your browser"
-fi
+  echo -e "${GREEN}════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}  Install/Update complete (Docker-only mode)${NC}"
+  echo -e "${GREEN}════════════════════════════════════════════${NC}"
+  echo ""
+  echo "Path: ${INSTALL_DIR}"
+  echo "Port: ${PORT}"
+  echo "Max upload: ${MAX_UPLOAD_MB} MB"
+  echo ""
+  echo "Useful commands:"
+  echo "  cd ${INSTALL_DIR}"
+  echo "  ${COMPOSE} ps"
+  echo "  ${COMPOSE} logs -f"
+  echo "  ${COMPOSE} restart"
+  echo "  ${COMPOSE} down"
+  echo "  ${COMPOSE} up -d --build"
+  echo ""
+  echo "SSL/nginx is intentionally NOT configured by this script."
+}
 
-# ── Firewall hint ────────────────────────────────────────
-if command -v ufw &>/dev/null; then
-  ufw allow "${PORT}/tcp" 2>/dev/null && log "Opened port ${PORT} in UFW"
-  if [ -n "$DOMAIN" ]; then
-    ufw allow 80/tcp 2>/dev/null
-    ufw allow 443/tcp 2>/dev/null
-    log "Opened ports 80, 443 in UFW for HTTPS"
-  fi
-fi
+main() {
+  info "Starting Discord Alt install/update (Docker-only, no SSL setup)"
+  install_base_packages
+  install_docker
+  resolve_compose_cmd
+  fetch_repo
+  prepare_runtime_dirs
+  prepare_env
+  deploy_compose
+  safe_cleanup
+  aggressive_docker_cleanup
+  print_summary
+}
 
-echo ""
-echo -e "${GREEN}═══════════════════════════════════════${NC}"
-echo -e "${GREEN}  Installation complete!${NC}"
-echo -e "${GREEN}═══════════════════════════════════════${NC}"
-echo ""
-echo "  Useful commands:"
-echo "    cd ${INSTALL_DIR}"
-echo "    $COMPOSE logs -f          # view logs"
-echo "    $COMPOSE restart          # restart"
-echo "    $COMPOSE down             # stop"
-echo "    $COMPOSE up -d --build    # rebuild & start"
-echo ""
+main "$@"
