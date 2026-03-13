@@ -9,12 +9,9 @@ export function setRefreshToken(rt) { localStorage.setItem('da_refresh', rt); }
 export function clearTokens()       { localStorage.removeItem('da_token'); localStorage.removeItem('da_refresh'); }
 
 async function tryRefresh() {
-  const rt = localStorage.getItem('da_refresh');
-  if (!rt) throw new Error('no refresh token');
   const res = await fetch('/api/auth/refresh', {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ refreshToken: rt }),
+    credentials: 'same-origin',
   });
   if (!res.ok) { clearTokens(); throw new Error('session expired'); }
   const d = await res.json();
@@ -29,13 +26,13 @@ export async function api(path, opts = {}) {
   if (opts.body != null) headers['Content-Type'] = 'application/json';
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  let res = await fetch(path, { ...opts, headers });
+  let res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
 
   if (res.status === 401) {
     try {
       const newToken = await tryRefresh();
       headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(path, { ...opts, headers });
+      res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
     } catch {
       clearTokens();
       window.dispatchEvent(new CustomEvent('da:logout'));

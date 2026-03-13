@@ -25,6 +25,15 @@ function mapGuild(row) {
   };
 }
 
+function legacyChannelType(type) {
+  if (type === 2) return 'voice';
+  if (type === 4) return 'category';
+  if (type === 5) return 'announcement';
+  if (type === 1) return 'dm';
+  if (type === 3) return 'group';
+  return 'text';
+}
+
 export default async function guildsCoreRoutes(fastify, { db, authenticate, snowflake, io }) {
   const permissions = buildPermissionService(db);
 
@@ -420,6 +429,11 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const updated = getGuildById.get(guild.id);
     const payload = mapGuild(updated);
     io?.to(`guild:${guild.id}`)?.emit('guild:update', payload);
+    io?.to(`guild:${guild.id}`)?.emit('SERVER_UPDATE', {
+      ...payload,
+      icon_url: payload.icon || '',
+      banner_url: payload.banner || '',
+    });
     return payload;
   });
 
@@ -433,6 +447,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     deleteGuild.run(guild.id);
     io?.to(`guild:${guild.id}`)?.emit('guild:delete', { guild_id: guild.id });
+    io?.to(`guild:${guild.id}`)?.emit('SERVER_DELETE', { server_id: guild.id });
     return { ok: true };
   });
 
@@ -628,6 +643,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     io?.to(`guild:${guild.id}`)?.emit('member:update', updated);
     io?.to(`guild:${guild.id}`)?.emit('guild:member:update', updated);
+    io?.to(`guild:${guild.id}`)?.emit('MEMBER_UPDATE', {
+      server_id: guild.id,
+      member: { id: updated.user_id, ...updated },
+    });
 
     return updated;
   });
@@ -694,6 +713,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const payload = { guild_id: guild.id, user_id: req.params.userId };
     io?.to(`guild:${guild.id}`)?.emit('member:remove', payload);
     io?.to(`guild:${guild.id}`)?.emit('guild:member:remove', payload);
+    io?.to(`guild:${guild.id}`)?.emit('MEMBER_LEAVE', {
+      server_id: guild.id,
+      user_id: req.params.userId,
+    });
     return { ok: true };
   });
 
@@ -1027,6 +1050,12 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     const channel = getChannelById.get(id);
     io?.to(`guild:${guild.id}`)?.emit('guild:channel:create', channel);
+    io?.to(`guild:${guild.id}`)?.emit('CHANNEL_CREATE', {
+      ...channel,
+      server_id: guild.id,
+      type: legacyChannelType(channel.type),
+      category_id: channel.parent_id,
+    });
     return reply.code(201).send(channel);
   });
 
@@ -1059,6 +1088,12 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     const updated = getChannelById.get(channel.id);
     io?.to(`guild:${guild.id}`)?.emit('guild:channel:update', updated);
+    io?.to(`guild:${guild.id}`)?.emit('CHANNEL_UPDATE', {
+      ...updated,
+      server_id: guild.id,
+      type: legacyChannelType(updated.type),
+      category_id: updated.parent_id,
+    });
     return updated;
   });
 
@@ -1079,6 +1114,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     deleteChannel.run(channel.id);
     io?.to(`guild:${guild.id}`)?.emit('guild:channel:delete', { guild_id: guild.id, channel_id: channel.id });
+    io?.to(`guild:${guild.id}`)?.emit('CHANNEL_DELETE', { server_id: guild.id, channel_id: channel.id });
     return { ok: true };
   });
 
@@ -1439,6 +1475,14 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       io?.to(`guild:${guild.id}`)?.emit('guild:member_join', {
         guild_id: guild.id,
         member: {
+          user_id: req.user.id,
+          joined_at: nowSec(),
+        },
+      });
+      io?.to(`guild:${guild.id}`)?.emit('MEMBER_JOIN', {
+        server_id: guild.id,
+        member: {
+          id: req.user.id,
           user_id: req.user.id,
           joined_at: nowSec(),
         },

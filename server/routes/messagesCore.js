@@ -131,6 +131,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     const message = enrichMessage(getMessageById.get(id, channel.id));
     io?.to(`guild:${channel.guild_id}`)?.emit('message:create', message);
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_CREATE', message);
 
     return reply.code(201).send(message);
   });
@@ -167,6 +168,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     updateMessage.run(next, nowSec(), existing.id, channel.id);
     const updated = enrichMessage(getMessageById.get(existing.id, channel.id));
     io?.to(`guild:${channel.guild_id}`)?.emit('message:update', updated);
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_UPDATE', updated);
 
     return updated;
   });
@@ -191,6 +193,11 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     io?.to(`guild:${channel.guild_id}`)?.emit('message:delete', {
       id: existing.id,
+      channel_id: channel.id,
+      guild_id: channel.guild_id,
+    });
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_DELETE', {
+      message_id: existing.id,
       channel_id: channel.id,
       guild_id: channel.guild_id,
     });

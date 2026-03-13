@@ -67,6 +67,16 @@ function normalizeMe(user) {
   };
 }
 
+function channelTypeToCore(type) {
+  const value = String(type || '').toLowerCase();
+  if (value === 'voice') return 2;
+  if (value === 'announcement') return 5;
+  if (value === 'forum') return 15;
+  if (value === 'stage') return 13;
+  if (value === 'category') return 4;
+  return 0;
+}
+
 // ─── SVG ICON SYSTEM ─────────────────────────────────────────────────────────
 const _ic = (d, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${d}</svg>`;
 const _f = (d, s) => _ic(`<path d="${d}" fill="currentColor"/>`, s);
@@ -468,7 +478,6 @@ async function doLogin() {
   try {
     const data = await API.post('/api/auth/login', { email, password });
     API.setToken(data.token);
-    API.setRefreshToken(data.refreshToken);
     S.me = normalizeMe(data.user);
     await bootApp();
   } catch (e) {
@@ -485,7 +494,6 @@ async function doRegister() {
   try {
     const data = await API.post('/api/auth/register', { email, username, password });
     API.setToken(data.token);
-    API.setRefreshToken(data.refreshToken);
     S.me = normalizeMe(data.user);
     await bootApp();
   } catch (e) {
@@ -494,8 +502,7 @@ async function doRegister() {
 }
 
 function doLogout() {
-  const rt = localStorage.getItem('da_refresh');
-  if (rt) API.post('/api/auth/logout', { refreshToken: rt }).catch(() => {});
+  API.post('/api/auth/logout', {}).catch(() => {});
   API.clearTokens();
   socket?.disconnect();
   socket = null;
@@ -1136,7 +1143,7 @@ async function selectServer(id) {
     // Load members
     if (!S.members[id] || !S.members[id].length) {
       try {
-        S.members[id] = await API.get(`/api/servers/${id}/members`);
+        S.members[id] = await API.get(`/api/guilds/${id}/members`);
       } catch {}
     }
     // Auto-join first text channel
@@ -2215,7 +2222,7 @@ function hideServerDropdown() { $('server-dropdown').classList.add('hidden'); }
 // ─── SERVER ACTIONS ───────────────────────────────────────────────────────────
 async function createInvite(serverId) {
   try {
-    const inv = await API.post(`/api/servers/${serverId}/invites`, { ttl_seconds: 7 * 24 * 3600 });
+    const inv = await API.post(`/api/guilds/${serverId}/invites`, { max_age: 7 * 24 * 3600 });
     const url = `${location.origin}/app?invite=${inv.code}`;
     await navigator.clipboard.writeText(url).catch(() => {});
     showToast(t('invite_copied', { url }), 'success');
@@ -2226,7 +2233,7 @@ async function leaveServer(serverId) {
   const srv = getServer(serverId);
   if (!await daConfirm(t('confirm_leave_server', { name: srv?.name || '?' }), { title: t('leave_server'), danger: true, confirmText: t('confirm_leave_server_btn') })) return;
   try {
-    await API.post(`/api/servers/${serverId}/leave`);
+    await API.post(`/api/guilds/${serverId}/leave`);
     S.servers = S.servers.filter(s => s.id !== serverId);
     renderServerIcons();
     selectServer('@me');
@@ -2237,7 +2244,7 @@ async function deleteServer(serverId) {
   const srv = getServer(serverId);
   if (!await daConfirm(t('confirm_delete_server', { name: srv?.name || '?' }), { title: t('delete_server'), danger: true })) return;
   try {
-    await API.del(`/api/servers/${serverId}`);
+    await API.del(`/api/guilds/${serverId}`);
     S.servers = S.servers.filter(s => s.id !== serverId);
     renderServerIcons();
     selectServer('@me');
@@ -2248,9 +2255,9 @@ async function createCategory(serverId) {
   const name = await daPrompt(t('category_name'), { title: t('create_category'), confirmText: t('create') });
   if (!name) return;
   try {
-    await API.post(`/api/servers/${serverId}/categories`, { name });
+    await API.post(`/api/guilds/${serverId}/channels`, { name, type: 4 });
     // Refresh server
-    const srv = await API.get(`/api/servers/${serverId}`);
+    const srv = await API.get(`/api/guilds/${serverId}`);
     const idx = S.servers.findIndex(s => s.id === serverId);
     if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...srv };
     renderChannelList();
@@ -2301,8 +2308,12 @@ async function showPins() {
 let _friendsTab = 'online';
 
 async function loadFriendCount() {
-  S.friends = [];
-  S._friendRequestCount = 0;
+  try {
+    S.friends = await API.get('/api/users/@me/relationships');
+  } catch {
+    S.friends = [];
+  }
+  S._friendRequestCount = S.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
   if (S.activeServerId === '@me') renderChannelList();
 }
 
@@ -2314,9 +2325,12 @@ async function showFriendsView() {
   $('input-area').classList.add('hidden');
   $('members-panel').classList.add('hidden');
 
-  // Core mode: friend API is not implemented yet
-  S.friends = [];
-  S._friendRequestCount = 0;
+  try {
+    S.friends = await API.get('/api/users/@me/relationships');
+  } catch {
+    S.friends = [];
+  }
+  S._friendRequestCount = S.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
   renderChannelList();
 
   // Render friends view in main area
@@ -2331,6 +2345,7 @@ async function showFriendsView() {
 
   const accepted = S.friends.filter(f => f.status === 'accepted');
   const pending = S.friends.filter(f => f.status === 'pending');
+  const blocked = S.friends.filter(f => f.status === 'blocked');
   const incomingPending = pending.filter(f => f.direction === 'incoming');
   const onlineFriends = accepted.filter(f => (S.presences[f.user_id]?.status || 'offline') !== 'offline');
 
@@ -2341,6 +2356,7 @@ async function showFriendsView() {
       <button class="friends-tab ${_friendsTab === 'online' ? 'active' : ''}" data-tab="online">${t('online_friends')}</button>
       <button class="friends-tab ${_friendsTab === 'all' ? 'active' : ''}" data-tab="all">${t('all_friends')}</button>
       <button class="friends-tab ${_friendsTab === 'pending' ? 'active' : ''}" data-tab="pending">${t('pending_friends')}${incomingPending.length ? ` (${incomingPending.length})` : ''}</button>
+      <button class="friends-tab ${_friendsTab === 'blocked' ? 'active' : ''}" data-tab="blocked">${t('blocked_friends')}</button>
       <button class="friends-tab green ${_friendsTab === 'add' ? 'active' : ''}" data-tab="add">${t('add_friend')}</button>
     </div>
     ${_friendsTab === 'add' ? `
@@ -2371,6 +2387,10 @@ async function showFriendsView() {
     body.innerHTML = `<div class="friend-count">${t('pending_friends')} — ${pending.length}</div>`;
     if (!pending.length) body.innerHTML += `<div class="empty-state"><div class="empty-icon">${IC.mail}</div><div class="empty-text">${t('no_pending')}</div></div>`;
     for (const f of pending) body.insertAdjacentHTML('beforeend', friendItemHtml(f, true));
+  } else if (_friendsTab === 'blocked') {
+    body.innerHTML = `<div class="friend-count">${t('blocked_friends')} — ${blocked.length}</div>`;
+    if (!blocked.length) body.innerHTML += `<div class="empty-state"><div class="empty-icon">${IC.shield}</div><div class="empty-text">${t('no_friends')}</div></div>`;
+    for (const f of blocked) body.insertAdjacentHTML('beforeend', friendItemHtml(f));
   }
 
   // Friend item click actions
@@ -2384,15 +2404,48 @@ async function showFriendsView() {
     });
     el.querySelector('.friend-remove')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      showToast(t('notifications_wip'));
+      try {
+        await API.del(`/api/users/@me/relationships/${el.dataset.userId}`);
+        await showFriendsView();
+      } catch (err) {
+        showToast(err.body?.error || t('error_generic'), 'error');
+      }
     });
     el.querySelector('.friend-accept')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      showToast(t('notifications_wip'));
+      try {
+        await API.put(`/api/users/@me/relationships/${el.dataset.userId}`, { type: 1 });
+        await showFriendsView();
+      } catch (err) {
+        showToast(err.body?.error || t('error_generic'), 'error');
+      }
     });
     el.querySelector('.friend-decline')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      showToast(t('notifications_wip'));
+      try {
+        await API.del(`/api/users/@me/relationships/${el.dataset.userId}`);
+        await showFriendsView();
+      } catch (err) {
+        showToast(err.body?.error || t('error_generic'), 'error');
+      }
+    });
+    el.querySelector('.friend-block')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await API.put(`/api/users/@me/relationships/${el.dataset.userId}`, { type: 2 });
+        await showFriendsView();
+      } catch (err) {
+        showToast(err.body?.error || t('error_generic'), 'error');
+      }
+    });
+    el.querySelector('.friend-unblock')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await API.del(`/api/users/@me/relationships/${el.dataset.userId}`);
+        await showFriendsView();
+      } catch (err) {
+        showToast(err.body?.error || t('error_generic'), 'error');
+      }
     });
   });
 
@@ -2421,7 +2474,16 @@ async function showFriendsView() {
           `).join('') || `<div style="color:var(--text-3);padding:8px">${t('new_dm_no_results')}</div>`;
           resultsEl.querySelectorAll('.friend-add-btn').forEach(btn => {
             btn.onclick = async () => {
-              showToast(t('notifications_wip'));
+              try {
+                const userId = btn.closest('.friend-item')?.dataset.userId;
+                const user = users.find(u => u.id === userId);
+                if (!user?.username) return;
+                await API.post('/api/users/@me/relationships', { username: user.username.toLowerCase() });
+                showToast(t('friend_added'), 'success');
+                await showFriendsView();
+              } catch (err) {
+                showToast(err.body?.error || t('error_generic'), 'error');
+              }
             };
           });
         } catch {}
@@ -2451,8 +2513,11 @@ function friendItemHtml(f, isPending = false) {
           <button class="friend-decline danger" title="${t('decline_friend')}">✕</button>
         ` : isPending ? `
           <span style="color:var(--text-3);font-size:12px">${t('pending_friends')}...</span>
+        ` : f.status === 'blocked' ? `
+          <button class="friend-unblock" title="${t('unblock')}">${t('unblock')}</button>
         ` : `
           <button class="friend-dm" title="DM">${IC.msg}</button>
+          <button class="friend-block danger" title="${t('block')}">${IC.close}</button>
           <button class="friend-remove danger" title="${t('remove_friend')}">✕</button>
         `}
       </div>
@@ -2489,7 +2554,7 @@ function showNicknameModal() {
   $('nick-save').onclick = async () => {
     try {
       const nick = input.value.trim();
-      await API.patch(`/api/servers/${S.activeServerId}/members/${S.me.id}`, { nickname: nick || null });
+      await API.patch(`/api/guilds/${S.activeServerId}/members/${S.me.id}`, { nickname: nick || null });
       // Update local state
       if (member) member.nickname = nick || null;
       showToast(t('nickname_saved'), 'success');
@@ -2505,7 +2570,7 @@ function showNicknameModal() {
 
   $('nick-reset').onclick = async () => {
     try {
-      await API.patch(`/api/servers/${S.activeServerId}/members/${S.me.id}`, { nickname: null });
+      await API.patch(`/api/guilds/${S.activeServerId}/members/${S.me.id}`, { nickname: null });
       if (member) member.nickname = null;
       showToast(t('nickname_saved'), 'success');
       overlay.remove();
@@ -2720,7 +2785,7 @@ async function renderServerSettingsPage(serverId, page) {
       ` : ''}
     `;
     // Load owner username
-    const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
+    const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
     const ownerMember = members.find(m => m.id === srv.owner_id);
     const ownerEl = document.getElementById('ss-owner-name');
@@ -2748,7 +2813,7 @@ async function renderServerSettingsPage(serverId, page) {
 
       $('ss-save-overview').onclick = async () => {
         try {
-          const updated = await API.patch(`/api/servers/${serverId}`, {
+          const updated = await API.patch(`/api/guilds/${serverId}`, {
             name:        $('ss-name').value.trim(),
             description: $('ss-desc').value.trim(),
             icon_url:    $('ss-icon').value.trim(),
@@ -2766,11 +2831,12 @@ async function renderServerSettingsPage(serverId, page) {
   }
 
   if (page === 'roles') {
-    const roles = await API.get(`/api/servers/${serverId}/roles`).catch(() => []);
+    const guild = await API.get(`/api/guilds/${serverId}`).catch(() => null);
+    const roles = guild?.roles || [];
     const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
     const perms = ['send_messages','manage_messages','kick_members','ban_members','manage_channels','manage_server','mention_everyone','manage_roles','view_channel','administrator'];
     // Calculate member counts per role
-    const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
+    const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
     const roleCounts = {};
     for (const r of roles) {
@@ -2806,7 +2872,7 @@ async function renderServerSettingsPage(serverId, page) {
       if (!name) return;
       const color = await daPrompt(t('role_color') + ' (hex)',  { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
       try {
-        const role = await API.post(`/api/servers/${serverId}/roles`, { name, color: color || '#99aab5' });
+        const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: color || 0 });
         const idx = S.servers.findIndex(s => s.id === serverId);
         if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles||[]), role];
         renderServerSettingsPage(serverId, 'roles');
@@ -2817,7 +2883,7 @@ async function renderServerSettingsPage(serverId, page) {
       btn.onclick = async () => {
         if (!await daConfirm(t('confirm_delete_role'), { title: t('confirm_delete_role_title'), danger: true })) return;
         try {
-          await API.del(`/api/servers/${serverId}/roles/${btn.dataset.roleId}`);
+          await API.del(`/api/guilds/${serverId}/roles/${btn.dataset.roleId}`);
           renderServerSettingsPage(serverId, 'roles');
           showToast(t('role_deleted'));
         } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -2829,7 +2895,7 @@ async function renderServerSettingsPage(serverId, page) {
   }
 
   if (page === 'members') {
-    const members = S.members[serverId] || await API.get(`/api/servers/${serverId}/members`).catch(() => []);
+    const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
     const roles = getServer(serverId)?.roles?.filter(r => !r.is_default) || [];
     const canManage = userHasPermissionClient(serverId, 'kick_members');
@@ -2863,7 +2929,7 @@ async function renderServerSettingsPage(serverId, page) {
     body.querySelectorAll('.kick-btn').forEach(btn => {
       btn.onclick = async () => {
         if (!await daConfirm(t('confirm_kick'), { title: t('confirm_kick_title'), danger: true, confirmText: t('confirm_kick_btn') })) return;
-        try { await API.del(`/api/servers/${serverId}/members/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'members'); }
+        try { await API.del(`/api/guilds/${serverId}/members/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'members'); }
         catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
@@ -2871,7 +2937,7 @@ async function renderServerSettingsPage(serverId, page) {
       btn.onclick = async () => {
         const reason = await daPrompt(t('prompt_ban_reason'), { title: t('prompt_ban_reason_title'), confirmText: t('ok') });
         if (reason === null) return;
-        try { await API.post(`/api/servers/${serverId}/bans/${btn.dataset.userId}`, { reason }); renderServerSettingsPage(serverId, 'members'); showToast(t('banned')); }
+        try { await API.put(`/api/guilds/${serverId}/bans/${btn.dataset.userId}`, { reason }); renderServerSettingsPage(serverId, 'members'); showToast(t('banned')); }
         catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
@@ -2901,9 +2967,9 @@ async function renderServerSettingsPage(serverId, page) {
             const rid = cb.dataset.roleId;
             const was = assignedIds.has(rid);
             if (cb.checked && !was) {
-              await API.post(`/api/servers/${serverId}/members/${memberId}/roles/${rid}`, {}).catch(() => {});
+              await API.put(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`, {}).catch(() => {});
             } else if (!cb.checked && was) {
-              await API.del(`/api/servers/${serverId}/members/${memberId}/roles/${rid}`).catch(() => {});
+              await API.del(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`).catch(() => {});
             }
           }
           close();
@@ -2914,7 +2980,7 @@ async function renderServerSettingsPage(serverId, page) {
   }
 
   if (page === 'bans') {
-    const bans = await API.get(`/api/servers/${serverId}/bans`).catch(() => []);
+    const bans = await API.get(`/api/guilds/${serverId}/bans`).catch(() => []);
     body.innerHTML = !bans.length ? `<div class="empty-state"><div class="empty-icon">${IC.check}</div><div class="empty-text">${t('no_bans')}</div></div>` : `
       <table class="settings-table">
         <thead><tr><th>${t('member_user')}</th><th>${t('ban_reason')}</th><th></th></tr></thead>
@@ -2931,14 +2997,14 @@ async function renderServerSettingsPage(serverId, page) {
     `;
     body.querySelectorAll('.unban-btn').forEach(btn => {
       btn.onclick = async () => {
-        try { await API.del(`/api/servers/${serverId}/bans/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'bans'); showToast(t('unbanned')); }
+        try { await API.del(`/api/guilds/${serverId}/bans/${btn.dataset.userId}`); renderServerSettingsPage(serverId, 'bans'); showToast(t('unbanned')); }
         catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
   }
 
   if (page === 'invites') {
-    const invites = await API.get(`/api/servers/${serverId}/invites`).catch(() => []);
+    const invites = await API.get(`/api/guilds/${serverId}/invites`).catch(() => []);
     body.innerHTML = `
       <button class="btn btn-primary mb-8" id="ss-create-inv">${t('create_invite')}</button>
       ${!invites.length ? `<div class="empty-state"><div class="empty-text">${t('no_invites')}</div></div>` : `
@@ -2967,7 +3033,7 @@ async function renderServerSettingsPage(serverId, page) {
   }
 
   if (page === 'audit') {
-    const logs = await API.get(`/api/servers/${serverId}/audit-log`).catch(() => []);
+    const logs = await API.get(`/api/guilds/${serverId}/audit-logs`).catch(() => []);
     const LABELS = { kick: t('audit_kick'), ban: t('audit_ban'), unban: t('audit_unban'), role_create: t('audit_role_create'), role_delete: t('audit_role_delete'), role_update: t('audit_role_update'), channel_create: t('audit_channel_create'), channel_delete: t('audit_channel_delete'), server_update: t('audit_server_update'), message_delete: t('audit_message_delete'), invite_create: t('audit_invite_create'), invite_delete: t('audit_invite_delete'), pin_add: t('audit_pin_add'), pin_remove: t('audit_pin_remove'), member_update: t('audit_member_update') };
     body.innerHTML = !logs.length ? `<div class="empty-state"><div class="empty-text">${t('no_audit')}</div></div>` : `
       <table class="settings-table">
@@ -3025,7 +3091,7 @@ function openRoleEditor(serverId, roleId, roles, perms) {
     const newPerms = {};
     for (const p of perms) { newPerms[p] = !!document.getElementById(`perm-${p}`)?.checked; }
     try {
-      await API.patch(`/api/servers/${serverId}/roles/${roleId}`, { name: $('re-name').value.trim(), color: $('re-color').value, permissions: newPerms });
+      await API.patch(`/api/guilds/${serverId}/roles/${roleId}`, { name: $('re-name').value.trim(), color: Number.parseInt(($('re-color').value || '#000000').replace('#', ''), 16) || 0, permissions: newPerms });
       renderServerSettingsPage(serverId, 'roles');
       showToast(t('role_updated'), 'success');
     } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -3666,7 +3732,7 @@ function setup() {
     const name = $('new-server-name').value.trim();
     if (!name) { $('cs-error').textContent = t('enter_name'); return; }
     try {
-      const srv = await API.post('/api/servers', { name });
+      const srv = await API.post('/api/guilds', { name });
       S.servers.push(srv);
       closeModal('modal-add-server');
       renderServerIcons();
@@ -3683,8 +3749,11 @@ function setup() {
     try { code = decodeURIComponent(code); } catch {}
     if (!code) { $('js-error').textContent = t('enter_code'); return; }
     try {
+      await API.post(`/api/invites/${code}`, {});
       const inv = await API.get(`/api/invites/${code}`);
-      const srv = await API.post(`/api/servers/${inv.server.id}/join`, { invite_code: code });
+      const guildId = inv.guild?.id;
+      const srv = guildId ? await API.get(`/api/guilds/${guildId}`) : null;
+      if (!srv) throw new Error('Guild not found');
       if (!S.servers.find(s => s.id === srv.id)) S.servers.push(srv);
       closeModal('modal-add-server');
       renderServerIcons();
@@ -3703,10 +3772,10 @@ function setup() {
     const categoryId = $('new-ch-category-id').value || null;
     if (!name) { $('cc-error').textContent = t('enter_name'); return; }
     try {
-      await API.post(`/api/servers/${serverId}/channels`, { name, type, topic, category_id: categoryId });
+      await API.post(`/api/guilds/${serverId}/channels`, { name, type: channelTypeToCore(type), topic, parent_id: categoryId });
       closeModal('modal-create-channel');
       // Reload server data
-      const fresh = await API.get(`/api/servers/${serverId}`);
+      const fresh = await API.get(`/api/guilds/${serverId}`);
       const idx = S.servers.findIndex(s => s.id === serverId);
       if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...fresh };
       renderChannelList();
@@ -3756,8 +3825,11 @@ function setup() {
     window.addEventListener('da:authenticated', async () => {
       try {
         const inv = await API.get(`/api/invites/${invCode}`);
-        if (await daConfirm(t('accept_invite_question').replace('{name}', inv.server.name), { title: t('accept_invite_title'), confirmText: t('join') })) {
-          const srv = await API.post(`/api/servers/${inv.server.id}/join`, { invite_code: invCode });
+        if (await daConfirm(t('accept_invite_question').replace('{name}', inv.guild?.name || inv.server?.name || '?'), { title: t('accept_invite_title'), confirmText: t('join') })) {
+          await API.post(`/api/invites/${invCode}`, {});
+          const guildId = inv.guild?.id || inv.server?.id;
+          const srv = guildId ? await API.get(`/api/guilds/${guildId}`) : null;
+          if (!srv) throw new Error('Guild not found');
           if (!S.servers.find(s => s.id === srv.id)) S.servers.push(srv);
           renderServerIcons();
           selectServer(srv.id);

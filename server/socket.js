@@ -6,8 +6,17 @@ function nowSec() {
   return Math.floor(Date.now() / 1000);
 }
 
+function toLegacyChannelType(type) {
+  if (type === 2) return 'voice';
+  if (type === 4) return 'category';
+  if (type === 5) return 'announcement';
+  if (type === 1) return 'dm';
+  if (type === 3) return 'group';
+  return 'text';
+}
+
 export function buildSocketServer(httpServer, { db, config }) {
-  const io = new Server(httpServer, {
+  const server = new Server(httpServer, {
     cors: { origin: config.corsOrigin, credentials: true },
     transports: ['websocket', 'polling'],
     pingInterval: 25_000,
@@ -15,10 +24,63 @@ export function buildSocketServer(httpServer, { db, config }) {
     maxHttpBufferSize: 10 * 1024 * 1024,
   });
 
+  const rootNs = server.of('/');
+  const gatewayNs = server.of('/gateway');
   const userSockets = new Map();
 
   const getGuildIds = db.prepare('SELECT guild_id FROM guild_members WHERE user_id = ?');
-  const updatePresence = db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?');
+  const getDmChannelIds = db.prepare(`
+    SELECT c.id
+    FROM channels c
+    JOIN dm_participants dp ON dp.channel_id = c.id
+    WHERE dp.user_id = ? AND c.type IN (1, 3)
+  `);
+  const getUserById = db.prepare(`
+    SELECT id, username, display_name, avatar, banner, accent_color, bio, status, custom_status_text
+    FROM users WHERE id = ? AND deleted_at IS NULL
+  `);
+  const getGuildsForUser = db.prepare(`
+    SELECT g.*
+    FROM guilds g
+    JOIN guild_members gm ON gm.guild_id = g.id
+    WHERE gm.user_id = ?
+    ORDER BY gm.joined_at ASC
+  `);
+  const getChannelsForGuild = db.prepare('SELECT * FROM channels WHERE guild_id = ? ORDER BY position ASC, created_at ASC');
+  const getRolesForGuild = db.prepare('SELECT * FROM roles WHERE guild_id = ? ORDER BY position DESC, created_at ASC');
+  const getDmChannelsForUser = db.prepare(`
+    SELECT c.*
+    FROM channels c
+    JOIN dm_participants dp ON dp.channel_id = c.id
+    WHERE dp.user_id = ? AND c.type IN (1, 3) AND dp.closed = 0
+    ORDER BY c.updated_at DESC, c.created_at DESC
+  `);
+  const getDmRecipient = db.prepare(`
+    SELECT u.id, u.username, u.display_name, u.avatar, u.accent_color, u.status
+    FROM dm_participants dp
+    JOIN users u ON u.id = dp.user_id
+    WHERE dp.channel_id = ? AND dp.user_id <> ? AND u.deleted_at IS NULL
+    LIMIT 1
+  `);
+  const getPresencesForUser = db.prepare(`
+    SELECT DISTINCT u.id, u.status, u.custom_status_text
+    FROM users u
+    LEFT JOIN guild_members gm ON gm.user_id = u.id
+    WHERE u.id = ? OR gm.guild_id IN (
+      SELECT guild_id FROM guild_members WHERE user_id = ?
+    )
+  `);
+  const getVoiceStatesForUserGuilds = db.prepare(`
+    SELECT vs.channel_id, vs.user_id, vs.mute, vs.deaf, vs.self_mute, vs.self_deaf, vs.self_stream, vs.self_video,
+           u.username, u.display_name, u.avatar, u.accent_color
+    FROM voice_states vs
+    JOIN users u ON u.id = vs.user_id
+    WHERE vs.guild_id IN (
+      SELECT guild_id FROM guild_members WHERE user_id = ?
+    )
+  `);
+
+  const updatePresence = db.prepare('UPDATE users SET status = ?, custom_status_text = ?, updated_at = ? WHERE id = ?');
   const upsertQr = db.prepare(`
     INSERT INTO qr_login_sessions (qr_id, desktop_socket_id, status, scanned_by_user_id, created_at, expires_at)
     VALUES (?, ?, 'pending', NULL, ?, ?)
@@ -34,60 +96,197 @@ export function buildSocketServer(httpServer, { db, config }) {
   const markQrConfirmed = db.prepare('UPDATE qr_login_sessions SET status = ? WHERE qr_id = ?');
   const cleanupQr = db.prepare('DELETE FROM qr_login_sessions WHERE expires_at <= ?');
 
-  io.use((socket, next) => {
-    const token = socket.handshake.auth?.token;
-    if (!token) {
-      socket.user = null;
-      return next();
-    }
-
+  function verifyToken(token) {
     try {
       const payload = jwt.verify(token, config.jwtSecret);
-      const user = db
-        .prepare('SELECT id, username, status FROM users WHERE id = ? AND deleted_at IS NULL')
-        .get(payload.sub);
-      if (!user) return next(new Error('Authentication failed'));
-      socket.user = user;
-      return next();
+      return getUserById.get(payload.sub) || null;
     } catch {
-      return next(new Error('Authentication failed'));
+      return null;
     }
-  });
+  }
 
-  io.on('connection', (socket) => {
-    if (socket.user) {
-      const userId = socket.user.id;
-      socket.join(`user:${userId}`);
-      if (!userSockets.has(userId)) userSockets.set(userId, new Set());
-      userSockets.get(userId).add(socket.id);
+  function mapLegacyUser(user) {
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      display_name: user.display_name,
+      avatar_url: user.avatar || '',
+      banner_url: user.banner || '',
+      avatar_color: user.accent_color || '#5865f2',
+      banner_color: user.accent_color || '#5865f2',
+      about_me: user.bio || '',
+      status: user.status || 'offline',
+      custom_status: user.custom_status_text || '',
+    };
+  }
 
-      for (const row of getGuildIds.all(userId)) {
-        socket.join(`guild:${row.guild_id}`);
-      }
+  function mapLegacyGuild(guild) {
+    const channelsRaw = getChannelsForGuild.all(guild.id);
+    const categories = channelsRaw
+      .filter((c) => c.type === 4)
+      .map((c) => ({ id: c.id, name: c.name, position: c.position }));
 
-      updatePresence.run('online', nowSec(), userId);
-      io.emit('presence:update', { user_id: userId, status: 'online', activities: [], client_status: { web: 'online' } });
+    const channels = channelsRaw
+      .filter((c) => c.type !== 4)
+      .map((c) => ({
+        id: c.id,
+        server_id: guild.id,
+        guild_id: guild.id,
+        name: c.name,
+        topic: c.topic,
+        type: toLegacyChannelType(c.type),
+        category_id: c.parent_id,
+        position: c.position,
+        nsfw: !!c.nsfw,
+      }));
+
+    const roles = getRolesForGuild.all(guild.id).map((r) => ({
+      id: r.id,
+      name: r.name,
+      color: r.color,
+      position: r.position,
+      permissions: r.permissions,
+      hoist: r.hoist,
+      mentionable: r.mentionable,
+      is_default: r.id === guild.id,
+    }));
+
+    return {
+      id: guild.id,
+      name: guild.name,
+      icon_url: guild.icon || '',
+      banner_url: guild.banner || '',
+      owner_id: guild.owner_id,
+      description: guild.description || '',
+      channels,
+      categories,
+      roles,
+    };
+  }
+
+  function mapLegacyDmChannel(channel, userId) {
+    const recipient = getDmRecipient.get(channel.id, userId);
+    return {
+      id: channel.id,
+      type: channel.type === 3 ? 'group' : 'dm',
+      recipient: recipient ? {
+        id: recipient.id,
+        username: recipient.username,
+        display_name: recipient.display_name,
+        avatar_url: recipient.avatar || '',
+        avatar_color: recipient.accent_color || '#5865f2',
+        status: recipient.status || 'offline',
+      } : null,
+      last_message_id: channel.last_message_id,
+      updated_at: channel.updated_at || channel.created_at,
+    };
+  }
+
+  function buildLegacyReady(user) {
+    const servers = getGuildsForUser.all(user.id).map(mapLegacyGuild);
+    const dmChannels = getDmChannelsForUser.all(user.id).map((c) => mapLegacyDmChannel(c, user.id));
+
+    const presences = {};
+    for (const row of getPresencesForUser.all(user.id, user.id)) {
+      presences[row.id] = {
+        status: row.status || 'offline',
+        custom_status: row.custom_status_text || '',
+      };
     }
 
-    socket.on('presence:update', (payload = {}) => {
-      if (!socket.user) return;
-      const allowed = new Set(['online', 'idle', 'dnd', 'invisible']);
-      const status = allowed.has(payload.status) ? payload.status : 'online';
-      updatePresence.run(status, nowSec(), socket.user.id);
-      io.emit('presence:update', {
-        user_id: socket.user.id,
-        status,
-        activities: Array.isArray(payload.activities) ? payload.activities : [],
-        client_status: { web: status },
+    const voiceStates = {};
+    for (const row of getVoiceStatesForUserGuilds.all(user.id)) {
+      if (!voiceStates[row.channel_id]) voiceStates[row.channel_id] = [];
+      voiceStates[row.channel_id].push({
+        user_id: row.user_id,
+        username: row.username,
+        display_name: row.display_name,
+        avatar_url: row.avatar || '',
+        avatar_color: row.accent_color || '#5865f2',
+        muted: !!row.mute || !!row.self_mute,
+        deafened: !!row.deaf || !!row.self_deaf,
+        sharing_screen: !!row.self_stream,
+        self_video: !!row.self_video,
       });
-    });
+    }
 
+    return {
+      user: mapLegacyUser(user),
+      servers,
+      dm_channels: dmChannels,
+      presences,
+      voice_states: voiceStates,
+    };
+  }
+
+  function addUserSocket(socket) {
+    const userId = socket.user?.id;
+    if (!userId) return;
+    socket.join(`user:${userId}`);
+
+    if (!userSockets.has(userId)) userSockets.set(userId, new Set());
+    userSockets.get(userId).add(socket.id);
+
+    for (const row of getGuildIds.all(userId)) {
+      socket.join(`guild:${row.guild_id}`);
+    }
+    for (const row of getDmChannelIds.all(userId)) {
+      socket.join(`channel:${row.id}`);
+    }
+  }
+
+  function removeUserSocket(socket) {
+    const userId = socket.user?.id;
+    if (!userId) return;
+    const set = userSockets.get(userId);
+    if (!set) return;
+    set.delete(socket.id);
+    if (set.size === 0) {
+      userSockets.delete(userId);
+      updatePresence.run('offline', null, nowSec(), userId);
+      rootNs.emit('presence:update', { user_id: userId, status: 'offline', activities: [], client_status: { web: 'offline' } });
+      rootNs.emit('PRESENCE_UPDATE', { user_id: userId, status: 'offline', custom_status: '' });
+      gatewayNs.emit('presence:update', { user_id: userId, status: 'offline', activities: [], client_status: { web: 'offline' } });
+      gatewayNs.emit('PRESENCE_UPDATE', { user_id: userId, status: 'offline', custom_status: '' });
+    }
+  }
+
+  function handlePresenceUpdate(socket, payload = {}) {
+    if (!socket.user) return;
+    const allowed = new Set(['online', 'idle', 'dnd', 'invisible']);
+    const status = allowed.has(payload.status) ? payload.status : 'online';
+    const customStatus = payload.custom_status != null ? String(payload.custom_status).slice(0, 190) : (socket.user.custom_status_text || null);
+    updatePresence.run(status, customStatus, nowSec(), socket.user.id);
+    socket.user.status = status;
+    socket.user.custom_status_text = customStatus;
+
+    const modern = {
+      user_id: socket.user.id,
+      status,
+      activities: Array.isArray(payload.activities) ? payload.activities : [],
+      client_status: { web: status },
+    };
+    const legacy = {
+      user_id: socket.user.id,
+      status,
+      custom_status: customStatus || '',
+    };
+
+    rootNs.emit('presence:update', modern);
+    gatewayNs.emit('presence:update', modern);
+    rootNs.emit('PRESENCE_UPDATE', legacy);
+    gatewayNs.emit('PRESENCE_UPDATE', legacy);
+  }
+
+  function registerQrHandlers(socket, namespace) {
     socket.on('qr:generate', () => {
       cleanupQr.run(nowSec());
       const qrId = randomUUID();
       const ts = nowSec();
       upsertQr.run(qrId, socket.id, ts, ts + 120);
       socket.emit('qr:generated', { qr_id: qrId, expires_in: 120 });
+      socket.emit('qr:generated'.toUpperCase(), { qr_id: qrId, expires_in: 120 });
     });
 
     socket.on('qr:scan', ({ qr_id }) => {
@@ -98,7 +297,7 @@ export function buildSocketServer(httpServer, { db, config }) {
         return;
       }
       markQrScanned.run('scanned', socket.user.id, qr_id);
-      io.to(row.desktop_socket_id).emit('qr:scanned', {
+      namespace.to(row.desktop_socket_id).emit('qr:scanned', {
         qr_id,
         user: { id: socket.user.id, username: socket.user.username },
       });
@@ -112,30 +311,75 @@ export function buildSocketServer(httpServer, { db, config }) {
         return;
       }
       markQrConfirmed.run('confirmed', qr_id);
-      io.to(row.desktop_socket_id).emit('qr:confirmed', {
+      namespace.to(row.desktop_socket_id).emit('qr:confirmed', {
         qr_id,
         user: { id: socket.user.id, username: socket.user.username },
       });
     });
+  }
 
-    socket.on('disconnect', () => {
-      if (!socket.user) return;
-      const userId = socket.user.id;
-      const userSet = userSockets.get(userId);
-      if (!userSet) return;
-      userSet.delete(socket.id);
-      if (userSet.size === 0) {
-        userSockets.delete(userId);
-        updatePresence.run('offline', nowSec(), userId);
-        io.emit('presence:update', {
-          user_id: userId,
-          status: 'offline',
-          activities: [],
-          client_status: { web: 'offline' },
-        });
-      }
-    });
+  rootNs.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) {
+      socket.user = null;
+      return next();
+    }
+    const user = verifyToken(token);
+    if (!user) return next(new Error('Authentication failed'));
+    socket.user = user;
+    return next();
   });
 
-  return io;
+  rootNs.on('connection', (socket) => {
+    if (socket.user) {
+      addUserSocket(socket);
+      updatePresence.run('online', socket.user.custom_status_text || null, nowSec(), socket.user.id);
+      rootNs.emit('presence:update', { user_id: socket.user.id, status: 'online', activities: [], client_status: { web: 'online' } });
+      gatewayNs.emit('PRESENCE_UPDATE', { user_id: socket.user.id, status: 'online', custom_status: socket.user.custom_status_text || '' });
+    }
+
+    socket.on('presence:update', (payload = {}) => handlePresenceUpdate(socket, payload));
+    registerQrHandlers(socket, rootNs);
+    socket.on('disconnect', () => removeUserSocket(socket));
+  });
+
+  gatewayNs.on('connection', (socket) => {
+    socket.on('IDENTIFY', ({ token } = {}) => {
+      const user = verifyToken(token);
+      if (!user) {
+        socket.emit('ERROR', { message: 'Authentication failed' });
+        return;
+      }
+
+      socket.user = user;
+      addUserSocket(socket);
+      updatePresence.run('online', socket.user.custom_status_text || null, nowSec(), socket.user.id);
+
+      socket.emit('READY', buildLegacyReady(user));
+      gatewayNs.emit('PRESENCE_UPDATE', { user_id: user.id, status: 'online', custom_status: user.custom_status_text || '' });
+      rootNs.emit('presence:update', { user_id: user.id, status: 'online', activities: [], client_status: { web: 'online' } });
+    });
+
+    socket.on('UPDATE_STATUS', (payload = {}) => handlePresenceUpdate(socket, payload));
+    socket.on('presence:update', (payload = {}) => handlePresenceUpdate(socket, payload));
+    registerQrHandlers(socket, gatewayNs);
+    socket.on('disconnect', () => removeUserSocket(socket));
+  });
+
+  const broadcast = {
+    to(room) {
+      return {
+        emit(event, payload) {
+          rootNs.to(room).emit(event, payload);
+          gatewayNs.to(room).emit(event, payload);
+        },
+      };
+    },
+    emit(event, payload) {
+      rootNs.emit(event, payload);
+      gatewayNs.emit(event, payload);
+    },
+  };
+
+  return broadcast;
 }

@@ -17,6 +17,7 @@ import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import guildsCoreRoutes from './routes/guildsCore.js';
 import messagesCoreRoutes from './routes/messagesCore.js';
+import socialCoreRoutes from './routes/socialCore.js';
 import { buildSocketServer } from './socket.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,6 +79,7 @@ await app.register(usersRoutes, { db, authenticate, authService, config });
 const io = buildSocketServer(app.server, { db, config });
 await app.register(guildsCoreRoutes, { db, authenticate, snowflake, io });
 await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io });
+await app.register(socialCoreRoutes, { db, authenticate, snowflake, io });
 
 app.get('/app', async (_req, reply) => {
   return reply.sendFile('app.html');
