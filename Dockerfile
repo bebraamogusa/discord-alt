@@ -1,12 +1,12 @@
 # ── Build stage (compile native deps) ─────────────────
-FROM node:22-alpine AS build
-RUN apk add --no-cache python3 py3-pip make g++ linux-headers
+FROM node:20-alpine AS build
+RUN apk add --no-cache python3 make g++
 WORKDIR /app/server
 COPY server/package.json .
 RUN npm install --production
 
 # ── Runtime stage ─────────────────────────────────────
-FROM node:22-alpine
+FROM node:20-alpine
 WORKDIR /app
 
 COPY --from=build /app/server/node_modules ./server/node_modules

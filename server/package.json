@@ -19,7 +19,7 @@
     "dotenv": "^16.4.0",
     "fastify": "^4.28.0",
     "jsonwebtoken": "^9.0.3",
-    "mediasoup": "^3.19.18",
+    "mediasoup": "^3.13.0",
     "mediasoup-client": "^3.18.7",
     "nanoid": "^5.0.0",
     "qrcode": "^1.5.4",
