@@ -61,8 +61,8 @@ export async function createWorkers() {
     });
 
     worker.on('died', () => {
-      console.error(`mediasoup worker died, exiting in 2 seconds... [pid:${worker.pid}]`);
-      setTimeout(() => process.exit(1), 2000);
+      console.error(`mediasoup worker died [pid:${worker.pid}] - voice features may be unavailable`);
+      workers = workers.filter(w => w !== worker);
     });
 
     workers.push(worker);

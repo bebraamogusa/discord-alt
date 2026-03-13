@@ -1,12 +1,13 @@
 # ── Build stage (compile native deps) ─────────────────
-FROM node:20-slim AS build
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+FROM node:22-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends python3 pip make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/server
 COPY server/package.json .
 RUN npm install --production
 
 # ── Runtime stage ─────────────────────────────────────
-FROM node:20-slim
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY --from=build /app/server/node_modules ./server/node_modules

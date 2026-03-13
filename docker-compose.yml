@@ -4,6 +4,10 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
+    ports:
+      - "40000-49999:40000-49999/udp"
+    environment:
+      - MEDIASOUP_ANNOUNCED_IP=178.236.243.109
     volumes:
       - ./uploads:/app/uploads
       - ./data:/app/data
