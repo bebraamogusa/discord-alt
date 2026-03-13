@@ -93,6 +93,15 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
   `);
 
   const getChannelById = db.prepare('SELECT * FROM channels WHERE id = ?');
+  const getMessageByIdInChannel = db.prepare('SELECT id, channel_id FROM messages WHERE id = ? AND channel_id = ? AND deleted = 0');
+  const upsertReadStateAck = db.prepare(`
+    INSERT INTO read_states (user_id, channel_id, last_read_message_id, mention_count)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, channel_id)
+    DO UPDATE SET
+      last_read_message_id = excluded.last_read_message_id,
+      mention_count = excluded.mention_count
+  `);
   const getDmParticipant = db.prepare('SELECT * FROM dm_participants WHERE channel_id = ? AND user_id = ?');
   const setDmClosed = db.prepare('UPDATE dm_participants SET closed = ? WHERE channel_id = ? AND user_id = ?');
   const getMessageById = db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0');
@@ -554,6 +563,39 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
     const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
     emitCompat('typing:start', 'TYPING_START', room, payload);
     return { ok: true };
+  });
+
+  fastify.post('/api/channels/:channelId/messages/:messageId/ack', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          mention_count: { type: 'integer', minimum: 0, maximum: 999999, default: 0 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const channel = getChannelById.get(req.params.channelId);
+    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
+    if (!canAccessChannel(req.user.id, channel)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
+
+    const message = getMessageByIdInChannel.get(req.params.messageId, channel.id);
+    if (!message) return reply.code(404).send({ error: 'Message not found in channel' });
+
+    const mentionCount = req.body?.mention_count ?? 0;
+    upsertReadStateAck.run(req.user.id, channel.id, message.id, mentionCount);
+
+    const payload = {
+      user_id: req.user.id,
+      channel_id: channel.id,
+      last_read_message_id: message.id,
+      mention_count: mentionCount,
+    };
+    io?.to(`user:${req.user.id}`)?.emit('read_state:update', payload);
+    io?.to(`user:${req.user.id}`)?.emit('READ_STATE_UPDATE', payload);
+    return { ok: true, read_state: payload };
   });
 
   fastify.get('/api/channels/:channelId/pins', { preHandler: authenticate }, async (req, reply) => {

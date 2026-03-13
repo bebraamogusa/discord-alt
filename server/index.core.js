@@ -13,11 +13,14 @@ import { createDatabase, runMigrations } from './database.js';
 import { SnowflakeGenerator } from './snowflake.js';
 import { buildAuthMiddleware } from './middleware/auth.js';
 import { buildAuthService } from './services/authService.js';
+import { buildEmbedService } from './services/embedService.js';
+import { buildFileService } from './services/fileService.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import guildsCoreRoutes from './routes/guildsCore.js';
 import messagesCoreRoutes from './routes/messagesCore.js';
 import socialCoreRoutes from './routes/socialCore.js';
+import embedsCoreRoutes from './routes/embedsCore.js';
 import { buildSocketServer } from './socket.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +33,8 @@ mkdirSync(config.uploadsRoot, { recursive: true });
 
 const snowflake = new SnowflakeGenerator(config.workerId, config.processId);
 const authService = buildAuthService({ db, snowflake, config });
+const embedService = buildEmbedService();
+const fileService = buildFileService({ uploadsRoot: config.uploadsRoot, snowflake });
 
 const app = Fastify({
   logger: config.env !== 'test',
@@ -42,6 +47,8 @@ const app = Fastify({
   },
 });
 
+app.decorate('embedService', embedService);
+
 await app.register(fastifyCors, {
   origin: config.corsOrigin,
   credentials: true,
@@ -52,7 +59,7 @@ await app.register(fastifyFormbody);
 
 await app.register(fastifyMultipart, {
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: 50 * 1024 * 1024,
     files: 10,
     fieldSize: 5 * 1024 * 1024,
   },
@@ -76,9 +83,10 @@ const authenticate = buildAuthMiddleware({ db, jwtSecret: config.jwtSecret });
 
 await app.register(authRoutes, { authService, config, authenticate });
 await app.register(usersRoutes, { db, authenticate, authService, config });
+await app.register(embedsCoreRoutes, { authenticate, embedService });
 const io = buildSocketServer(app.server, { db, config });
 await app.register(guildsCoreRoutes, { db, authenticate, snowflake, io });
-await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io });
+await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io, config, fileService });
 await app.register(socialCoreRoutes, { db, authenticate, snowflake, io });
 
 app.get('/app', async (_req, reply) => {

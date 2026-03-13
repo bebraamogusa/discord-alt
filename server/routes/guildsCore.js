@@ -38,6 +38,13 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
   const permissions = buildPermissionService(db);
 
   const getGuildById = db.prepare('SELECT * FROM guilds WHERE id = ?');
+  const getGuildMemberCount = db.prepare('SELECT COUNT(*) AS c FROM guild_members WHERE guild_id = ?');
+  const getGuildOnlineCount = db.prepare(`
+    SELECT COUNT(*) AS c
+    FROM guild_members gm
+    JOIN users u ON u.id = gm.user_id
+    WHERE gm.guild_id = ? AND coalesce(u.status, 'offline') <> 'offline'
+  `);
   const getGuildsForUser = db.prepare(`
     SELECT g.*
     FROM guilds g
@@ -50,6 +57,8 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
   const getChannelById = db.prepare('SELECT * FROM channels WHERE id = ?');
   const getRoleById = db.prepare('SELECT * FROM roles WHERE id = ?');
   const getInviteByCode = db.prepare('SELECT * FROM invites WHERE code = ?');
+  const getGuildTemplateByCode = db.prepare('SELECT * FROM guild_templates WHERE code = ?');
+  const listGuildTemplates = db.prepare('SELECT * FROM guild_templates WHERE guild_id = ? ORDER BY created_at DESC');
   const getInvitesByGuild = db.prepare('SELECT * FROM invites WHERE guild_id = ? ORDER BY created_at DESC');
   const getInvitesByChannel = db.prepare('SELECT * FROM invites WHERE channel_id = ? ORDER BY created_at DESC');
   const getFirstTextChannel = db.prepare('SELECT * FROM channels WHERE guild_id = ? AND type = 0 ORDER BY position ASC, created_at ASC LIMIT 1');
@@ -89,6 +98,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
         updated_at = ?
     WHERE id = ?
   `);
+  const updateGuildOwner = db.prepare('UPDATE guilds SET owner_id = ?, updated_at = ? WHERE id = ?');
 
   const updateRole = db.prepare(`
     UPDATE roles
@@ -185,12 +195,33 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     WHERE gm.guild_id = ?
     ORDER BY gm.joined_at ASC
   `);
+  const searchMembersInGuild = db.prepare(`
+    SELECT
+      gm.guild_id, gm.user_id, gm.nickname, gm.joined_at, gm.deaf, gm.mute, gm.pending, gm.communication_disabled_until, gm.flags,
+      u.username, u.display_name, u.avatar, u.banner, u.status
+    FROM guild_members gm
+    JOIN users u ON u.id = gm.user_id
+    WHERE gm.guild_id = ?
+      AND (
+        lower(u.username) LIKE ? ESCAPE '\\'
+        OR lower(coalesce(u.display_name, '')) LIKE ? ESCAPE '\\'
+        OR lower(coalesce(gm.nickname, '')) LIKE ? ESCAPE '\\'
+      )
+    ORDER BY gm.joined_at ASC
+    LIMIT ?
+  `);
   const getRoleIdsForMember = db.prepare('SELECT role_id FROM member_roles WHERE guild_id = ? AND user_id = ?');
 
   const insertInvite = db.prepare(`
     INSERT INTO invites (code, guild_id, channel_id, inviter_id, max_age, max_uses, uses, temporary, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `);
+
+  const insertGuildTemplate = db.prepare(`
+    INSERT INTO guild_templates (code, guild_id, name, description, usage_count, creator_id, serialized_guild, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+  `);
+  const incrementTemplateUsage = db.prepare('UPDATE guild_templates SET usage_count = usage_count + 1, updated_at = ? WHERE code = ?');
 
   const incrementInviteUse = db.prepare('UPDATE invites SET uses = uses + 1 WHERE code = ?');
 
@@ -232,6 +263,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     return snowflake.generate().slice(-8).toLowerCase();
   }
 
+  function randomTemplateCode() {
+    return snowflake.generate().slice(-10).toLowerCase();
+  }
+
   function inviteSummary(invite) {
     return {
       code: invite.code,
@@ -245,6 +280,49 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       created_at: invite.created_at,
       expires_at: invite.expires_at,
     };
+  }
+
+  function templateSerializedGuild(guildId) {
+    const guild = getGuildById.get(guildId);
+    if (!guild) return null;
+
+    const roles = getRolesForGuild
+      .all(guildId)
+      .filter((r) => r.id !== guildId)
+      .map((r) => ({
+        name: r.name,
+        color: r.color,
+        hoist: r.hoist,
+        icon: r.icon,
+        unicode_emoji: r.unicode_emoji,
+        position: r.position,
+        permissions: r.permissions,
+        managed: r.managed,
+        mentionable: r.mentionable,
+        flags: r.flags,
+      }));
+
+    const channels = getChannelsForGuild
+      .all(guildId)
+      .filter((c) => c.type !== 1 && c.type !== 3)
+      .map((c) => ({
+        type: c.type,
+        name: c.name,
+        topic: c.topic,
+        position: c.position,
+        nsfw: c.nsfw,
+        rate_limit_per_user: c.rate_limit_per_user,
+      }));
+
+    return JSON.stringify({
+      guild: {
+        name: guild.name,
+        description: guild.description,
+        preferred_locale: guild.preferred_locale,
+      },
+      roles,
+      channels,
+    });
   }
 
   function requireGuild(guildId, reply) {
@@ -389,6 +467,233 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     };
   });
 
+  fastify.get('/api/guilds/:guildId/preview', async (req, reply) => {
+    const guild = requireGuild(req.params.guildId, reply);
+    if (!guild) return;
+
+    return {
+      id: guild.id,
+      name: guild.name,
+      icon: guild.icon,
+      description: guild.description,
+      splash: guild.splash,
+      approximate_member_count: getGuildMemberCount.get(guild.id)?.c || 0,
+      approximate_presence_count: getGuildOnlineCount.get(guild.id)?.c || 0,
+    };
+  });
+
+  fastify.post('/api/guilds/:guildId/transfer', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['user_id'],
+        properties: {
+          user_id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+    if (guild.owner_id !== req.user.id) {
+      return reply.code(403).send({ error: 'Only guild owner can transfer ownership' });
+    }
+
+    const targetMember = getGuildMember.get(guild.id, req.body.user_id);
+    if (!targetMember) return reply.code(400).send({ error: 'Target user is not a guild member' });
+    if (req.body.user_id === req.user.id) return reply.code(400).send({ error: 'Target must be different from current owner' });
+
+    updateGuildOwner.run(req.body.user_id, nowSec(), guild.id);
+    const updated = getGuildById.get(guild.id);
+    const payload = mapGuild(updated);
+    io?.to(`guild:${guild.id}`)?.emit('guild:update', payload);
+    io?.to(`guild:${guild.id}`)?.emit('SERVER_UPDATE', {
+      ...payload,
+      icon_url: payload.icon || '',
+      banner_url: payload.banner || '',
+    });
+    return payload;
+  });
+
+  fastify.post('/api/guilds/:guildId/templates', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          description: { type: ['string', 'null'], maxLength: 120 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+    if (!permissions.hasGuildPermission(guild.id, req.user.id, Permissions.MANAGE_GUILD)) {
+      return reply.code(403).send({ error: 'Missing MANAGE_GUILD permission' });
+    }
+
+    const serialized = templateSerializedGuild(guild.id);
+    if (!serialized) return reply.code(400).send({ error: 'Cannot serialize guild template' });
+
+    let code = randomTemplateCode();
+    for (let i = 0; i < 5; i += 1) {
+      if (!getGuildTemplateByCode.get(code)) break;
+      code = randomTemplateCode();
+    }
+    if (getGuildTemplateByCode.get(code)) {
+      return reply.code(500).send({ error: 'Could not generate unique template code' });
+    }
+
+    const ts = nowSec();
+    insertGuildTemplate.run(
+      code,
+      guild.id,
+      String(req.body.name).trim().slice(0, 100),
+      req.body.description ?? null,
+      req.user.id,
+      serialized,
+      ts,
+      ts,
+    );
+
+    return reply.code(201).send(getGuildTemplateByCode.get(code));
+  });
+
+  fastify.get('/api/guilds/:guildId/templates', { preHandler: authenticate }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+    return listGuildTemplates.all(guild.id);
+  });
+
+  fastify.post('/api/guilds/templates/:code', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 100 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const template = getGuildTemplateByCode.get(String(req.params.code || '').toLowerCase());
+    if (!template) return reply.code(404).send({ error: 'Template not found' });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(template.serialized_guild || '{}');
+    } catch {
+      return reply.code(500).send({ error: 'Template data is invalid' });
+    }
+
+    const guildId = snowflake.generate();
+    const now = nowSec();
+    const everyoneRoleId = guildId;
+    const guildName = nonEmptyText(req.body?.name || parsed?.guild?.name || template.name, 2, 100);
+    if (!guildName) return reply.code(400).send({ error: 'Invalid guild name' });
+
+    db.transaction(() => {
+      insertGuild.run(guildId, guildName, req.user.id, parsed?.guild?.description ?? null, now, now);
+      insertMember.run(guildId, req.user.id, now);
+
+      let everyonePerms = 0n;
+      everyonePerms |= Permissions.VIEW_CHANNEL;
+      everyonePerms |= Permissions.SEND_MESSAGES;
+      everyonePerms |= Permissions.CREATE_INSTANT_INVITE;
+
+      insertRole.run(
+        everyoneRoleId,
+        guildId,
+        '@everyone',
+        0,
+        0,
+        0,
+        serializePermissions(everyonePerms),
+        0,
+        0,
+        0,
+        now
+      );
+      insertMemberRole.run(guildId, req.user.id, everyoneRoleId);
+
+      const tplRoles = Array.isArray(parsed?.roles) ? parsed.roles : [];
+      for (const role of tplRoles) {
+        const roleName = nonEmptyText(role?.name, 1, 100);
+        if (!roleName) continue;
+        const roleId = snowflake.generate();
+        insertRole.run(
+          roleId,
+          guildId,
+          roleName,
+          Number(role?.color ?? 0),
+          Number(role?.hoist ?? 0),
+          Number(role?.position ?? 1),
+          String(role?.permissions ?? '0'),
+          Number(role?.managed ?? 0),
+          Number(role?.mentionable ?? 0),
+          Number(role?.flags ?? 0),
+          now
+        );
+      }
+
+      const tplChannels = Array.isArray(parsed?.channels) ? parsed.channels : [];
+      let createdAnyText = false;
+      for (const channel of tplChannels) {
+        const channelName = nonEmptyText(channel?.name, 1, 100);
+        const channelType = Number(channel?.type ?? 0);
+        if (!channelName) continue;
+        if (channelType === 1 || channelType === 3) continue;
+        const channelId = snowflake.generate();
+        insertChannel.run(
+          channelId,
+          guildId,
+          channelType,
+          channelName,
+          channel?.topic ?? null,
+          Number(channel?.position ?? 0),
+          null,
+          Number(channel?.nsfw ?? 0),
+          Number(channel?.rate_limit_per_user ?? 0),
+          now,
+          now
+        );
+        if (channelType === 0) createdAnyText = true;
+      }
+
+      if (!createdAnyText) {
+        const generalChannelId = snowflake.generate();
+        insertChannel.run(generalChannelId, guildId, 0, 'general', null, 0, null, 0, 0, now, now);
+      }
+
+      incrementTemplateUsage.run(now, template.code);
+    })();
+
+    const snapshot = guildSnapshot(guildId);
+    io?.to(`user:${req.user.id}`)?.emit('guild:create', snapshot);
+    return reply.code(201).send(snapshot);
+  });
+
+  fastify.get('/api/guilds/:guildId/roles', { preHandler: authenticate }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+    return getRolesForGuild.all(guild.id);
+  });
+
+  fastify.get('/api/guilds/:guildId/channels', { preHandler: authenticate }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+
+    return getChannelsForGuild
+      .all(guild.id)
+      .filter((channel) => permissions.hasChannelPermission(channel.id, req.user.id, Permissions.VIEW_CHANNEL));
+  });
+
   fastify.patch('/api/guilds/:guildId', {
     preHandler: authenticate,
     schema: {
@@ -473,6 +778,28 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     return { ok: true };
   });
 
+  fastify.delete('/api/users/@me/guilds/:guildId', { preHandler: authenticate }, async (req, reply) => {
+    const guild = requireGuild(req.params.guildId, reply);
+    if (!guild) return;
+
+    if (guild.owner_id === req.user.id) {
+      return reply.code(400).send({ error: 'Owner cannot leave guild' });
+    }
+
+    const member = getGuildMember.get(guild.id, req.user.id);
+    if (!member) {
+      return reply.code(404).send({ error: 'Membership not found' });
+    }
+
+    db.transaction(() => {
+      deleteGuildMember.run(guild.id, req.user.id);
+      db.prepare('DELETE FROM member_roles WHERE guild_id = ? AND user_id = ?').run(guild.id, req.user.id);
+    })();
+
+    io?.to(`guild:${guild.id}`)?.emit('guild:member:remove', { guild_id: guild.id, user_id: req.user.id });
+    return { ok: true };
+  });
+
   fastify.get('/api/guilds/:guildId/members', { preHandler: authenticate }, async (req, reply) => {
     const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
     if (!guild) return;
@@ -499,6 +826,49 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     }));
 
     return out;
+  });
+
+  fastify.get('/api/guilds/:guildId/members/search', {
+    preHandler: authenticate,
+    schema: {
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['query'],
+        properties: {
+          query: { type: 'string', minLength: 1, maxLength: 100 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const guild = requireGuildMemberAccess(req.params.guildId, req.user.id, reply);
+    if (!guild) return;
+
+    const q = String(req.query.query || '').trim().toLowerCase();
+    const safe = q.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const pattern = `%${safe}%`;
+    const rows = searchMembersInGuild.all(guild.id, pattern, pattern, pattern, req.query.limit || 25);
+
+    return rows.map((row) => ({
+      guild_id: row.guild_id,
+      user: {
+        id: row.user_id,
+        username: row.username,
+        display_name: row.display_name,
+        avatar: row.avatar,
+        banner: row.banner,
+        status: row.status,
+      },
+      nickname: row.nickname,
+      joined_at: row.joined_at,
+      deaf: row.deaf,
+      mute: row.mute,
+      pending: row.pending,
+      communication_disabled_until: row.communication_disabled_until,
+      flags: row.flags,
+      role_ids: getRoleIdsForMember.all(guild.id, row.user_id).map((r) => r.role_id),
+    }));
   });
 
   fastify.get('/api/guilds/:guildId/members/:userId', { preHandler: authenticate }, async (req, reply) => {
