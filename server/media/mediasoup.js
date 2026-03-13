@@ -56,8 +56,8 @@ export async function createWorkers() {
     const worker = await mediasoup.createWorker({
       logLevel: 'warn',
       logTags: ['info', 'ice', 'dtls', 'rtp', 'srtp', 'rtcp'],
-      rtcMinPort: 50000,
-      rtcMaxPort: 50999
+      rtcMinPort: 51000,
+      rtcMaxPort: 51999
     });
 
     worker.on('died', () => {

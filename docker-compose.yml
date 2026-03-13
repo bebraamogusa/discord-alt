@@ -5,7 +5,7 @@ services:
     expose:
       - "3000"
     ports:
-      - "50000-50999:50000-50999/udp"
+      - "51000-51999:51000-51999/udp"
     environment:
       - MEDIASOUP_ANNOUNCED_IP=178.236.243.109
     volumes:
