@@ -37,7 +37,7 @@ Text chat, video calls, screen sharing, file uploads.
 │           └── lib.rs            # Tray icon, notifications
 │
 ├── server/                       # Signal server
-│   ├── index.js                  # Fastify + Socket.io + SQLite
+│   ├── index.core.js             # Fastify + Socket.io + SQLite (core)
 │   └── package.json
 │
 ├── client/                       # Web client (standalone browser version)
@@ -61,11 +61,10 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.
 
 The script will:
 - Install Docker, Docker Compose, git (if missing)
-- Clone the repo to `/opt/discord-alt`
-- Ask for domain, port, upload size
+- Clone/update the repo in your home directory
+- Ask for port and upload size
 - Build and start the server
-- Optionally install Caddy for automatic HTTPS
-- Open firewall ports (UFW)
+- Keep deployment Docker-only (no SSL auto-setup)
 
 ### Manual install
 
@@ -208,7 +207,7 @@ npm run build
 | `PORT` | `3000` | Server port |
 | `MAX_FILE_SIZE` | `5242880` | Max upload in bytes (5 MB) |
 | `UPLOADS_DIR` | `/app/uploads` | File storage path |
-| `DB_PATH` | `/app/data/chat.db` | SQLite database path |
+| `DB_PATH` | `/app/data/discord-clone.db` | SQLite database path |
 
 ---
 

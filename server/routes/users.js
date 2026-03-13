@@ -12,22 +12,14 @@ function sanitizeHexColor(value) {
 export default async function usersRoutes(fastify, { db, authenticate, authService, config }) {
   const getUserSettings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?');
 
-  const updateLegacyMe = db.prepare(`
-    UPDATE users
-    SET avatar = coalesce(?, avatar),
-        banner = coalesce(?, banner),
-        accent_color = coalesce(?, accent_color),
-        bio = coalesce(?, bio),
-        custom_status_text = coalesce(?, custom_status_text),
-        updated_at = ?
-    WHERE id = ? AND deleted_at IS NULL
-  `);
-
   const updateUser = db.prepare(`
     UPDATE users
     SET username = coalesce(?, username),
         display_name = coalesce(?, display_name),
+        avatar = coalesce(?, avatar),
+        banner = coalesce(?, banner),
         bio = ?,
+        custom_status_text = ?,
         pronouns = ?,
         accent_color = ?,
         updated_at = ?
@@ -90,21 +82,6 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
 
   const deleteSessionsByUser = db.prepare('DELETE FROM user_sessions WHERE user_id = ?');
 
-  function toLegacyMe(user) {
-    return {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      avatar_url: user.avatar,
-      banner_url: user.banner,
-      avatar_color: user.accent_color,
-      about_me: user.bio,
-      custom_status: user.custom_status_text,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
-    };
-  }
-
   const countMutualGuilds = db.prepare(`
     SELECT COUNT(*) AS c
     FROM guild_members a
@@ -130,37 +107,65 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
     return { ...authService.publicUser(req.user), settings };
   });
 
-  fastify.get('/api/@me', { preHandler: authenticate }, async (req) => {
-    const full = getUserById.get(req.user.id);
-    if (!full) return { error: 'User not found' };
-    return toLegacyMe(full);
-  });
+  fastify.patch('/api/users/@me', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          username: { type: 'string', minLength: 3, maxLength: 32 },
+          display_name: { type: 'string', minLength: 1, maxLength: 64 },
+          avatar: { type: 'string', minLength: 0, maxLength: 2048 },
+          banner: { type: 'string', minLength: 0, maxLength: 2048 },
+          bio: { type: 'string', minLength: 0, maxLength: 190 },
+          custom_status_text: { type: 'string', minLength: 0, maxLength: 190 },
+          pronouns: { type: 'string', minLength: 0, maxLength: 40 },
+          accent_color: { type: 'string', minLength: 7, maxLength: 7 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const payload = req.body || {};
 
-  fastify.patch('/api/@me', { preHandler: authenticate }, async (req, reply) => {
-    const b = req.body || {};
-    const accent = b.avatar_color !== undefined
-      ? sanitizeHexColor(b.avatar_color)
-      : null;
-    if (b.avatar_color !== undefined && b.avatar_color !== null && !accent) {
-      return reply.code(400).send({ error: 'Invalid avatar_color format' });
+    let nextUsername = null;
+    if (payload.username != null) {
+      nextUsername = String(payload.username).trim().toLowerCase();
+      if (!USERNAME_RE.test(nextUsername)) {
+        return reply.code(400).send({ error: 'Invalid username format' });
+      }
+      const existing = getUserByUsername.get(nextUsername);
+      if (existing && existing.id !== req.user.id) {
+        return reply.code(409).send({ error: 'Username already in use' });
+      }
     }
 
-    updateLegacyMe.run(
-      b.avatar_url != null ? String(b.avatar_url).slice(0, 2048) : null,
-      b.banner_url != null ? String(b.banner_url).slice(0, 2048) : null,
-      accent,
-      b.about_me != null ? String(b.about_me).slice(0, 190) : null,
-      b.custom_status != null ? String(b.custom_status).slice(0, 190) : null,
+    const accentColor = payload.accent_color !== undefined
+      ? sanitizeHexColor(payload.accent_color)
+      : req.user.accent_color;
+
+    if (payload.accent_color !== undefined && payload.accent_color !== null && !accentColor) {
+      return reply.code(400).send({ error: 'Invalid accent_color format' });
+    }
+
+    updateUser.run(
+      nextUsername,
+      payload.display_name != null ? String(payload.display_name).trim() : null,
+      payload.avatar != null ? String(payload.avatar).slice(0, 2048) : null,
+      payload.banner != null ? String(payload.banner).slice(0, 2048) : null,
+      payload.bio != null ? String(payload.bio).slice(0, 190) : req.user.bio,
+      payload.custom_status_text != null ? String(payload.custom_status_text).slice(0, 190) : req.user.custom_status_text,
+      payload.pronouns != null ? String(payload.pronouns).slice(0, 40) : req.user.pronouns,
+      accentColor,
       Math.floor(Date.now() / 1000),
       req.user.id
     );
 
     const updated = getUserById.get(req.user.id);
-    if (!updated) return reply.code(404).send({ error: 'User not found' });
-    return toLegacyMe(updated);
+    return authService.publicUser(updated);
   });
 
-  fastify.patch('/api/@me/password', {
+  fastify.patch('/api/users/@me/password', {
     preHandler: authenticate,
     schema: {
       body: {
@@ -194,58 +199,6 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
     });
     updatePasswordHash.run(nextHash, Math.floor(Date.now() / 1000), req.user.id);
     return { ok: true };
-  });
-
-  fastify.patch('/api/users/@me', {
-    preHandler: authenticate,
-    schema: {
-      body: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          username: { type: 'string', minLength: 3, maxLength: 32 },
-          display_name: { type: 'string', minLength: 1, maxLength: 64 },
-          bio: { type: 'string', minLength: 0, maxLength: 190 },
-          pronouns: { type: 'string', minLength: 0, maxLength: 40 },
-          accent_color: { type: 'string', minLength: 7, maxLength: 7 },
-        },
-      },
-    },
-  }, async (req, reply) => {
-    const payload = req.body || {};
-
-    let nextUsername = null;
-    if (payload.username != null) {
-      nextUsername = String(payload.username).trim().toLowerCase();
-      if (!USERNAME_RE.test(nextUsername)) {
-        return reply.code(400).send({ error: 'Invalid username format' });
-      }
-      const existing = getUserByUsername.get(nextUsername);
-      if (existing && existing.id !== req.user.id) {
-        return reply.code(409).send({ error: 'Username already in use' });
-      }
-    }
-
-    const accentColor = payload.accent_color !== undefined
-      ? sanitizeHexColor(payload.accent_color)
-      : req.user.accent_color;
-
-    if (payload.accent_color !== undefined && payload.accent_color !== null && !accentColor) {
-      return reply.code(400).send({ error: 'Invalid accent_color format' });
-    }
-
-    updateUser.run(
-      nextUsername,
-      payload.display_name != null ? String(payload.display_name).trim() : null,
-      payload.bio != null ? String(payload.bio).slice(0, 190) : req.user.bio,
-      payload.pronouns != null ? String(payload.pronouns).slice(0, 40) : req.user.pronouns,
-      accentColor,
-      Math.floor(Date.now() / 1000),
-      req.user.id
-    );
-
-    const updated = getUserById.get(req.user.id);
-    return authService.publicUser(updated);
   });
 
   fastify.patch('/api/users/@me/settings', {

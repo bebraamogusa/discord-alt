@@ -62,7 +62,9 @@ function assertRegistrationInput({ email, username, password, date_of_birth }) {
     throw error;
   }
 
-  assertAge13OrMore(date_of_birth);
+  if (date_of_birth != null && String(date_of_birth).trim() !== '') {
+    assertAge13OrMore(date_of_birth);
+  }
   return { normalizedEmail, normalizedUsername };
 }
 

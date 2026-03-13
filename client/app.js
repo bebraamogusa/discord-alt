@@ -53,6 +53,20 @@ let socket = null;   // Socket.IO /gateway socket
 const $ = id => document.getElementById(id);
 const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
 
+function normalizeMe(user) {
+  if (!user) return null;
+  if (user.avatar_url !== undefined || user.about_me !== undefined) return user;
+  return {
+    ...user,
+    avatar_url: user.avatar || '',
+    banner_url: user.banner || '',
+    avatar_color: user.accent_color || '#5865f2',
+    banner_color: user.accent_color || '#5865f2',
+    about_me: user.bio || '',
+    custom_status: user.custom_status_text || '',
+  };
+}
+
 // ─── SVG ICON SYSTEM ─────────────────────────────────────────────────────────
 const _ic = (d, s = 18) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${d}</svg>`;
 const _f = (d, s) => _ic(`<path d="${d}" fill="currentColor"/>`, s);
@@ -455,7 +469,7 @@ async function doLogin() {
     const data = await API.post('/api/auth/login', { email, password });
     API.setToken(data.token);
     API.setRefreshToken(data.refreshToken);
-    S.me = data.user;
+    S.me = normalizeMe(data.user);
     await bootApp();
   } catch (e) {
     $('auth-login-err').textContent = e.body?.error || t('login_error');
@@ -472,7 +486,7 @@ async function doRegister() {
     const data = await API.post('/api/auth/register', { email, username, password });
     API.setToken(data.token);
     API.setRefreshToken(data.refreshToken);
-    S.me = data.user;
+    S.me = normalizeMe(data.user);
     await bootApp();
   } catch (e) {
     $('auth-reg-err').textContent = e.body?.error || t('register_error');
@@ -502,7 +516,7 @@ function connectGateway() {
   });
 
   socket.on('READY', ({ user, servers, dm_channels, presences, voice_states }) => {
-    S.me = user;
+    S.me = normalizeMe(user);
     S.servers = servers;
     S.dmChannels = dm_channels;
     S.presences = presences;
@@ -511,7 +525,7 @@ function connectGateway() {
     // Restore saved status
     const savedStatus = localStorage.getItem('da_status');
     if (savedStatus && savedStatus !== 'online') {
-      socket.emit('UPDATE_STATUS', { status: savedStatus, custom_status: user.custom_status || '' });
+      socket.emit('UPDATE_STATUS', { status: savedStatus, custom_status: (S.me?.custom_status || '') });
     }
   });
 
@@ -2040,10 +2054,7 @@ async function showProfileCard(userId, anchorEl) {
   });
 
   card.querySelector('.pc-add-friend-btn')?.addEventListener('click', async () => {
-    try {
-      const result = await API.post(`/api/@me/friends/${userId}`);
-      showToast(result.status === 'accepted' ? t('friend_accepted') : t('friend_added'), 'success');
-    } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+    showToast(t('notifications_wip'));
   });
 
   card.querySelector('.pc-nick-btn')?.addEventListener('click', () => {
@@ -2290,12 +2301,9 @@ async function showPins() {
 let _friendsTab = 'online';
 
 async function loadFriendCount() {
-  try {
-    const friends = await API.get('/api/@me/friends');
-    S.friends = friends;
-    S._friendRequestCount = friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
-    if (S.activeServerId === '@me') renderChannelList();
-  } catch {}
+  S.friends = [];
+  S._friendRequestCount = 0;
+  if (S.activeServerId === '@me') renderChannelList();
 }
 
 async function showFriendsView() {
@@ -2306,12 +2314,10 @@ async function showFriendsView() {
   $('input-area').classList.add('hidden');
   $('members-panel').classList.add('hidden');
 
-  // Load friends
-  try {
-    S.friends = await API.get('/api/@me/friends');
-    S._friendRequestCount = S.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
-    renderChannelList();
-  } catch {}
+  // Core mode: friend API is not implemented yet
+  S.friends = [];
+  S._friendRequestCount = 0;
+  renderChannelList();
 
   // Render friends view in main area
   let main = $('friends-view');
@@ -2378,26 +2384,15 @@ async function showFriendsView() {
     });
     el.querySelector('.friend-remove')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      try {
-        await API.del(`/api/@me/friends/${el.dataset.userId}`);
-        showToast(t('friend_removed'), 'success');
-        showFriendsView();
-      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
+      showToast(t('notifications_wip'));
     });
     el.querySelector('.friend-accept')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      try {
-        await API.post(`/api/@me/friends/${el.dataset.userId}`);
-        showToast(t('friend_accepted'), 'success');
-        showFriendsView();
-      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
+      showToast(t('notifications_wip'));
     });
     el.querySelector('.friend-decline')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      try {
-        await API.del(`/api/@me/friends/${el.dataset.userId}`);
-        showFriendsView();
-      } catch (err) { showToast(err.body?.error || err.message || t('error_generic'), 'error'); }
+      showToast(t('notifications_wip'));
     });
   });
 
@@ -2426,13 +2421,7 @@ async function showFriendsView() {
           `).join('') || `<div style="color:var(--text-3);padding:8px">${t('new_dm_no_results')}</div>`;
           resultsEl.querySelectorAll('.friend-add-btn').forEach(btn => {
             btn.onclick = async () => {
-              const uid = btn.closest('.friend-item').dataset.userId;
-              try {
-                const result = await API.post(`/api/@me/friends/${uid}`);
-                showToast(result.status === 'accepted' ? t('friend_accepted') : t('friend_added'), 'success');
-                btn.disabled = true;
-                btn.textContent = '✓';
-              } catch (err) { showToast(err.body?.error || t('error_generic'), 'error'); }
+              showToast(t('notifications_wip'));
             };
           });
         } catch {}
@@ -3113,22 +3102,21 @@ function renderUserSettingsPage(page) {
     `;
     $('us-save').onclick = async () => {
       try {
-        const updated = await API.patch('/api/@me', {
-          avatar_url:   $('us-avatar').value.trim(),
-          avatar_color: $('us-av-color').value,
-          banner_url:   $('us-banner').value.trim(),
-          banner_color: $('us-banner-color').value,
-          about_me:     $('us-about').value.trim(),
-          custom_status:$('us-status').value.trim(),
+        const updated = await API.patch('/api/users/@me', {
+          avatar: $('us-avatar').value.trim(),
+          banner: $('us-banner').value.trim(),
+          accent_color: $('us-av-color').value,
+          bio: $('us-about').value.trim(),
+          custom_status_text: $('us-status').value.trim(),
         });
-        S.me = updated;
-        applySelfProfileToCaches(updated);
+        S.me = normalizeMe(updated);
+        applySelfProfileToCaches(S.me);
         updateSidebarUser();
         renderChannelList();
         if (S.activeServerId !== '@me') renderMembersPanel();
         if (getChannel(S.activeChannelId)?.type === 'voice') renderVoicePanel();
         else if (S.activeChannelId && S.activeChannelId !== 'friends') renderMessages();
-        socket?.emit('UPDATE_STATUS', { status: localStorage.getItem('da_status') || 'online', custom_status: updated.custom_status });
+        socket?.emit('UPDATE_STATUS', { status: localStorage.getItem('da_status') || 'online', custom_status: S.me.custom_status });
         showToast(t('saved'), 'success');
       } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
     };
@@ -3159,7 +3147,7 @@ function renderUserSettingsPage(page) {
       if (nw.length < 6) { showToast(t('password_min_6'), 'error'); return; }
       if (nw !== cnf) { showToast(t('passwords_mismatch'), 'error'); return; }
       try {
-        await API.patch('/api/@me/password', { current_password: cur, new_password: nw });
+        await API.patch('/api/users/@me/password', { current_password: cur, new_password: nw });
         showToast(t('password_changed'), 'success');
         $('us-cur-pass').value = '';
         $('us-new-pass').value = '';
@@ -3994,7 +3982,7 @@ async function init() {
 
   // Silently validate stored session (api.js auto-refreshes if expired)
   try {
-    S.me = await API.get('/api/@me');
+    S.me = normalizeMe(await API.get('/api/users/@me'));
     hideSplash();
     window.dispatchEvent(new CustomEvent('da:authenticated'));
     await bootApp();

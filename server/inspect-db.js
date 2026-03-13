@@ -2,12 +2,6 @@ import Database from 'better-sqlite3';
 
 const targets = [
   {
-    name: 'legacy',
-    file: '/app/data/chat.db',
-    tables: ['users', 'servers', 'server_members', 'channels', 'messages', 'invites', 'bans'],
-    userQuery: 'SELECT id, username, email, created_at FROM users ORDER BY created_at DESC LIMIT 20',
-  },
-  {
     name: 'core',
     file: '/app/data/discord-clone.db',
     tables: ['users', 'guilds', 'guild_members', 'channels', 'messages', 'invites', 'bans'],
