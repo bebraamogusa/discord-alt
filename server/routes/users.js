@@ -12,6 +12,17 @@ function sanitizeHexColor(value) {
 export default async function usersRoutes(fastify, { db, authenticate, authService, config }) {
   const getUserSettings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?');
 
+  const updateLegacyMe = db.prepare(`
+    UPDATE users
+    SET avatar = coalesce(?, avatar),
+        banner = coalesce(?, banner),
+        accent_color = coalesce(?, accent_color),
+        bio = coalesce(?, bio),
+        custom_status_text = coalesce(?, custom_status_text),
+        updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+  `);
+
   const updateUser = db.prepare(`
     UPDATE users
     SET username = coalesce(?, username),
@@ -25,6 +36,7 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
 
   const getUserByUsername = db.prepare('SELECT id FROM users WHERE username = ? AND deleted_at IS NULL');
   const getUserById = db.prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL');
+  const updatePasswordHash = db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL');
 
   const updateSettings = db.prepare(`
     UPDATE user_settings
@@ -78,6 +90,21 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
 
   const deleteSessionsByUser = db.prepare('DELETE FROM user_sessions WHERE user_id = ?');
 
+  function toLegacyMe(user) {
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      avatar_url: user.avatar,
+      banner_url: user.banner,
+      avatar_color: user.accent_color,
+      about_me: user.bio,
+      custom_status: user.custom_status_text,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    };
+  }
+
   const countMutualGuilds = db.prepare(`
     SELECT COUNT(*) AS c
     FROM guild_members a
@@ -101,6 +128,72 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
   fastify.get('/api/users/@me', { preHandler: authenticate }, async (req) => {
     const settings = getUserSettings.get(req.user.id);
     return { ...authService.publicUser(req.user), settings };
+  });
+
+  fastify.get('/api/@me', { preHandler: authenticate }, async (req) => {
+    const full = getUserById.get(req.user.id);
+    if (!full) return { error: 'User not found' };
+    return toLegacyMe(full);
+  });
+
+  fastify.patch('/api/@me', { preHandler: authenticate }, async (req, reply) => {
+    const b = req.body || {};
+    const accent = b.avatar_color !== undefined
+      ? sanitizeHexColor(b.avatar_color)
+      : null;
+    if (b.avatar_color !== undefined && b.avatar_color !== null && !accent) {
+      return reply.code(400).send({ error: 'Invalid avatar_color format' });
+    }
+
+    updateLegacyMe.run(
+      b.avatar_url != null ? String(b.avatar_url).slice(0, 2048) : null,
+      b.banner_url != null ? String(b.banner_url).slice(0, 2048) : null,
+      accent,
+      b.about_me != null ? String(b.about_me).slice(0, 190) : null,
+      b.custom_status != null ? String(b.custom_status).slice(0, 190) : null,
+      Math.floor(Date.now() / 1000),
+      req.user.id
+    );
+
+    const updated = getUserById.get(req.user.id);
+    if (!updated) return reply.code(404).send({ error: 'User not found' });
+    return toLegacyMe(updated);
+  });
+
+  fastify.patch('/api/@me/password', {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['current_password', 'new_password'],
+        additionalProperties: false,
+        properties: {
+          current_password: { type: 'string', minLength: 1, maxLength: 1024 },
+          new_password: { type: 'string', minLength: 8, maxLength: 1024 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const full = db.prepare('SELECT id, password_hash FROM users WHERE id = ? AND deleted_at IS NULL').get(req.user.id);
+    if (!full) return reply.code(404).send({ error: 'User not found' });
+
+    let ok = false;
+    try {
+      ok = await argon2.verify(full.password_hash, req.body.current_password);
+    } catch {
+      ok = false;
+    }
+
+    if (!ok) return reply.code(401).send({ error: 'Invalid current password' });
+
+    const nextHash = await argon2.hash(req.body.new_password, {
+      type: argon2.argon2id,
+      memoryCost: 19_456,
+      timeCost: 2,
+      parallelism: 1,
+    });
+    updatePasswordHash.run(nextHash, Math.floor(Date.now() / 1000), req.user.id);
+    return { ok: true };
   });
 
   fastify.patch('/api/users/@me', {

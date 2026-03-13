@@ -4,9 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "start:core": "node index.core.js",
-    "migrate:legacy-to-core": "node migrate-legacy-to-core.js",
+    "start": "node index.core.js",
     "inspect:db": "node inspect-db.js"
   },
   "dependencies": {
