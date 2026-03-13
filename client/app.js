@@ -3692,6 +3692,7 @@ function setup() {
     // Extract code from URL if needed
     const m = code.match(/invite=([^&]+)/);
     if (m) code = m[1];
+    try { code = decodeURIComponent(code); } catch {}
     if (!code) { $('js-error').textContent = t('enter_code'); return; }
     try {
       const inv = await API.get(`/api/invites/${code}`);
@@ -3758,7 +3759,11 @@ function setup() {
 
   // Handle invite in URL
   const urlParams = new URLSearchParams(location.search);
-  const invCode = urlParams.get('invite');
+  const rawInvite = urlParams.get('invite');
+  let invCode = rawInvite;
+  if (rawInvite) {
+    try { invCode = decodeURIComponent(rawInvite); } catch {}
+  }
   if (invCode) {
     window.addEventListener('da:authenticated', async () => {
       try {

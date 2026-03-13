@@ -118,6 +118,30 @@ function fullServer(db, serverId, userId = null) {
   return result;
 }
 
+function resolveInviteByCode(db, rawCode) {
+  const code = String(rawCode || '').trim();
+  if (!code) return null;
+
+  const customInvite = db.prepare('SELECT * FROM invites WHERE code = ?').get(code);
+  if (customInvite) {
+    return { ...customInvite, __type: 'custom' };
+  }
+
+  const server = db.prepare('SELECT * FROM servers WHERE invite_code = ?').get(code);
+  if (!server) return null;
+
+  return {
+    code,
+    server_id: server.id,
+    creator_id: server.owner_id,
+    max_uses: null,
+    uses: 0,
+    expires_at: null,
+    created_at: server.created_at,
+    __type: 'server',
+  };
+}
+
 // ─── Route registration ───────────────────────────────────────────────────────
 
 export default function registerServerRoutes(app, db, io) {
@@ -204,7 +228,7 @@ export default function registerServerRoutes(app, db, io) {
 
   // POST /api/servers/:id/join
   app.post('/api/servers/:id/join', { preHandler: authenticate }, async (req, reply) => {
-    const { invite_code } = req.body || {};
+    const inviteCode = String(req.body?.invite_code || '').trim();
     const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(req.params.id);
     if (!server) return reply.code(404).send({ error: 'Server not found' });
 
@@ -215,8 +239,8 @@ export default function registerServerRoutes(app, db, io) {
     if (existing) return reply.code(200).send(fullServer(db, server.id, req.user.id));
 
     // Validate custom invite if provided; otherwise allow via server's built-in code
-    if (invite_code) {
-      const invite = db.prepare('SELECT * FROM invites WHERE code = ?').get(invite_code);
+    if (inviteCode && inviteCode !== server.invite_code) {
+      const invite = db.prepare('SELECT * FROM invites WHERE code = ?').get(inviteCode);
       if (!invite || invite.server_id !== server.id) return reply.code(404).send({ error: 'Invalid invite' });
       const now = Math.floor(Date.now() / 1000);
       if (invite.expires_at && invite.expires_at < now) return reply.code(410).send({ error: 'Invite expired' });
@@ -317,12 +341,15 @@ export default function registerServerRoutes(app, db, io) {
 
   // GET /api/invites/:code
   app.get('/api/invites/:code', (req, reply) => {
-    const inv = db.prepare('SELECT * FROM invites WHERE code = ?').get(req.params.code);
+    const inv = resolveInviteByCode(db, req.params.code);
     if (!inv) return reply.code(404).send({ error: 'Invite not found' });
     const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(inv.server_id);
+    if (!server) return reply.code(404).send({ error: 'Invite not found' });
     const creator = db.prepare('SELECT id, username, discriminator, avatar_url FROM users WHERE id = ?').get(inv.creator_id);
     const member_count = db.prepare('SELECT COUNT(*) as c FROM server_members WHERE server_id = ?').get(inv.server_id).c;
-    return reply.send({ ...inv, server: publicServer(server), creator, member_count });
+    const payload = { ...inv };
+    delete payload.__type;
+    return reply.send({ ...payload, server: publicServer(server), creator, member_count });
   });
 
   // POST /api/servers/:id/invites

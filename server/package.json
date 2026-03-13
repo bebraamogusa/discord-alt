@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "start:core": "node index.core.js"
+    "start:core": "node index.core.js",
+    "migrate:legacy-to-core": "node migrate-legacy-to-core.js"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",

@@ -1,4 +1,5 @@
 import argon2 from 'argon2';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
@@ -133,6 +134,7 @@ export function buildAuthService({ db, snowflake, config }) {
   const updateSessionRefresh = db.prepare(
     'UPDATE user_sessions SET refresh_token = ?, expires_at = ?, last_used_at = ?, ip = ?, device = ? WHERE id = ?'
   );
+  const updatePasswordHash = db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?');
 
   const upsertMfaTicket = db.prepare(
     `INSERT INTO mfa_tickets (ticket, user_id, expires_at, created_at)
@@ -233,11 +235,34 @@ export function buildAuthService({ db, snowflake, config }) {
         throw error;
       }
 
-      const ok = await argon2.verify(user.password_hash, String(password || ''));
+      const plain = String(password || '');
+      let ok = false;
+      let shouldUpgradeHash = false;
+
+      try {
+        ok = await argon2.verify(user.password_hash, plain);
+      } catch {
+        if (String(user.password_hash || '').startsWith('$2')) {
+          ok = await bcrypt.compare(plain, user.password_hash);
+          shouldUpgradeHash = ok;
+        }
+      }
+
       if (!ok) {
         const error = new Error('Invalid credentials');
         error.statusCode = 401;
         throw error;
+      }
+
+      if (shouldUpgradeHash) {
+        const upgradedHash = await argon2.hash(plain, {
+          type: argon2.argon2id,
+          memoryCost: 19_456,
+          timeCost: 2,
+          parallelism: 1,
+        });
+        updatePasswordHash.run(upgradedHash, now(), user.id);
+        user.password_hash = upgradedHash;
       }
 
       cleanupExpiredMfaTickets.run(now());
