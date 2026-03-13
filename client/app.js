@@ -4,6 +4,7 @@
  */
 import * as API from '/api.js';
 import { t, setLang, getLang, LANG_NAMES } from '/i18n.js';
+import * as VoiceClient from '/voice.js';
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const S = {
@@ -83,69 +84,69 @@ const _f = (d, s) => _ic(`<path d="${d}" fill="currentColor"/>`, s);
 const _s = (d, s) => _ic(`<path d="${d}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`, s);
 const IC = {
   // general
-  settings:     _f('M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z'),
-  bell:         _s('M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0'),
-  invite:       _f('M14 8c0-2.21-1.79-4-4-4S6 5.79 6 8s1.79 4 4 4 4-1.79 4-4zm3 2v-2h-2v2h-2v2h2v2h2v-2h2v-2h-2zM2 18v2h16v-2c0-2.66-5.33-4-8-4s-8 1.34-8 4z'),
-  pin:          _f('M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z'),
-  hash:         _s('M4 9h16M4 15h16M10 3 8 21M16 3l-2 18'),
-  folder:       _f('M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z'),
-  id:           _f('M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 7H7V9h4v2zm6 4H7v-2h10v2zm0-8H7V5h10v2z'),
-  leave:        _s('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'),
-  trash:        _s('M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'),
-  edit:         _s('M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'),
-  search:       _s('M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35'),
-  copy:         _s('M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'),
-  plus:         _s('M12 5v14M5 12h14'),
-  close:        _s('M18 6 6 18M6 6l12 12'),
-  check:        _s('M20 6 9 17l-5-5'),
-  info:         _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
-  msg:          _f('M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'),
-  reply:        _s('M9 17H5l4-4M5 13a8 8 0 0 1 14.83-4.17'),
-  attach:       _s('M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'),
-  upload:       _s('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12'),
-  image:        _ic(`<rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21" stroke="currentColor" stroke-width="2" fill="none"/>`),
+  settings: _f('M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z'),
+  bell: _s('M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0'),
+  invite: _f('M14 8c0-2.21-1.79-4-4-4S6 5.79 6 8s1.79 4 4 4 4-1.79 4-4zm3 2v-2h-2v2h-2v2h2v2h2v-2h2v-2h-2zM2 18v2h16v-2c0-2.66-5.33-4-8-4s-8 1.34-8 4z'),
+  pin: _f('M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z'),
+  hash: _s('M4 9h16M4 15h16M10 3 8 21M16 3l-2 18'),
+  folder: _f('M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z'),
+  id: _f('M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 7H7V9h4v2zm6 4H7v-2h10v2zm0-8H7V5h10v2z'),
+  leave: _s('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'),
+  trash: _s('M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'),
+  edit: _s('M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'),
+  search: _s('M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35'),
+  copy: _s('M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'),
+  plus: _s('M12 5v14M5 12h14'),
+  close: _s('M18 6 6 18M6 6l12 12'),
+  check: _s('M20 6 9 17l-5-5'),
+  info: _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
+  msg: _f('M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'),
+  reply: _s('M9 17H5l4-4M5 13a8 8 0 0 1 14.83-4.17'),
+  attach: _s('M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'),
+  upload: _s('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12'),
+  image: _ic(`<rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="m21 15-5-5L5 21" stroke="currentColor" stroke-width="2" fill="none"/>`),
 
   // status
-  statusOnline:    _ic(`<circle cx="12" cy="12" r="8" fill="#43b581"/>`, 14),
-  statusIdle:      _ic(`<circle cx="12" cy="12" r="8" fill="#faa61a"/><circle cx="6" cy="6" r="5" fill="var(--bg-3,#2f3136)"/>`, 14),
-  statusDnd:       _ic(`<circle cx="12" cy="12" r="8" fill="#f04747"/><rect x="7" y="10" width="10" height="4" rx="2" fill="var(--bg-3,#2f3136)"/>`, 14),
+  statusOnline: _ic(`<circle cx="12" cy="12" r="8" fill="#43b581"/>`, 14),
+  statusIdle: _ic(`<circle cx="12" cy="12" r="8" fill="#faa61a"/><circle cx="6" cy="6" r="5" fill="var(--bg-3,#2f3136)"/>`, 14),
+  statusDnd: _ic(`<circle cx="12" cy="12" r="8" fill="#f04747"/><rect x="7" y="10" width="10" height="4" rx="2" fill="var(--bg-3,#2f3136)"/>`, 14),
   statusInvisible: _ic(`<circle cx="12" cy="12" r="8" fill="#747f8d"/><circle cx="12" cy="12" r="4" fill="var(--bg-3,#2f3136)"/>`, 14),
 
   // voice
-  voice:        _f('M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.998.998 0 0 0-.98-.85c-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08a6.993 6.993 0 0 0 5.91-5.78c.1-.6-.39-1.14-1-1.14z'),
-  voiceMuted:   _ic(`<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/><path d="M17.91 11c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.998.998 0 0 0-.98-.85c-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08a6.993 6.993 0 0 0 5.91-5.78c.1-.6-.39-1.14-1-1.14z" fill="currentColor"/><line x1="3" y1="3" x2="21" y2="21" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
-  speaker:      _f('M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z'),
+  voice: _f('M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.998.998 0 0 0-.98-.85c-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08a6.993 6.993 0 0 0 5.91-5.78c.1-.6-.39-1.14-1-1.14z'),
+  voiceMuted: _ic(`<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/><path d="M17.91 11c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.998.998 0 0 0-.98-.85c-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08a6.993 6.993 0 0 0 5.91-5.78c.1-.6-.39-1.14-1-1.14z" fill="currentColor"/><line x1="3" y1="3" x2="21" y2="21" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
+  speaker: _f('M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z'),
   speakerMuted: _ic(`<path d="M3 9v6h4l5 5V4L7 9H3z" fill="currentColor"/><line x1="17" y1="7" x2="23" y2="17" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/><line x1="23" y1="7" x2="17" y2="17" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
-  headphones:   _f('M12 1a9 9 0 0 0-9 9v7c0 1.66 1.34 3 3 3h2V12H5v-2a7 7 0 1 1 14 0v2h-3v8h2c1.66 0 3-1.34 3-3v-7a9 9 0 0 0-9-9z'),
+  headphones: _f('M12 1a9 9 0 0 0-9 9v7c0 1.66 1.34 3 3 3h2V12H5v-2a7 7 0 1 1 14 0v2h-3v8h2c1.66 0 3-1.34 3-3v-7a9 9 0 0 0-9-9z'),
 
   // server settings
-  overview:     _f('M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM6 20V4h5v7h7v9H6z'),
-  shield:       _f('M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z'),
-  members:      _f('M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z'),
-  hammer:       _ic(`<path d="M2 19l3.465-3.465M10.587 8.586L6.343 4.343a2 2 0 0 0-2.828 0L2.1 5.757a2 2 0 0 0 0 2.829l4.243 4.243" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="m10.586 8.586 2.829-2.829a2 2 0 0 1 2.828 0l1.414 1.414a2 2 0 0 1 0 2.829l-2.828 2.828" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M13.414 11.414L22 20M19 22l3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
-  link:         _s('M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'),
-  scroll:       _f('M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'),
+  overview: _f('M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM6 20V4h5v7h7v9H6z'),
+  shield: _f('M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z'),
+  members: _f('M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z'),
+  hammer: _ic(`<path d="M2 19l3.465-3.465M10.587 8.586L6.343 4.343a2 2 0 0 0-2.828 0L2.1 5.757a2 2 0 0 0 0 2.829l4.243 4.243" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="m10.586 8.586 2.829-2.829a2 2 0 0 1 2.828 0l1.414 1.414a2 2 0 0 1 0 2.829l-2.828 2.828" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M13.414 11.414L22 20M19 22l3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
+  link: _s('M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'),
+  scroll: _f('M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'),
 
   // user settings
-  user:         _f('M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'),
-  palette:      _f('M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-1 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z'),
-  globe:        _s('M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z'),
-  crown:        _f('M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 3c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-1H5v1z'),
+  user: _f('M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'),
+  palette: _f('M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-1 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z'),
+  globe: _s('M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z'),
+  crown: _f('M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 3c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-1H5v1z'),
 
   // channel types
   announcement: _f('M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V5h2v6zm0 4h-2v-2h2v2z'),
 
   // misc
-  wave:         _ic(`<path d="M7.69 15.58c-.37-.55-.83-1.2-1.37-1.87C5.41 12.5 5 11.5 5 10.5 5 7.46 7.46 5 10.5 5c.96 0 1.86.25 2.64.69" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M14.5 5.5c1.5-1.5 4-1.5 5.5 0s1.5 4 0 5.5l-7.5 7.5c-1.5 1.5-4 1.5-5.5 0s-1.5-4 0-5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
-  mail:         _s('M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6'),
-  clock:        _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
-  lock:         _s('M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4'),
-  screen:       _s('M3 4h18v12H3zM8 20h8M12 16v4'),
-  screenOff:    _ic(`<path d="M3 4h18v12H3zM8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="3" y1="3" x2="21" y2="21" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
-  smile:        _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>`),
-  arrowUp:      _s('M12 19V5M5 12l7-7 7 7'),
-  friends:      _f('M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'),
-  logo:         _f('M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 12H7v-2h10v2zm0-3H7V9h10v2zm0-3H7V6h10v2z'),
+  wave: _ic(`<path d="M7.69 15.58c-.37-.55-.83-1.2-1.37-1.87C5.41 12.5 5 11.5 5 10.5 5 7.46 7.46 5 10.5 5c.96 0 1.86.25 2.64.69" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M14.5 5.5c1.5-1.5 4-1.5 5.5 0s1.5 4 0 5.5l-7.5 7.5c-1.5 1.5-4 1.5-5.5 0s-1.5-4 0-5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
+  mail: _s('M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6'),
+  clock: _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`),
+  lock: _s('M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4'),
+  screen: _s('M3 4h18v12H3zM8 20h8M12 16v4'),
+  screenOff: _ic(`<path d="M3 4h18v12H3zM8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="3" y1="3" x2="21" y2="21" stroke="var(--danger,#f04747)" stroke-width="2.5" stroke-linecap="round"/>`),
+  smile: _ic(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>`),
+  arrowUp: _s('M12 19V5M5 12l7-7 7 7'),
+  friends: _f('M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'),
+  logo: _f('M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 12H7v-2h10v2zm0-3H7V9h10v2zm0-3H7V6h10v2z'),
 };
 
 function showToast(msg, type = '') {
@@ -162,10 +163,10 @@ function showToast(msg, type = '') {
 
 // ─── CUSTOM DIALOGS ───────────────────────────────────────────────────────────
 function daConfirm(message, { title, danger = false, confirmText, cancelText } = {}) {
-  const _title   = title       || t('confirm_action');
-  const _cancel  = cancelText  || t('cancel');
-  const okText   = confirmText || (danger ? t('delete_btn') : t('confirm'));
-  const okClass  = danger ? 'btn btn-danger-solid' : 'btn btn-accent';
+  const _title = title || t('confirm_action');
+  const _cancel = cancelText || t('cancel');
+  const okText = confirmText || (danger ? t('delete_btn') : t('confirm'));
+  const okClass = danger ? 'btn btn-danger-solid' : 'btn btn-accent';
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'da-dialog-overlay';
@@ -181,11 +182,11 @@ function daConfirm(message, { title, danger = false, confirmText, cancelText } =
     document.body.appendChild(overlay);
     const cleanup = res => { overlay.remove(); window.removeEventListener('keydown', onKey); resolve(res); };
     overlay.querySelector('#dac-cancel').onclick = () => cleanup(false);
-    overlay.querySelector('#dac-ok').onclick     = () => cleanup(true);
+    overlay.querySelector('#dac-ok').onclick = () => cleanup(true);
     overlay.onclick = e => { if (e.target === overlay) cleanup(false); };
     const onKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
-      if (e.key === 'Enter')  { e.preventDefault(); cleanup(true);  }
+      if (e.key === 'Enter') { e.preventDefault(); cleanup(true); }
     };
     window.addEventListener('keydown', onKey);
     setTimeout(() => overlay.querySelector('#dac-ok').focus(), 40);
@@ -193,9 +194,9 @@ function daConfirm(message, { title, danger = false, confirmText, cancelText } =
 }
 
 function daPrompt(message, { title, placeholder = '', confirmText, cancelText } = {}) {
-  const _title   = title       || t('confirm_action');
-  const _ok      = confirmText || t('ok');
-  const _cancel  = cancelText  || t('cancel');
+  const _title = title || t('confirm_action');
+  const _ok = confirmText || t('ok');
+  const _cancel = cancelText || t('cancel');
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'da-dialog-overlay';
@@ -215,11 +216,11 @@ function daPrompt(message, { title, placeholder = '', confirmText, cancelText } 
     const input = overlay.querySelector('#dap-input');
     const cleanup = res => { overlay.remove(); window.removeEventListener('keydown', onKey); resolve(res); };
     overlay.querySelector('#dap-cancel').onclick = () => cleanup(null);
-    overlay.querySelector('#dap-ok').onclick     = () => cleanup(input.value);
+    overlay.querySelector('#dap-ok').onclick = () => cleanup(input.value);
     overlay.onclick = e => { if (e.target === overlay) cleanup(null); };
     const onKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
-      if (e.key === 'Enter')  { e.preventDefault(); cleanup(input.value); }
+      if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); }
     };
     window.addEventListener('keydown', onKey);
     setTimeout(() => input.focus(), 40);
@@ -228,8 +229,8 @@ function daPrompt(message, { title, placeholder = '', confirmText, cancelText } 
 
 function escHtml(s) {
   return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function fmtTime(ts) {
@@ -315,8 +316,8 @@ function avatarEl(user, size = 32) {
     return `<img src="${escHtml(u.avatar_url)}" style="width:${size}px;height:${size}px" class="av-img">`;
   }
   const letter = (u.username || '?')[0].toUpperCase();
-  const color  = u.avatar_color || '#5865f2';
-  return `<div class="av-fallback" style="width:${size}px;height:${size}px;background:${escHtml(color)};font-size:${Math.round(size*0.4)}px">${escHtml(letter)}</div>`;
+  const color = u.avatar_color || '#5865f2';
+  return `<div class="av-fallback" style="width:${size}px;height:${size}px;background:${escHtml(color)};font-size:${Math.round(size * 0.4)}px">${escHtml(letter)}</div>`;
 }
 
 function getServerMember(serverId, userId) {
@@ -365,9 +366,9 @@ function showStatusPicker() {
 
   const myStatus = S.presences[S.me?.id]?.status || 'online';
   const statuses = [
-    { key: 'online',    icon: IC.statusOnline,    labelKey: 'status_online'    },
-    { key: 'idle',      icon: IC.statusIdle,      labelKey: 'status_idle'      },
-    { key: 'dnd',       icon: IC.statusDnd,       labelKey: 'status_dnd'       },
+    { key: 'online', icon: IC.statusOnline, labelKey: 'status_online' },
+    { key: 'idle', icon: IC.statusIdle, labelKey: 'status_idle' },
+    { key: 'dnd', icon: IC.statusDnd, labelKey: 'status_dnd' },
     { key: 'invisible', icon: IC.statusInvisible, labelKey: 'status_invisible' },
   ];
 
@@ -376,7 +377,7 @@ function showStatusPicker() {
   picker.innerHTML = `
     <div class="sp-header">${t('set_status')}</div>
     <div class="sp-custom">
-      <input class="sp-custom-input" placeholder="${t('set_custom_status')}" value="${escHtml(S.me?.custom_status||'')}" maxlength="128">
+      <input class="sp-custom-input" placeholder="${t('set_custom_status')}" value="${escHtml(S.me?.custom_status || '')}" maxlength="128">
       ${S.me?.custom_status ? `<button class="sp-clear">${t('clear_status')}</button>` : ''}
     </div>
     <div class="sp-divider"></div>
@@ -459,7 +460,7 @@ function showAuth(view = 'login') {
   $('auth-login').classList.toggle('hidden', view !== 'login');
   $('auth-register').classList.toggle('hidden', view !== 'register');
   // Clear all auth fields to prevent browser from restoring stale values
-  ['li-email','li-pass','reg-email','reg-name','reg-pass'].forEach(id => {
+  ['li-email', 'li-pass', 'reg-email', 'reg-name', 'reg-pass'].forEach(id => {
     const el = $(id); if (el) el.value = '';
   });
   $('auth-login-err').textContent = '';
@@ -502,7 +503,7 @@ async function doRegister() {
 }
 
 function doLogout() {
-  API.post('/api/auth/logout', {}).catch(() => {});
+  API.post('/api/auth/logout', {}).catch(() => { });
   API.clearTokens();
   socket?.disconnect();
   socket = null;
@@ -749,84 +750,40 @@ function connectGateway() {
   socket.on('WEBRTC_ICE', async ({ from_user_id, candidate }) => {
     const pc = V.peers.get(from_user_id);
     if (pc && candidate) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { }
     }
   });
 }
 
 // ─── VOICE ────────────────────────────────────────────────────────────────────
-function getOrCreatePeer(userId) {
-  if (V.peers.has(userId)) return V.peers.get(userId);
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-
-  // Add local tracks
-  if (V.stream) {
-    V.stream.getTracks().forEach(track => pc.addTrack(track, V.stream));
-  }
-  if (V.screenTrack && V.screenStream) {
-    const sender = pc.addTrack(V.screenTrack, V.screenStream);
-    V.screenSenders.set(userId, sender);
-  }
-
-  // Forward ICE candidates
-  pc.onicecandidate = ({ candidate }) => {
-    if (candidate) socket.emit('WEBRTC_ICE', { to_user_id: userId, candidate });
-  };
-
-  // Receive remote media
-  pc.ontrack = ({ streams, track }) => {
-    const remoteStream = streams?.[0] || new MediaStream([track]);
-    V.remoteStreams.set(userId, remoteStream);
-
-    let audio = V.audios.get(userId);
-    if (!audio) {
-      audio = new Audio();
-      audio.autoplay = true;
-      V.audios.set(userId, audio);
-    }
-    audio.srcObject = remoteStream;
-    if (V.deafened) audio.muted = true;
-
-    if (track?.kind === 'video' && getChannel(S.activeChannelId)?.type === 'voice') {
-      renderVoicePanel();
-    }
-  };
-
-  V.peers.set(userId, pc);
-  return pc;
-}
-
-async function createOffer(userId) {
-  const pc = getOrCreatePeer(userId);
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.emit('WEBRTC_OFFER', { to_user_id: userId, offer });
-}
-
-function closePeer(userId) {
-  const pc = V.peers.get(userId);
-  if (pc) { pc.close(); V.peers.delete(userId); }
-  V.screenSenders.delete(userId);
-  V.remoteStreams.delete(userId);
-  const audio = V.audios.get(userId);
-  if (audio) { audio.srcObject = null; V.audios.delete(userId); }
-}
-
 async function joinVoiceChannel(channelId) {
-  if (V.channelId === channelId) return; // already connected
+  if (V.channelId === channelId) return;
   if (V.channelId) await leaveVoiceChannel();
 
   try {
-    V.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    V.stream = stream;
   } catch {
     showToast(t('voice_no_mic'), 'error');
     return;
   }
 
-  V.channelId  = channelId;
-  V.muted      = false;
-  V.deafened   = false;
+  const success = await VoiceClient.joinVoiceChannel(channelId);
+  if (!success) {
+    showToast('Failed to connect to voice server', 'error');
+    if (V.stream) { V.stream.getTracks().forEach(t => t.stop()); V.stream = null; }
+    return;
+  }
+
+  if (V.stream && V.stream.getAudioTracks().length > 0) {
+    await VoiceClient.produceAudio(V.stream.getAudioTracks()[0]);
+  }
+
+  V.channelId = channelId;
+  V.muted = false;
+  V.deafened = false;
   V.isScreenSharing = false;
+
   socket.emit('VOICE_JOIN', { channel_id: channelId });
   renderVoiceBar();
   renderVoicePanel();
@@ -837,13 +794,20 @@ async function joinVoiceChannel(channelId) {
 async function leaveVoiceChannel() {
   if (!V.channelId) return;
   if (V.isScreenSharing) await stopScreenShare();
+
   socket.emit('VOICE_LEAVE');
-  // Close all peer connections
-  for (const uid of V.peers.keys()) closePeer(uid);
+
+  await VoiceClient.leaveVoiceChannel();
+
   if (V.stream) { V.stream.getTracks().forEach(t => t.stop()); V.stream = null; }
+
+  V.remoteStreams.clear();
+  V.remoteAudioElements.forEach(el => { el.srcObject = null; el.remove(); });
+  V.remoteAudioElements.clear();
   V.screenTrack = null;
   V.screenStream = null;
   V.isScreenSharing = false;
+
   const prev = V.channelId;
   V.channelId = null;
   renderVoiceBar();
@@ -861,7 +825,7 @@ function toggleVoiceMute() {
 
 function toggleVoiceDeafen() {
   V.deafened = !V.deafened;
-  V.audios.forEach(audio => { audio.muted = V.deafened; });
+  V.remoteAudioElements.forEach(audio => { audio.muted = V.deafened; });
   if (V.deafened && !V.muted) {
     V.muted = true;
     if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = false; });
@@ -885,11 +849,7 @@ async function startScreenShare() {
     V.screenTrack = track;
     V.isScreenSharing = true;
 
-    for (const [uid, pc] of V.peers.entries()) {
-      const sender = pc.addTrack(track, stream);
-      V.screenSenders.set(uid, sender);
-      await createOffer(uid);
-    }
+    await VoiceClient.produceVideo(track);
 
     track.onended = () => { stopScreenShare(); };
     socket.emit('VOICE_SCREEN', { sharing: true });
@@ -904,17 +864,9 @@ async function startScreenShare() {
 async function stopScreenShare() {
   if (!V.isScreenSharing) return;
 
-  for (const [uid, pc] of V.peers.entries()) {
-    const sender = V.screenSenders.get(uid);
-    if (sender) {
-      try { pc.removeTrack(sender); } catch {}
-    }
-    try { await createOffer(uid); } catch {}
-  }
-  V.screenSenders.clear();
-
   if (V.screenTrack) V.screenTrack.stop();
   if (V.screenStream) V.screenStream.getTracks().forEach(t => t.stop());
+
   V.screenTrack = null;
   V.screenStream = null;
   V.isScreenSharing = false;
@@ -959,13 +911,13 @@ function renderVoiceBar() {
     <div class="vcb-actions">
       <button class="vcb-btn ${V.muted ? 'active' : ''}" id="vcb-mute" title="${V.muted ? t('voice_unmute') : t('voice_mute')}">
         ${V.muted
-          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>'
-          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>'}
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>'}
       </button>
       <button class="vcb-btn ${V.deafened ? 'active' : ''}" id="vcb-deaf" title="${V.deafened ? t('voice_undeafen') : t('voice_deafen')}">
         ${V.deafened
-          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
-          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>'}
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>'}
       </button>
       <button class="vcb-btn ${V.isScreenSharing ? 'active screen' : ''}" id="vcb-screen" title="${V.isScreenSharing ? t('voice_stop_screen') : t('voice_start_screen')}">
         ${V.isScreenSharing ? IC.screenOff : IC.screen}
@@ -1005,14 +957,14 @@ function renderVoicePanel() {
     </div>
     <div class="vp-stage ${screenParticipants.length ? '' : 'hidden'}">
       ${screenParticipants.map(p => {
-        const name = displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', ch.server_id || S.activeServerId);
-        return `
+    const name = displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', ch.server_id || S.activeServerId);
+    return `
           <div class="vp-screen-tile">
             <video class="vp-screen-video" data-screen-user="${escHtml(p.user_id)}" autoplay playsinline ${p.user_id === S.me?.id ? 'muted' : ''}></video>
             <div class="vp-screen-overlay">${IC.screen} ${escHtml(name)}</div>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
     <div class="vp-participants">
       ${participants.map(p => `
@@ -1083,7 +1035,7 @@ function updateSidebarUser() {
     $('su-av-wrapper').innerHTML = `<img src="${escHtml(S.me.avatar_url)}" style="width:32px;height:32px;border-radius:50%" id="su-avatar">${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
   } else {
     const letter = (S.me.username || '?')[0].toUpperCase();
-    $('su-av-wrapper').innerHTML = `<div class="av-fallback" id="su-avatar" style="width:32px;height:32px;font-size:13px;background:${S.me.avatar_color||'#5865f2'}">${letter}</div>${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
+    $('su-av-wrapper').innerHTML = `<div class="av-fallback" id="su-avatar" style="width:32px;height:32px;font-size:13px;background:${S.me.avatar_color || '#5865f2'}">${letter}</div>${statusDotHtml(S.me.id, 'var(--bg-3)')}`;
   }
 }
 
@@ -1100,8 +1052,8 @@ function renderServerIcons() {
       <div class="tooltip-wrapper">
         <div class="server-icon ${active ? 'active' : ''}" data-server-id="${escHtml(srv.id)}">
           ${srv.icon_url
-            ? `<img src="${escHtml(srv.icon_url)}" alt="${escHtml(srv.name)}">`
-            : escHtml(letter)}
+        ? `<img src="${escHtml(srv.icon_url)}" alt="${escHtml(srv.name)}">`
+        : escHtml(letter)}
           <div class="pill"></div>
           ${hasUnread && !active ? `<div class="unread-badge">${unreadCount > 99 ? '99+' : unreadCount}</div>` : ''}
         </div>
@@ -1144,7 +1096,7 @@ async function selectServer(id) {
     if (!S.members[id] || !S.members[id].length) {
       try {
         S.members[id] = await API.get(`/api/guilds/${id}/members`);
-      } catch {}
+      } catch { }
     }
     // Auto-join first text channel
     const firstCh = srv.channels?.find(c => c.type === 'text');
@@ -1253,10 +1205,10 @@ function renderChannelGroup(container, cat, channels, srv) {
         <div class="ch-voice-users">
           ${voiceParticipants.map(p => `
             <div class="ch-voice-user ${p.muted ? 'muted' : ''}">
-              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color||'#5865f2')}">
+              <span class="ch-voice-av" style="background:${escHtml(p.avatar_color || '#5865f2')}">
                 ${p.avatar_url
-                  ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`
-                  : escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id) || '?')[0].toUpperCase())}
+        ? `<img src="${escHtml(p.avatar_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`
+        : escHtml((displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id) || '?')[0].toUpperCase())}
               </span>
               <span>${escHtml(displayNameFor(p.user_id, p.display_name || p.nickname || p.username || '?', srv.id))}</span>
               ${p.muted ? '<span class="ch-voice-muted">' + IC.voiceMuted + '</span>' : ''}
@@ -1457,11 +1409,11 @@ function msgHtml(msg, isFirst, isNew = false) {
     headerHtml = `
       <div class="msg-group-header">
         <div class="msg-avatar-col">
-          <div class="msg-av-fallback" style="background:${escHtml(author.avatar_color||'#5865f2')}"
+          <div class="msg-av-fallback" style="background:${escHtml(author.avatar_color || '#5865f2')}"
                data-user-id="${escHtml(author.id)}" style="cursor:pointer">
             ${author.avatar_url
-              ? `<img class="msg-avatar" src="${escHtml(author.avatar_url)}" data-user-id="${escHtml(author.id)}">`
-              : (displayAuthor||'?')[0].toUpperCase()}
+        ? `<img class="msg-avatar" src="${escHtml(author.avatar_url)}" data-user-id="${escHtml(author.id)}">`
+        : (displayAuthor || '?')[0].toUpperCase()}
           </div>
         </div>
         <div class="msg-body">
@@ -1478,21 +1430,21 @@ function msgHtml(msg, isFirst, isNew = false) {
   if (isFirst && msg.reply_to && msg.reply_to_id) {
     replyHtml = `
       <div class="msg-reply" data-reply-msg="${escHtml(msg.reply_to_id)}">
-        <span class="reply-author">${escHtml(displayNameFor(msg.reply_to.author?.id, msg.reply_to.author?.username||'?', S.activeServerId))}</span>
-        <span class="reply-content">${escHtml((msg.reply_to.content||'').slice(0,80))}</span>
+        <span class="reply-author">${escHtml(displayNameFor(msg.reply_to.author?.id, msg.reply_to.author?.username || '?', S.activeServerId))}</span>
+        <span class="reply-content">${escHtml((msg.reply_to.content || '').slice(0, 80))}</span>
       </div>
     `;
   }
 
   const atts = (msg.attachments || []).map(a => {
     const ext = a.url.split('.').pop().toLowerCase();
-    if (['jpg','jpeg','png','gif','webp','avif'].includes(ext))
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'].includes(ext))
       return `<img class="att-image" src="${escHtml(a.url)}" loading="lazy" data-lightbox="${escHtml(a.url)}">`;
-    if (['mp4','webm','mov'].includes(ext))
+    if (['mp4', 'webm', 'mov'].includes(ext))
       return `<video class="att-video" src="${escHtml(a.url)}" controls></video>`;
-    if (['mp3','ogg','wav','flac','aac'].includes(ext))
+    if (['mp3', 'ogg', 'wav', 'flac', 'aac'].includes(ext))
       return `<audio src="${escHtml(a.url)}" controls style="margin-top:4px"></audio>`;
-    return `<a class="att-file" href="${escHtml(a.url)}" download="${escHtml(a.filename||'file')}">${IC.attach} ${escHtml(a.filename||'file')}</a>`;
+    return `<a class="att-file" href="${escHtml(a.url)}" download="${escHtml(a.filename || 'file')}">${IC.attach} ${escHtml(a.filename || 'file')}</a>`;
   }).join('');
 
   const reactions = (msg.reactions || []).map(r => `
@@ -1508,8 +1460,8 @@ function msgHtml(msg, isFirst, isNew = false) {
     <div class="msg-actions">
       <button class="msg-action-btn" data-action="react" data-msg-id="${escHtml(msg.id)}" title="${t('react')}">${IC.smile}</button>
       <button class="msg-action-btn" data-action="reply" data-msg-id="${escHtml(msg.id)}"
-              data-username="${escHtml(displayAuthor||'')}"
-              data-content="${escHtml((msg.content||'').slice(0,100))}" title="${t('reply')}">↩</button>
+              data-username="${escHtml(displayAuthor || '')}"
+              data-content="${escHtml((msg.content || '').slice(0, 100))}" title="${t('reply')}">↩</button>
       ${isMine ? `<button class="msg-action-btn" data-action="edit" data-msg-id="${escHtml(msg.id)}" title="${t('edit')}">${IC.edit}</button>` : ''}
       ${isMine ? `<button class="msg-action-btn danger" data-action="delete" data-msg-id="${escHtml(msg.id)}" title="${t('delete')}">${IC.trash}</button>` : ''}
     </div>
@@ -1522,7 +1474,7 @@ function msgHtml(msg, isFirst, isNew = false) {
       ${actionsHtml}
       ${replyHtml}
       ${headerHtml}
-        <div class="msg-content" id="msg-content-${msg.id}">${parseMarkdown(msg.content||'')}${editedMark}</div>
+        <div class="msg-content" id="msg-content-${msg.id}">${parseMarkdown(msg.content || '')}${editedMark}</div>
         ${atts ? `<div class="msg-attachments">${atts}</div>` : ''}
         ${reactions ? `<div class="msg-reactions">${reactions}</div>` : ''}
       ${closeHeader}
@@ -1648,19 +1600,19 @@ function scrollToBottom(smooth = false) {
 }
 
 // ─── QUICK REACT / EMOJI PICKER ──────────────────────────────────────────────
-const EMOJI_LIST   = ['😀','😂','😍','😎','🥺','😭','😡','🤔','🙏','👍','👎','❤️','🔥','✅','❌','⭐',
-  '🎉','🚀','💯','🤩','😴','🥳','😤','🤣','😱','🥰','🤯','😏','🙈','🎮','🎵','🍕','☕','🌟','💎','🏆'];
+const EMOJI_LIST = ['😀', '😂', '😍', '😎', '🥺', '😭', '😡', '🤔', '🙏', '👍', '👎', '❤️', '🔥', '✅', '❌', '⭐',
+  '🎉', '🚀', '💯', '🤩', '😴', '🥳', '😤', '🤣', '😱', '🥰', '🤯', '😏', '🙈', '🎮', '🎵', '🍕', '☕', '🌟', '💎', '🏆'];
 
 // Extended emoji list with categories for the improved picker
 const EMOJI_CATEGORIES = {
-  smileys: { icon: '😀', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🫢','🤫','🤔','🫡','🤐','🤨','😐','😑','😶','🫥','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','😎','🥳','🤠','🫣'] },
-  people: { icon: '👋', emojis: ['👋','🤚','🖐️','✋','🖖','🫱','🫲','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫳','🫴','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁️','👅','👄'] },
-  nature: { icon: '🐶', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐻‍❄️','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🪱','🐛','🦋','🐌','🐞','🐜','🪰','🪲','🪳','🐢','🐍','🦎','🦂','🦀','🦞','🦐','🦑','🐙','🌵','🌲','🌳','🍀','🌺','🌻','🌹','🌸'] },
-  food: { icon: '🍕', emojis: ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🧄','🧅','🥔','🍠','🥐','🍞','🥖','🫓','🥨','🧀','🥚','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫔','🌮','🌯','🫔','🥗','🍝','🍜','🍛','🍚','🍱','🍙','🍘'] },
-  activities: { icon: '⚽', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🥍','🏑','🥊','🥋','🏹','🎣','🤿','🏂','🏄','🏇','🚴','🏋️','🤸','🤼','🤽','🤾','⛷️','⛹️','🧗','🧘','🎮','🕹️','🎲','🧩','🎯','🎳','🎻','🎸','🎺','🥁','🎹','🎤','🎧','🎫','🎬','🎨','🎪','🎭','🎠','🎡','🎢'] },
-  travel: { icon: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🛵','🏍️','🚲','🛴','🛺','🚃','🚂','✈️','🚀','🛸','🚁','⛵','🚤','🛥️','🛳️','⛴️','🗺️','🗻','🏔️','⛰️','🌋','🗾','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬'] },
-  objects: { icon: '💡', emojis: ['⌚','📱','💻','⌨️','🖥️','🖨️','🖱️','🖲️','🕹️','🗜️','💾','💿','📀','📼','📷','📹','🎥','📽️','🎞️','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','🧭','⏱️','⏲️','⏰','🕰️','📡','🔋','🔌','💡','🔦','🕯️','🪔','🧯','🛢️','💸','💵','💴','💶','💷','🪙','💰','💳','💎','⚖️','🪜','🧰','🪛','🔧','🔨','⚒️','🔩','⚙️'] },
-  symbols: { icon: '❤️', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮'] },
+  smileys: { icon: '😀', emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🫢', '🤫', '🤔', '🫡', '🤐', '🤨', '😐', '😑', '😶', '🫥', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🥵', '🥶', '🥴', '😵', '🤯', '😎', '🥳', '🤠', '🫣'] },
+  people: { icon: '👋', emojis: ['👋', '🤚', '🖐️', '✋', '🖖', '🫱', '🫲', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '🫳', '🫴', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '🫶', '👐', '🤲', '🤝', '🙏', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄'] },
+  nature: { icon: '🐶', emojis: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐻‍❄️', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🪱', '🐛', '🦋', '🐌', '🐞', '🐜', '🪰', '🪲', '🪳', '🐢', '🐍', '🦎', '🦂', '🦀', '🦞', '🦐', '🦑', '🐙', '🌵', '🌲', '🌳', '🍀', '🌺', '🌻', '🌹', '🌸'] },
+  food: { icon: '🍕', emojis: ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞', '🥖', '🫓', '🥨', '🧀', '🥚', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🫔', '🌮', '🌯', '🫔', '🥗', '🍝', '🍜', '🍛', '🍚', '🍱', '🍙', '🍘'] },
+  activities: { icon: '⚽', emojis: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🥍', '🏑', '🥊', '🥋', '🏹', '🎣', '🤿', '🏂', '🏄', '🏇', '🚴', '🏋️', '🤸', '🤼', '🤽', '🤾', '⛷️', '⛹️', '🧗', '🧘', '🎮', '🕹️', '🎲', '🧩', '🎯', '🎳', '🎻', '🎸', '🎺', '🥁', '🎹', '🎤', '🎧', '🎫', '🎬', '🎨', '🎪', '🎭', '🎠', '🎡', '🎢'] },
+  travel: { icon: '🚗', emojis: ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🛵', '🏍️', '🚲', '🛴', '🛺', '🚃', '🚂', '✈️', '🚀', '🛸', '🚁', '⛵', '🚤', '🛥️', '🛳️', '⛴️', '🗺️', '🗻', '🏔️', '⛰️', '🌋', '🗾', '🏕️', '🏖️', '🏜️', '🏝️', '🏞️', '🏟️', '🏛️', '🏗️', '🏘️', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬'] },
+  objects: { icon: '💡', emojis: ['⌚', '📱', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏱️', '⏲️', '⏰', '🕰️', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🪜', '🧰', '🪛', '🔧', '🔨', '⚒️', '🔩', '⚙️'] },
+  symbols: { icon: '❤️', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '🆚', '💮'] },
 };
 
 const DEFAULT_QUICK_EMOJIS = EMOJI_LIST.slice(0, 8);
@@ -1958,7 +1910,7 @@ function renderMembersPanel() {
   if (!srv || S.activeServerId === '@me') { panel.classList.add('hidden'); return; }
 
   const members = S.members[S.activeServerId] || [];
-  const online  = members.filter(m => (S.presences[m.id]?.status || 'offline') !== 'offline');
+  const online = members.filter(m => (S.presences[m.id]?.status || 'offline') !== 'offline');
   const offline = members.filter(m => (S.presences[m.id]?.status || 'offline') === 'offline');
 
   let html = '';
@@ -2006,7 +1958,7 @@ async function showProfileCard(userId, anchorEl) {
   try {
     const fullUser = await API.get(`/api/users/${userId}`).catch(() => null);
     if (fullUser) user = { ...(user || {}), ...fullUser };
-  } catch {}
+  } catch { }
   if (!user) return;
 
   const p = S.presences[userId] || {};
@@ -2021,14 +1973,14 @@ async function showProfileCard(userId, anchorEl) {
     <div class="pc-banner" style="${bannerStyle}"></div>
     <div class="pc-av-wrap">
       ${user.avatar_url
-        ? `<img class="pc-av" src="${escHtml(user.avatar_url)}">`
-        : `<div class="pc-av-fallback" style="background:${user.avatar_color||'#5865f2'}">${(user.username||'?')[0].toUpperCase()}</div>`}
+      ? `<img class="pc-av" src="${escHtml(user.avatar_url)}">`
+      : `<div class="pc-av-fallback" style="background:${user.avatar_color || '#5865f2'}">${(user.username || '?')[0].toUpperCase()}</div>`}
       <div class="status-dot ${status}" style="position:absolute;bottom:6px;right:6px;border-color:var(--bg-2)"></div>
     </div>
     <div class="pc-body">
       <div class="pc-name">${escHtml(displayName)}</div>
       ${(displayName !== user.username && user.username) ? `<div class="pc-tag">@${escHtml(user.username)}</div>` : ''}
-      <div class="pc-tag">#${escHtml(user.discriminator||'0000')}</div>
+      <div class="pc-tag">#${escHtml(user.discriminator || '0000')}</div>
       ${p.custom_status ? `<div class="pc-status">${escHtml(p.custom_status)}</div>` : ''}
       ${user.about_me ? `<div class="pc-about">${escHtml(user.about_me)}</div>` : ''}
       <div class="pc-actions">
@@ -2083,8 +2035,8 @@ function closeProfileCard() {
 function showCtxMenu(x, y, items) {
   const menu = $('ctx-menu');
   menu.innerHTML = items.map(item => {
-    if (item.divider)  return '<div class="ctx-divider"></div>';
-    if (item.header)   return `<div class="ctx-header">${escHtml(item.header)}</div>`;
+    if (item.divider) return '<div class="ctx-divider"></div>';
+    if (item.header) return `<div class="ctx-header">${escHtml(item.header)}</div>`;
     return `<div class="ctx-item ${item.danger ? 'danger' : ''} ${item.disabled ? 'disabled' : ''}">
       <span class="ctx-icon">${item.icon || ''}</span>
       <span class="ctx-label">${escHtml(item.label)}</span>
@@ -2093,16 +2045,16 @@ function showCtxMenu(x, y, items) {
   }).join('');
   // Smart positioning — keep inside viewport
   menu.style.left = '-9999px';
-  menu.style.top  = '-9999px';
+  menu.style.top = '-9999px';
   menu.classList.remove('hidden');
   const { offsetWidth: mw, offsetHeight: mh } = menu;
   const margin = 8;
-  const cxRaw = x + mw > window.innerWidth  ? x - mw : x;
+  const cxRaw = x + mw > window.innerWidth ? x - mw : x;
   const cyRaw = y + mh > window.innerHeight ? y - mh : y;
   const cx = clamp(cxRaw, margin, Math.max(margin, window.innerWidth - mw - margin));
   const cy = clamp(cyRaw, margin, Math.max(margin, window.innerHeight - mh - margin));
   menu.style.left = cx + 'px';
-  menu.style.top  = cy + 'px';
+  menu.style.top = cy + 'px';
   menu.querySelectorAll('.ctx-item:not(.disabled)').forEach((el, i) => {
     const item = items.filter(it => !it.divider && !it.header)[i];
     if (item?.onClick) el.addEventListener('click', () => { closeContextMenu(); item.onClick(); });
@@ -2114,21 +2066,21 @@ function showServerContextMenu(e, serverId) {
   const srv = getServer(serverId);
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
-  const canManageServer   = userHasPermissionClient(serverId, 'manage_server');
+  const canManageServer = userHasPermissionClient(serverId, 'manage_server');
   const canManageChannels = userHasPermissionClient(serverId, 'manage_channels');
   showCtxMenu(e.clientX, e.clientY, [
-    { icon: IC.settings, label: t('server_settings_menu'),   onClick: () => openServerSettings(serverId) },
-    { icon: IC.bell,     label: t('notifications'),           onClick: () => showToast(t('notifications_wip')) },
-    { icon: IC.invite,   label: t('invite_people'),           onClick: () => createInvite(serverId) },
+    { icon: IC.settings, label: t('server_settings_menu'), onClick: () => openServerSettings(serverId) },
+    { icon: IC.bell, label: t('notifications'), onClick: () => openNotificationSettings(serverId) },
+    { icon: IC.invite, label: t('invite_people'), onClick: () => createInvite(serverId) },
     { divider: true },
-    { icon: IC.pin,      label: t('pinned_messages'),          onClick: () => showToast(t('pinned_hint')) },
-    canManageChannels && { icon: IC.hash,   label: t('create_channel_menu'),      onClick: () => openCreateChannelModal(serverId, null) },
-    canManageChannels && { icon: IC.folder, label: t('create_category_menu'),     onClick: () => createCategory(serverId) },
+    { icon: IC.pin, label: t('pinned_messages'), onClick: () => showToast(t('pinned_hint')) },
+    canManageChannels && { icon: IC.hash, label: t('create_channel_menu'), onClick: () => openCreateChannelModal(serverId, null) },
+    canManageChannels && { icon: IC.folder, label: t('create_category_menu'), onClick: () => createCategory(serverId) },
     { divider: true },
-    { icon: IC.id,       label: t('copy_server_id'),           onClick: () => { navigator.clipboard.writeText(serverId); showToast(t('id_copied')); } },
+    { icon: IC.id, label: t('copy_server_id'), onClick: () => { navigator.clipboard.writeText(serverId); showToast(t('id_copied')); } },
     { divider: true },
-    !isOwner && { icon: IC.leave, label: t('leave_server'),  danger: true, onClick: () => leaveServer(serverId) },
-    isOwner  && { icon: IC.trash, label: t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
+    !isOwner && { icon: IC.leave, label: t('leave_server'), danger: true, onClick: () => leaveServer(serverId) },
+    isOwner && { icon: IC.trash, label: t('delete_server'), danger: true, onClick: () => deleteServer(serverId) },
   ].filter(Boolean));
 }
 
@@ -2152,17 +2104,18 @@ function showChannelContextMenu(e, channelId) {
   }
 
   items.push(
-    { icon: IC.bell, label: t('notifications'),  onClick: () => showToast(t('notifications_wip')) },
-    { icon: IC.pin,  label: t('pins_short'),       onClick: () => { S.activeChannelId = channelId; showPins(); } },
-    { icon: IC.id,   label: t('copy_id'), onClick: () => { navigator.clipboard.writeText(channelId); showToast(t('id_copied')); } },
+    { icon: IC.bell, label: t('notifications'), onClick: () => openNotificationSettings(ch.server_id) },
+    { icon: IC.pin, label: t('pins_short'), onClick: () => { S.activeChannelId = channelId; showPins(); } },
+    { icon: IC.id, label: t('copy_id'), onClick: () => { navigator.clipboard.writeText(channelId); showToast(t('id_copied')); } },
     { divider: true },
   );
 
   if (canManageChannels) {
     items.push(
-      { icon: IC.edit,   label: t('rename_channel'), onClick: () => renameChannel(ch) },
-      { icon: IC.invite, label: t('create_invite_ctx'),    onClick: () => createInvite(ch.server_id) },
-      { icon: IC.trash,  label: t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
+      { icon: IC.settings, label: 'Настройки канала', onClick: () => openChannelSettings(channelId) },
+      { icon: IC.edit, label: t('rename_channel'), onClick: () => renameChannel(ch) },
+      { icon: IC.invite, label: t('create_invite_ctx'), onClick: () => createInvite(ch.server_id) },
+      { icon: IC.trash, label: t('delete_channel'), danger: true, onClick: () => deleteChannel(channelId) },
     );
   }
 
@@ -2190,7 +2143,7 @@ function showServerDropdown() {
   const srv = getServer(S.activeServerId);
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
-  const canManageServer   = userHasPermissionClient(srv.id, 'manage_server');
+  const canManageServer = userHasPermissionClient(srv.id, 'manage_server');
   const canManageChannels = userHasPermissionClient(srv.id, 'manage_channels');
   const dd = $('server-dropdown');
   dd.innerHTML = `
@@ -2224,7 +2177,7 @@ async function createInvite(serverId) {
   try {
     const inv = await API.post(`/api/guilds/${serverId}/invites`, { max_age: 7 * 24 * 3600 });
     const url = `${location.origin}/app?invite=${inv.code}`;
-    await navigator.clipboard.writeText(url).catch(() => {});
+    await navigator.clipboard.writeText(url).catch(() => { });
     showToast(t('invite_copied', { url }), 'success');
   } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }
@@ -2296,12 +2249,12 @@ async function showPins() {
     }
     $('pins-list').innerHTML = pins.map(msg => `
       <div style="padding:8px;border-bottom:1px solid var(--border)">
-        <div style="font-weight:600;font-size:13px">${escHtml(msg.author?.username||'?')}</div>
-        <div style="font-size:14px;color:var(--text-2)">${escHtml((msg.content||'').slice(0,200))}</div>
+        <div style="font-weight:600;font-size:13px">${escHtml(msg.author?.username || '?')}</div>
+        <div style="font-size:14px;color:var(--text-2)">${escHtml((msg.content || '').slice(0, 200))}</div>
         <div style="font-size:12px;color:var(--text-3)">${fmtDatetime(msg.created_at)}</div>
       </div>
     `).join('');
-  } catch {}
+  } catch { }
 }
 
 // ─── FRIENDS SYSTEM ───────────────────────────────────────────────────────────
@@ -2400,7 +2353,7 @@ async function showFriendsView() {
       try {
         const dm = await API.post(`/api/users/${el.dataset.userId}/dm`);
         if (dm?.id) selectChannel(dm.id);
-      } catch {}
+      } catch { }
     });
     el.querySelector('.friend-remove')?.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -2465,7 +2418,7 @@ async function showFriendsView() {
             <div class="friend-item" data-user-id="${escHtml(u.id)}">
               <div class="friend-av">${avatarEl(u, 36)}</div>
               <div class="friend-info">
-                <div class="friend-name">${escHtml(u.username)}<span style="color:var(--text-3)">#${escHtml(u.discriminator||'0000')}</span></div>
+                <div class="friend-name">${escHtml(u.username)}<span style="color:var(--text-3)">#${escHtml(u.discriminator || '0000')}</span></div>
               </div>
               <div class="friend-actions">
                 <button class="friend-add-btn success" title="${t('add_friend')}">${IC.plus}</button>
@@ -2486,7 +2439,7 @@ async function showFriendsView() {
               }
             };
           });
-        } catch {}
+        } catch { }
       }, 300);
     });
     searchInput?.focus();
@@ -2500,7 +2453,7 @@ function friendItemHtml(f, isPending = false) {
   return `
     <div class="friend-item" data-user-id="${escHtml(f.user_id)}">
       <div class="friend-av">
-        ${f.avatar_url ? `<img src="${escHtml(f.avatar_url)}" style="width:36px;height:36px;border-radius:50%">` : `<div class="av-fallback" style="width:36px;height:36px;font-size:15px;background:${escHtml(f.avatar_color||'#5865f2')}">${(f.username||'?')[0].toUpperCase()}</div>`}
+        ${f.avatar_url ? `<img src="${escHtml(f.avatar_url)}" style="width:36px;height:36px;border-radius:50%">` : `<div class="av-fallback" style="width:36px;height:36px;font-size:15px;background:${escHtml(f.avatar_color || '#5865f2')}">${(f.username || '?')[0].toUpperCase()}</div>`}
         <div class="status-dot ${status}" style="border-color:var(--bg-2)"></div>
       </div>
       <div class="friend-info">
@@ -2673,21 +2626,21 @@ function openServerSettings(serverId) {
   if (!srv) return;
   const isOwner = srv.owner_id === S.me?.id;
   const canManageServer = userHasPermissionClient(serverId, 'manage_server');
-  const canManageRoles  = userHasPermissionClient(serverId, 'manage_roles');
-  const canBan          = userHasPermissionClient(serverId, 'ban_members');
-  const canViewAudit    = userHasPermissionClient(serverId, 'view_audit_log') || canManageServer;
+  const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
+  const canBan = userHasPermissionClient(serverId, 'ban_members');
+  const canViewAudit = userHasPermissionClient(serverId, 'view_audit_log') || canManageServer;
 
   $('ss-server-name').textContent = srv.name;
   $('ss-leave-server').classList.toggle('hidden', isOwner);
   $('ss-delete-server').classList.toggle('hidden', !isOwner);
 
   const allPages = [
-    { id: 'overview',  label: t('ss_overview'), icon: IC.overview, show: true },
-    { id: 'roles',     label: t('ss_roles'),    icon: IC.shield,   show: canManageRoles },
-    { id: 'members',   label: t('ss_members'),  icon: IC.members,  show: true },
-    { id: 'bans',      label: t('ss_bans'),     icon: IC.hammer,   show: canBan },
-    { id: 'invites',   label: t('ss_invites'),  icon: IC.link,     show: canManageServer },
-    { id: 'audit',     label: t('ss_audit'),    icon: IC.scroll,   show: canViewAudit },
+    { id: 'overview', label: t('ss_overview'), icon: IC.overview, show: true },
+    { id: 'roles', label: t('ss_roles'), icon: IC.shield, show: canManageRoles },
+    { id: 'members', label: t('ss_members'), icon: IC.members, show: true },
+    { id: 'bans', label: t('ss_bans'), icon: IC.hammer, show: canBan },
+    { id: 'invites', label: t('ss_invites'), icon: IC.link, show: canManageServer },
+    { id: 'audit', label: t('ss_audit'), icon: IC.scroll, show: canViewAudit },
   ];
   const pages = allPages.filter(p => p.show);
 
@@ -2730,12 +2683,12 @@ async function renderServerSettingsPage(serverId, page) {
       </div>
       <div class="form-group">
         <label>${t('server_description')}</label>
-        <textarea id="ss-desc">${escHtml(srv.description||'')}</textarea>
+        <textarea id="ss-desc">${escHtml(srv.description || '')}</textarea>
       </div>
       <div class="form-group">
         <label>${t('server_icon_url')}</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="ss-icon" value="${escHtml(srv.icon_url||'')}" style="flex:1">
+          <input id="ss-icon" value="${escHtml(srv.icon_url || '')}" style="flex:1">
           <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
             ${IC.upload} Upload
             <input type="file" id="ss-icon-upload" accept="image/*" style="display:none">
@@ -2745,7 +2698,7 @@ async function renderServerSettingsPage(serverId, page) {
       <div class="form-group">
         <label>${t('server_banner_url')}</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="ss-banner" value="${escHtml(srv.banner_url||'')}" style="flex:1">
+          <input id="ss-banner" value="${escHtml(srv.banner_url || '')}" style="flex:1">
           <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
             ${IC.upload} Upload
             <input type="file" id="ss-banner-upload" accept="image/*" style="display:none">
@@ -2814,10 +2767,10 @@ async function renderServerSettingsPage(serverId, page) {
       $('ss-save-overview').onclick = async () => {
         try {
           const updated = await API.patch(`/api/guilds/${serverId}`, {
-            name:        $('ss-name').value.trim(),
+            name: $('ss-name').value.trim(),
             description: $('ss-desc').value.trim(),
-            icon_url:    $('ss-icon').value.trim(),
-            banner_url:  $('ss-banner').value.trim(),
+            icon_url: $('ss-icon').value.trim(),
+            banner_url: $('ss-banner').value.trim(),
           });
           const idx = S.servers.findIndex(s => s.id === serverId);
           if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...updated };
@@ -2826,7 +2779,7 @@ async function renderServerSettingsPage(serverId, page) {
         } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     }
-    $('ss-copy-inv')?.addEventListener('click', () => { navigator.clipboard.writeText(invUrl).catch(()=>{}); showToast(t('copied'), 'success'); });
+    $('ss-copy-inv')?.addEventListener('click', () => { navigator.clipboard.writeText(invUrl).catch(() => { }); showToast(t('copied'), 'success'); });
     if (isOwner) $('ss-danger-delete')?.addEventListener('click', () => deleteServer(serverId));
   }
 
@@ -2834,7 +2787,7 @@ async function renderServerSettingsPage(serverId, page) {
     const guild = await API.get(`/api/guilds/${serverId}`).catch(() => null);
     const roles = guild?.roles || [];
     const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
-    const perms = ['send_messages','manage_messages','kick_members','ban_members','manage_channels','manage_server','mention_everyone','manage_roles','view_channel','administrator'];
+    const perms = ['send_messages', 'manage_messages', 'kick_members', 'ban_members', 'manage_channels', 'manage_server', 'mention_everyone', 'manage_roles', 'view_channel', 'administrator'];
     // Calculate member counts per role
     const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
@@ -2870,11 +2823,11 @@ async function renderServerSettingsPage(serverId, page) {
     body.querySelector('#ss-add-role')?.addEventListener('click', async () => {
       const name = await daPrompt(t('role_name'), { title: t('create_role'), confirmText: t('create') });
       if (!name) return;
-      const color = await daPrompt(t('role_color') + ' (hex)',  { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
+      const color = await daPrompt(t('role_color') + ' (hex)', { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
       try {
         const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: color || 0 });
         const idx = S.servers.findIndex(s => s.id === serverId);
-        if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles||[]), role];
+        if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles || []), role];
         renderServerSettingsPage(serverId, 'roles');
         showToast(t('role_created'), 'success');
       } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -2906,14 +2859,14 @@ async function renderServerSettingsPage(serverId, page) {
         <thead><tr><th>${t('member_user')}</th><th>${t('member_nick')}</th><th>${t('member_roles')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
         <tbody>
           ${members.map(m => {
-            const isMemberOwner = m.id === srv.owner_id;
-            const isMe = m.id === S.me?.id;
-            return `
+      const isMemberOwner = m.id === srv.owner_id;
+      const isMe = m.id === S.me?.id;
+      return `
             <tr>
               <td><div class="flex-row">${avatarEl(m, 24)} ${escHtml(m.nickname || m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
-              <td>${escHtml(m.nickname||'—')}</td>
+              <td>${escHtml(m.nickname || '—')}</td>
               <td>
-                ${(m.roles||[]).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
+                ${(m.roles || []).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
                 ${canManageRoles && roles.length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
               </td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(m.joined_at)}</td>
@@ -2947,7 +2900,7 @@ async function renderServerSettingsPage(serverId, page) {
         e.stopPropagation();
         const memberId = btn.dataset.userId;
         const member = members.find(m => m.id === memberId);
-        const assignedIds = new Set((member?.roles||[]).map(r => r.id));
+        const assignedIds = new Set((member?.roles || []).map(r => r.id));
         const items = roles.map(r => `
           <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
             <input type="checkbox" data-role-id="${escHtml(r.id)}" ${assignedIds.has(r.id) ? 'checked' : ''}>
@@ -2967,9 +2920,9 @@ async function renderServerSettingsPage(serverId, page) {
             const rid = cb.dataset.roleId;
             const was = assignedIds.has(rid);
             if (cb.checked && !was) {
-              await API.put(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`, {}).catch(() => {});
+              await API.put(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`, {}).catch(() => { });
             } else if (!cb.checked && was) {
-              await API.del(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`).catch(() => {});
+              await API.del(`/api/guilds/${serverId}/members/${memberId}/roles/${rid}`).catch(() => { });
             }
           }
           close();
@@ -2988,7 +2941,7 @@ async function renderServerSettingsPage(serverId, page) {
           ${bans.map(b => `
             <tr>
               <td>${escHtml(b.username)}</td>
-              <td>${escHtml(b.reason||'—')}</td>
+              <td>${escHtml(b.reason || '—')}</td>
               <td><button class="btn btn-outline unban-btn" data-user-id="${escHtml(b.user_id)}">${t('unban')}</button></td>
             </tr>
           `).join('')}
@@ -3014,7 +2967,7 @@ async function renderServerSettingsPage(serverId, page) {
           ${invites.map(inv => `
             <tr>
               <td><code>${escHtml(inv.code)}</code></td>
-              <td>${escHtml(inv.creator_username||'?')}</td>
+              <td>${escHtml(inv.creator_username || '?')}</td>
               <td>${inv.uses}${inv.max_uses ? ` / ${inv.max_uses}` : ''}</td>
               <td>${inv.expires_at ? fmtDatetime(inv.expires_at) : t('invite_never')}</td>
               <td><button class="table-btn del del-inv-btn" data-code="${escHtml(inv.code)}">&#128465;</button></td>
@@ -3033,22 +2986,59 @@ async function renderServerSettingsPage(serverId, page) {
   }
 
   if (page === 'audit') {
-    const logs = await API.get(`/api/guilds/${serverId}/audit-logs`).catch(() => []);
-    const LABELS = { kick: t('audit_kick'), ban: t('audit_ban'), unban: t('audit_unban'), role_create: t('audit_role_create'), role_delete: t('audit_role_delete'), role_update: t('audit_role_update'), channel_create: t('audit_channel_create'), channel_delete: t('audit_channel_delete'), server_update: t('audit_server_update'), message_delete: t('audit_message_delete'), invite_create: t('audit_invite_create'), invite_delete: t('audit_invite_delete'), pin_add: t('audit_pin_add'), pin_remove: t('audit_pin_remove'), member_update: t('audit_member_update') };
-    body.innerHTML = !logs.length ? `<div class="empty-state"><div class="empty-text">${t('no_audit')}</div></div>` : `
-      <table class="settings-table">
-        <thead><tr><th>${t('audit_who')}</th><th>${t('audit_action')}</th><th>${t('audit_when')}</th></tr></thead>
+    let entries = [], users = {};
+    try {
+      const data = await API.get(`/api/guilds/${serverId}/audit-logs`);
+      entries = data.audit_log_entries || data || [];
+      users = data.users || {};
+    } catch { }
+
+    const ACTION_LABELS = {
+      1: 'Обновление сервера', 10: 'Создание канала', 11: 'Обновление канала', 12: 'Удаление канала',
+      13: 'Создание переопределения прав', 14: 'Обновление переопределения прав', 15: 'Удаление переопределения прав',
+      20: 'Кик участника', 21: 'Очистка участников', 22: 'Бан участника', 23: 'Разбан участника',
+      24: 'Обновление участника', 25: 'Обновление ролей участника', 30: 'Создание роли', 31: 'Обновление роли', 32: 'Удаление роли',
+      40: 'Создание приглашения', 41: 'Обновление приглашения', 42: 'Удаление приглашения',
+      50: 'Создание вебхука', 51: 'Обновление вебхука', 52: 'Удаление вебхука',
+      60: 'Создание эмодзи', 61: 'Обновление эмодзи', 62: 'Удаление эмодзи',
+      72: 'Удалён\u0438е сообщения', 73: 'Массовое удаление сообщений', 74: 'Закрепление', 75: 'Открепление',
+      110: 'Создание треда', 111: 'Обновление треда', 112: 'Удаление треда',
+    };
+
+    body.innerHTML = !entries.length ? `<div class="empty-state"><div class="empty-text">${t('no_audit')}</div></div>` : `
+      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+        <select id="audit-filter" style="padding:6px 10px;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px">
+          <option value="">Все действия</option>
+          ${[...new Set(entries.map(e => e.action_type))].map(at => `<option value="${at}">${escHtml(ACTION_LABELS[at] || 'Действие #' + at)}</option>`).join('')}
+        </select>
+        <span style="color:var(--text-3);font-size:12px">${entries.length} записей</span>
+      </div>
+      <table class="settings-table" id="audit-table">
+        <thead><tr><th>Кто</th><th>Действие</th><th>Цель</th><th>Причина</th><th>Когда</th></tr></thead>
         <tbody>
-          ${logs.map(l => `
-            <tr>
-              <td>${escHtml(l.actor_username||'?')}</td>
-              <td>${escHtml(LABELS[l.action]||l.action)}</td>
+          ${entries.map(l => {
+      const actor = users[l.user_id] || {};
+      const target = users[l.target_id] || {};
+      return `
+            <tr data-action-type="${l.action_type}">
+              <td><div class="flex-row">${avatarEl(actor, 20)} ${escHtml(actor.username || l.user_id || '?')}</div></td>
+              <td>${escHtml(ACTION_LABELS[l.action_type] || l.action_type)}</td>
+              <td style="font-size:12px;color:var(--text-3)">${escHtml(target.username || l.target_id || '—')}</td>
+              <td style="font-size:12px;color:var(--text-3)">${escHtml(l.reason || '—')}</td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(l.created_at)}</td>
             </tr>
-          `).join('')}
+          `}).join('')}
         </tbody>
       </table>
     `;
+
+    // Filter functionality
+    body.querySelector('#audit-filter')?.addEventListener('change', (e) => {
+      const v = e.target.value;
+      body.querySelectorAll('#audit-table tbody tr').forEach(tr => {
+        tr.style.display = (!v || tr.dataset.actionType === v) ? '' : 'none';
+      });
+    });
   }
 }
 
@@ -3056,10 +3046,10 @@ function openRoleEditor(serverId, roleId, roles, perms) {
   const role = roles.find(r => r.id === roleId);
   if (!role) return;
   let currentPerms = {};
-  try { currentPerms = JSON.parse(role.permissions || '{}'); } catch {}
+  try { currentPerms = JSON.parse(role.permissions || '{}'); } catch { }
 
   const body = $('ss-page-body');
-  const PERM_KEY = { send_messages:'perm_send_messages', manage_messages:'perm_manage_messages', kick_members:'perm_kick_members', ban_members:'perm_ban_members', manage_channels:'perm_manage_channels', manage_server:'perm_manage_server', mention_everyone:'perm_mention_everyone', manage_roles:'perm_manage_roles', view_channel:'perm_view_channel', administrator:'perm_administrator' };
+  const PERM_KEY = { send_messages: 'perm_send_messages', manage_messages: 'perm_manage_messages', kick_members: 'perm_kick_members', ban_members: 'perm_ban_members', manage_channels: 'perm_manage_channels', manage_server: 'perm_manage_server', mention_everyone: 'perm_mention_everyone', manage_roles: 'perm_manage_roles', view_channel: 'perm_view_channel', administrator: 'perm_administrator' };
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <button class="btn btn-outline" id="back-to-roles">${t('back_to_roles')}</button>
@@ -3079,7 +3069,7 @@ function openRoleEditor(serverId, roleId, roles, perms) {
         ${perms.map(p => `
           <div class="perm-item">
             <input type="checkbox" id="perm-${p}" ${currentPerms[p] ? 'checked' : ''}>
-            <label for="perm-${p}">${escHtml(t(PERM_KEY[p]||p))}</label>
+            <label for="perm-${p}">${escHtml(t(PERM_KEY[p] || p))}</label>
           </div>
         `).join('')}
       </div>
@@ -3116,7 +3106,7 @@ function renderUserSettingsPage(page) {
       <div class="form-group">
         <label>${t('avatar_url')}</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="us-avatar" value="${escHtml(S.me?.avatar_url||'')}" placeholder="https://..." style="flex:1">
+          <input id="us-avatar" value="${escHtml(S.me?.avatar_url || '')}" placeholder="https://..." style="flex:1">
           <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
             ${IC.upload} Upload
             <input type="file" id="us-avatar-upload" accept="image/*" style="display:none">
@@ -3125,12 +3115,12 @@ function renderUserSettingsPage(page) {
       </div>
       <div class="form-group">
         <label>${t('avatar_color')}</label>
-        <input type="color" id="us-av-color" value="${escHtml(S.me?.avatar_color||'#5865f2')}">
+        <input type="color" id="us-av-color" value="${escHtml(S.me?.avatar_color || '#5865f2')}">
       </div>
       <div class="form-group">
         <label>${t('banner_url')}</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="us-banner" value="${escHtml(S.me?.banner_url||'')}" placeholder="https://..." style="flex:1">
+          <input id="us-banner" value="${escHtml(S.me?.banner_url || '')}" placeholder="https://..." style="flex:1">
           <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;margin:0">
             ${IC.upload} Upload
             <input type="file" id="us-banner-upload" accept="image/*" style="display:none">
@@ -3139,15 +3129,15 @@ function renderUserSettingsPage(page) {
       </div>
       <div class="form-group">
         <label>${t('banner_color')}</label>
-        <input type="color" id="us-banner-color" value="${escHtml(S.me?.banner_color||'#5865f2')}">
+        <input type="color" id="us-banner-color" value="${escHtml(S.me?.banner_color || '#5865f2')}">
       </div>
       <div class="form-group">
         <label>${t('about_me')}</label>
-        <textarea id="us-about" maxlength="190">${escHtml(S.me?.about_me||'')}</textarea>
+        <textarea id="us-about" maxlength="190">${escHtml(S.me?.about_me || '')}</textarea>
       </div>
       <div class="form-group">
         <label>${t('custom_status')}</label>
-        <input id="us-status" value="${escHtml(S.me?.custom_status||'')}">
+        <input id="us-status" value="${escHtml(S.me?.custom_status || '')}">
       </div>
       <button class="btn btn-primary" id="us-save">${t('save')}</button>
 
@@ -3207,7 +3197,7 @@ function renderUserSettingsPage(page) {
     };
     $('us-change-pass').onclick = async () => {
       const cur = $('us-cur-pass').value;
-      const nw  = $('us-new-pass').value;
+      const nw = $('us-new-pass').value;
       const cnf = $('us-confirm-pass').value;
       if (!cur || !nw) { showToast(t('fill_all_fields'), 'error'); return; }
       if (nw.length < 6) { showToast(t('password_min_6'), 'error'); return; }
@@ -3226,15 +3216,15 @@ function renderUserSettingsPage(page) {
       <div class="form-group">
         <label>${t('theme')}</label>
         <select id="us-theme">
-          <option value="dark"  ${document.documentElement.dataset.theme==='dark'  ?'selected':''}>${t('theme_dark')}</option>
-          <option value="light" ${document.documentElement.dataset.theme==='light' ?'selected':''}>${t('theme_light')}</option>
-          <option value="amoled"${document.documentElement.dataset.theme==='amoled'?'selected':''}>${t('theme_amoled')}</option>
+          <option value="dark"  ${document.documentElement.dataset.theme === 'dark' ? 'selected' : ''}>${t('theme_dark')}</option>
+          <option value="light" ${document.documentElement.dataset.theme === 'light' ? 'selected' : ''}>${t('theme_light')}</option>
+          <option value="amoled"${document.documentElement.dataset.theme === 'amoled' ? 'selected' : ''}>${t('theme_amoled')}</option>
         </select>
       </div>
       <div class="form-group">
         <label>${t('font_size')}</label>
-        <input type="range" id="us-fontsize" min="12" max="20" value="${parseInt(localStorage.getItem('da_fontSize')||'16')}">
-        <div class="form-hint" id="us-fs-preview">${parseInt(localStorage.getItem('da_fontSize')||'16')}px</div>
+        <input type="range" id="us-fontsize" min="12" max="20" value="${parseInt(localStorage.getItem('da_fontSize') || '16')}">
+        <div class="form-hint" id="us-fs-preview">${parseInt(localStorage.getItem('da_fontSize') || '16')}px</div>
       </div>
       <div class="form-group quick-react-editor">
         <label>Быстрые реакции</label>
@@ -3368,7 +3358,7 @@ function userHasPermissionClient(serverId, flag) {
       const p = JSON.parse(r.permissions || '{}');
       if (p.administrator) return true;
       if (flag && (p[flag] || p.manage_server)) return true;
-    } catch {}
+    } catch { }
   }
   return false;
 }
@@ -3566,9 +3556,9 @@ function applyI18nToHtml() {
       const span = el.querySelector('[data-i18n]');
       if (span) span.textContent = t(span.dataset.i18n);
       else {
-        if (el.dataset.page === 'profile')    el.textContent = t('us_profile');
+        if (el.dataset.page === 'profile') el.textContent = t('us_profile');
         if (el.dataset.page === 'appearance') el.textContent = t('us_appearance');
-        if (el.dataset.page === 'language')   el.textContent = t('us_language');
+        if (el.dataset.page === 'language') el.textContent = t('us_language');
       }
     });
     const logout = $('us-logout');
@@ -3590,15 +3580,15 @@ function applyI18nToHtml() {
 // ─── EVENT LISTENERS ──────────────────────────────────────────────────────────
 function setup() {
   // Auth
-  $('li-btn').onclick  = doLogin;
+  $('li-btn').onclick = doLogin;
   $('reg-btn').onclick = doRegister;
   $('goto-register').onclick = () => showAuth('register');
-  $('goto-login').onclick    = () => showAuth('login');
-  $('li-pass').onkeydown  = e => { if (e.key === 'Enter') doLogin(); };
+  $('goto-login').onclick = () => showAuth('login');
+  $('li-pass').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
   $('reg-pass').onkeydown = e => { if (e.key === 'Enter') doRegister(); };
 
   // ── Mobile sidebar toggle ────────────────────────────────────
-  function openMobileSidebar()  { $('app').classList.add('mobile-sidebar-open'); }
+  function openMobileSidebar() { $('app').classList.add('mobile-sidebar-open'); }
   function closeMobileSidebar() { $('app').classList.remove('mobile-sidebar-open'); }
   $('btn-mobile-menu').onclick = openMobileSidebar;
   $('mobile-sidebar-overlay').onclick = closeMobileSidebar;
@@ -3746,7 +3736,7 @@ function setup() {
     // Extract code from URL if needed
     const m = code.match(/invite=([^&]+)/);
     if (m) code = m[1];
-    try { code = decodeURIComponent(code); } catch {}
+    try { code = decodeURIComponent(code); } catch { }
     if (!code) { $('js-error').textContent = t('enter_code'); return; }
     try {
       await API.post(`/api/invites/${code}`, {});
@@ -3766,9 +3756,9 @@ function setup() {
     $('cc-error').textContent = '';
     const { serverId } = S.pendingChannelCreate || {};
     if (!serverId) return;
-    const name       = $('new-ch-name').value.trim();
-    const type       = $('new-ch-type').value;
-    const topic      = $('new-ch-topic').value.trim();
+    const name = $('new-ch-name').value.trim();
+    const type = $('new-ch-type').value;
+    const topic = $('new-ch-topic').value.trim();
     const categoryId = $('new-ch-category-id').value || null;
     if (!name) { $('cc-error').textContent = t('enter_name'); return; }
     try {
@@ -3809,7 +3799,7 @@ function setup() {
   });
 
   // Load preferences
-  const theme    = localStorage.getItem('da_theme')    || 'dark';
+  const theme = localStorage.getItem('da_theme') || 'dark';
   const fontSize = localStorage.getItem('da_fontSize') || '16';
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.fontSize = fontSize + 'px';
@@ -3819,7 +3809,7 @@ function setup() {
   const rawInvite = urlParams.get('invite');
   let invCode = rawInvite;
   if (rawInvite) {
-    try { invCode = decodeURIComponent(rawInvite); } catch {}
+    try { invCode = decodeURIComponent(rawInvite); } catch { }
   }
   if (invCode) {
     window.addEventListener('da:authenticated', async () => {
@@ -3848,7 +3838,7 @@ function setup() {
       el.removeAttribute('readonly');
       el.removeAttribute('disabled');
       el.style.pointerEvents = 'auto';
-      el.style.userSelect    = 'text';
+      el.style.userSelect = 'text';
       // Remove injected background-image without wiping legit styles
       if (el.style.backgroundImage) el.style.backgroundImage = '';
     });
@@ -3857,7 +3847,7 @@ function setup() {
   // Watch for extension re-injections
   const _extObserver = new MutationObserver(sanitizeAuthInputs);
   document.querySelectorAll('#auth-overlay input').forEach(el => {
-    _extObserver.observe(el, { attributes: true, attributeFilter: ['readonly','disabled','style'] });
+    _extObserver.observe(el, { attributes: true, attributeFilter: ['readonly', 'disabled', 'style'] });
   });
 } // end setup()
 
@@ -3877,7 +3867,7 @@ const NotifSound = (() => {
       gain.gain.setValueAtTime(0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
       osc.start(); osc.stop(ctx.currentTime + 0.25);
-    } catch {}
+    } catch { }
   }
   return { play };
 })();
@@ -3896,7 +3886,7 @@ async function tauriNotify(title, body) {
 
 // Override notification sound to also send native notification in Tauri
 const _origNotifPlay = NotifSound.play.bind(NotifSound);
-NotifSound.play = function(title, body) {
+NotifSound.play = function (title, body) {
   _origNotifPlay();
   if (IS_TAURI && document.hidden) {
     tauriNotify(title || 'Discord Alt', body || t('new_message'));
@@ -3920,63 +3910,381 @@ function openLightbox(src) {
   document.body.appendChild(overlay);
 }
 
-// ─── SEARCH MODAL ─────────────────────────────────────────────────────────────
+// ─── QUICK SWITCHER (Ctrl+K) ──────────────────────────────────────────────────
 let _searchDebounce = null;
+let _qsSelectedIdx = 0;
+
 function openSearchModal() {
-  if (!S.activeChannelId) { showToast(t('search_select_channel'), 'info'); return; }
   const existing = document.querySelector('.search-overlay');
   if (existing) { existing.remove(); return; }
+
+  // Gather all navigable items
+  const items = [];
+  // Servers + their channels
+  for (const srv of S.servers) {
+    items.push({ type: 'server', id: srv.id, name: srv.name, icon: srv.icon_url ? `<img src="${escHtml(srv.icon_url)}" style="width:20px;height:20px;border-radius:50%">` : IC.logo, category: 'Серверы' });
+    for (const ch of (srv.channels || [])) {
+      const chIcon = ch.type === 'voice' ? IC.speaker : ch.type === 'announcement' ? IC.announcement : IC.hash;
+      items.push({ type: 'channel', id: ch.id, serverId: srv.id, name: ch.name, icon: chIcon, sub: srv.name, category: 'Каналы' });
+    }
+  }
+  // DMs
+  for (const dm of S.dmChannels) {
+    const name = dm.type === 'dm' ? (dm.recipient?.username || 'DM') : (dm.name || 'Group');
+    items.push({ type: 'dm', id: dm.id, name, icon: IC.msg, category: 'Сообщения' });
+  }
+
   const overlay = document.createElement('div');
   overlay.className = 'search-overlay';
   overlay.innerHTML = `
-    <div class="search-box">
+    <div class="search-box qs-box">
       <div class="search-input-wrap">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input class="search-input" placeholder="${t('search_placeholder')}" autofocus>
+        ${IC.search}
+        <input class="search-input" placeholder="Куда вы хотите перейти?" autofocus>
+        <kbd class="qs-kbd">ESC</kbd>
       </div>
-      <div class="search-hint">${t('search_hint')}</div>
-      <div class="search-results"></div>
+      <div class="qs-tabs">
+        <button class="qs-tab active" data-mode="nav">Навигация</button>
+        <button class="qs-tab" data-mode="search">Поиск сообщений</button>
+      </div>
+      <div class="search-results" id="qs-results"></div>
+      <div class="qs-footer">
+        <span>↑↓ навигация</span>
+        <span>↵ перейти</span>
+        <span>ESC закрыть</span>
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
+
   const input = overlay.querySelector('.search-input');
-  const results = overlay.querySelector('.search-results');
-  const hint = overlay.querySelector('.search-hint');
+  const results = overlay.querySelector('#qs-results');
+  let mode = 'nav';
+  _qsSelectedIdx = 0;
+
+  function renderNavResults(q) {
+    const lq = q.toLowerCase();
+    const filtered = q ? items.filter(i => i.name.toLowerCase().includes(lq) || (i.sub || '').toLowerCase().includes(lq)) : items.slice(0, 15);
+    if (!filtered.length) { results.innerHTML = '<div class="search-empty">Ничего не найдено</div>'; return; }
+
+    // Group by category
+    const grouped = {};
+    for (const item of filtered.slice(0, 30)) {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      grouped[item.category].push(item);
+    }
+
+    let html = '';
+    let idx = 0;
+    for (const [cat, catItems] of Object.entries(grouped)) {
+      html += `<div class="qs-category">${escHtml(cat)}</div>`;
+      for (const item of catItems) {
+        html += `<div class="qs-item ${idx === _qsSelectedIdx ? 'selected' : ''}" data-idx="${idx}" data-type="${item.type}" data-id="${escHtml(item.id)}" ${item.serverId ? `data-server="${escHtml(item.serverId)}"` : ''}>
+          <span class="qs-icon">${item.icon}</span>
+          <span class="qs-name">${escHtml(item.name)}</span>
+          ${item.sub ? `<span class="qs-sub">${escHtml(item.sub)}</span>` : ''}
+        </div>`;
+        idx++;
+      }
+    }
+    results.innerHTML = html;
+    bindQsItems();
+  }
+
+  async function renderSearchResults(q) {
+    if (q.length < 2) { results.innerHTML = '<div class="search-empty">Введите минимум 2 символа</div>'; return; }
+    results.innerHTML = '<div class="search-empty"><div class="spinner"></div></div>';
+    try {
+      // Search in current channel first, then globally
+      const channelId = S.activeChannelId;
+      let msgs = [];
+      if (channelId && channelId !== 'friends') {
+        msgs = await API.get(`/api/channels/${channelId}/messages/search?q=${encodeURIComponent(q)}&limit=25`);
+      }
+      if (!msgs.length) { results.innerHTML = '<div class="search-empty">Ничего не найдено</div>'; return; }
+
+      results.innerHTML = msgs.map((m, i) => {
+        const highlighted = escHtml(m.content || '').replace(new RegExp(escHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark>$&</mark>');
+        return `<div class="qs-item search-result ${i === _qsSelectedIdx ? 'selected' : ''}" data-idx="${i}" data-msg-id="${escHtml(m.id)}" data-type="message">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="sr-author">${escHtml(m.author?.username || '?')}</span>
+              <span class="sr-time">${fmtDatetime(m.created_at)}</span>
+            </div>
+            <div class="sr-content">${highlighted}</div>
+          </div>
+        </div>`;
+      }).join('');
+      bindQsItems();
+    } catch { results.innerHTML = '<div class="search-empty">Ошибка поиска</div>'; }
+  }
+
+  function bindQsItems() {
+    results.querySelectorAll('.qs-item').forEach(el => {
+      el.onclick = () => handleQsSelect(el);
+      el.onmouseenter = () => {
+        results.querySelectorAll('.qs-item').forEach(e => e.classList.remove('selected'));
+        el.classList.add('selected');
+        _qsSelectedIdx = parseInt(el.dataset.idx);
+      };
+    });
+  }
+
+  function handleQsSelect(el) {
+    overlay.remove();
+    const type = el.dataset.type;
+    if (type === 'server') selectServer(el.dataset.id);
+    else if (type === 'channel') { selectServer(el.dataset.server); setTimeout(() => selectChannel(el.dataset.id), 50); }
+    else if (type === 'dm') { selectServer('@me'); setTimeout(() => selectChannel(el.dataset.id), 50); }
+    else if (type === 'message') {
+      const msgEl = document.querySelector(`[data-msg-id="${el.dataset.msgId}"]`);
+      if (msgEl) { msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); msgEl.classList.add('msg-highlight'); setTimeout(() => msgEl.classList.remove('msg-highlight'), 2000); }
+    }
+  }
+
+  // Tab switching
+  overlay.querySelectorAll('.qs-tab').forEach(tab => {
+    tab.onclick = () => {
+      overlay.querySelectorAll('.qs-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      mode = tab.dataset.mode;
+      _qsSelectedIdx = 0;
+      const q = input.value.trim();
+      if (mode === 'nav') renderNavResults(q);
+      else renderSearchResults(q);
+    };
+  });
 
   input.addEventListener('input', () => {
     clearTimeout(_searchDebounce);
     const q = input.value.trim();
-    if (q.length < 2) { results.innerHTML = ''; hint.style.display = ''; return; }
-    hint.style.display = 'none';
-    _searchDebounce = setTimeout(async () => {
-      try {
-        const msgs = await API.get(`/api/channels/${S.activeChannelId}/messages/search?q=${encodeURIComponent(q)}&limit=20`);
-        if (!msgs.length) { results.innerHTML = '<div class="search-empty">' + t('search_no_results') + '</div>'; return; }
-        results.innerHTML = msgs.map(m => {
-          const highlighted = escHtml(m.content || '').replace(new RegExp(escHtml(q).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'gi'), '<mark>$&</mark>');
-          return `<div class="search-result" data-msg-id="${escHtml(m.id)}">
-            <div style="flex:1;min-width:0">
-              <span class="sr-author">${escHtml(m.author?.username || '?')}</span>
-              <span class="sr-time">${fmtDatetime(m.created_at)}</span>
-              <div class="sr-content">${highlighted}</div>
-            </div>
-          </div>`;
-        }).join('');
-        results.querySelectorAll('.search-result').forEach(el => {
-          el.onclick = () => {
-            overlay.remove();
-            const msgEl = document.querySelector(`[data-msg-id="${el.dataset.msgId}"]`);
-            if (msgEl) { msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); msgEl.style.background = 'var(--mention-bg)'; setTimeout(() => msgEl.style.background = '', 2000); }
-          };
-        });
-      } catch { results.innerHTML = '<div class="search-empty">' + t('search_error') + '</div>'; }
-    }, 300);
+    _qsSelectedIdx = 0;
+    if (mode === 'nav') { renderNavResults(q); return; }
+    _searchDebounce = setTimeout(() => renderSearchResults(q), 400);
+  });
+
+  // Keyboard navigation
+  input.addEventListener('keydown', e => {
+    const allItems = results.querySelectorAll('.qs-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _qsSelectedIdx = Math.min(_qsSelectedIdx + 1, allItems.length - 1);
+      allItems.forEach((el, i) => el.classList.toggle('selected', i === _qsSelectedIdx));
+      allItems[_qsSelectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _qsSelectedIdx = Math.max(_qsSelectedIdx - 1, 0);
+      allItems.forEach((el, i) => el.classList.toggle('selected', i === _qsSelectedIdx));
+      allItems[_qsSelectedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const sel = allItems[_qsSelectedIdx];
+      if (sel) handleQsSelect(sel);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      // Switch mode
+      const next = mode === 'nav' ? 'search' : 'nav';
+      overlay.querySelectorAll('.qs-tab').forEach(t => { t.classList.toggle('active', t.dataset.mode === next); });
+      mode = next;
+      _qsSelectedIdx = 0;
+      const q = input.value.trim();
+      if (mode === 'nav') renderNavResults(q);
+      else renderSearchResults(q);
+    }
   });
 
   overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
   const onKey = e => { if (e.key === 'Escape') { overlay.remove(); window.removeEventListener('keydown', onKey); } };
   window.addEventListener('keydown', onKey);
+  renderNavResults('');
   input.focus();
+}
+
+// ─── CHANNEL SETTINGS MODAL ───────────────────────────────────────────────────
+async function openChannelSettings(channelId) {
+  const ch = getChannel(channelId);
+  if (!ch) return;
+  const isGuild = !!ch.server_id;
+  const canManage = isGuild && userHasPermissionClient(ch.server_id, 'manage_channels');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'da-dialog-overlay';
+  overlay.innerHTML = `
+    <div class="da-dialog-box da-dialog-wide" role="dialog" aria-modal="true">
+      <div class="da-dialog-head">
+        <h3>${IC.settings} Настройки канала</h3>
+        <button class="da-dialog-close-btn">✕</button>
+      </div>
+      <div class="da-dialog-body" style="max-height:60vh;overflow:auto">
+        <div class="cs-tabs">
+          <button class="cs-tab active" data-tab="overview">Обзор</button>
+          <button class="cs-tab" data-tab="permissions">Права</button>
+          ${isGuild ? '<button class="cs-tab" data-tab="invites">Приглашения</button>' : ''}
+        </div>
+        <div id="cs-body"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.da-dialog-close-btn').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  async function renderTab(tab) {
+    const body = overlay.querySelector('#cs-body');
+    if (tab === 'overview') {
+      body.innerHTML = `
+        <div class="form-group">
+          <label>Название</label>
+          <input id="cs-name" value="${escHtml(ch.name || '')}" ${canManage ? '' : 'disabled'}>
+        </div>
+        <div class="form-group">
+          <label>Тема</label>
+          <textarea id="cs-topic" ${canManage ? '' : 'disabled'}>${escHtml(ch.topic || '')}</textarea>
+        </div>
+        ${ch.type === 'text' || ch.type === 0 ? `
+        <div class="form-group">
+          <label>Медленный режим (сек)</label>
+          <input type="number" id="cs-slowmode" value="${ch.rate_limit_per_user || 0}" min="0" max="21600" ${canManage ? '' : 'disabled'}>
+        </div>
+        <div class="form-group">
+          <label>NSFW</label>
+          <input type="checkbox" id="cs-nsfw" ${ch.nsfw ? 'checked' : ''} ${canManage ? '' : 'disabled'}>
+        </div>` : ''}
+        ${canManage ? '<button class="btn btn-primary mt-8" id="cs-save">Сохранить</button>' : ''}
+        ${canManage ? `<div style="margin-top:24px"><button class="btn btn-danger" id="cs-delete">Удалить канал</button></div>` : ''}
+      `;
+      body.querySelector('#cs-save')?.addEventListener('click', async () => {
+        try {
+          await API.patch(`/api/channels/${channelId}`, {
+            name: body.querySelector('#cs-name').value.trim(),
+            topic: body.querySelector('#cs-topic').value.trim(),
+            rate_limit_per_user: parseInt(body.querySelector('#cs-slowmode')?.value) || 0,
+            nsfw: body.querySelector('#cs-nsfw')?.checked || false,
+          });
+          showToast('Канал обновлён', 'success');
+          overlay.remove();
+        } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+      });
+      body.querySelector('#cs-delete')?.addEventListener('click', async () => {
+        if (!await daConfirm('Удалить этот канал?', { title: 'Удаление канала', danger: true })) return;
+        try { await API.del(`/api/channels/${channelId}`); overlay.remove(); }
+        catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+      });
+    } else if (tab === 'permissions') {
+      body.innerHTML = `
+        <div class="form-group">
+          <p style="color:var(--text-2)">Переопределения прав для этого канала. Добавьте роль или участника для настройки.</p>
+        </div>
+        <div id="cs-perm-list"></div>
+        ${canManage ? '<button class="btn btn-outline mt-8" id="cs-add-perm">+ Добавить переопределение</button>' : ''}
+      `;
+      loadChannelPermissions(body, channelId, ch.server_id);
+    } else if (tab === 'invites') {
+      body.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+      try {
+        const inv = await API.get(`/api/guilds/${ch.server_id}/invites`);
+        const channelInvs = inv.filter(i => i.channel_id === channelId);
+        body.innerHTML = !channelInvs.length ? '<div class="empty-state">Нет приглашений для этого канала</div>' :
+          channelInvs.map(i => `
+            <div style="padding:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <code>${escHtml(i.code)}</code>
+              <span style="color:var(--text-3);font-size:12px">${i.uses} использований</span>
+            </div>
+          `).join('');
+      } catch { body.innerHTML = '<div class="empty-state">Не удалось загрузить</div>'; }
+    }
+  }
+
+  overlay.querySelectorAll('.cs-tab').forEach(tab => {
+    tab.onclick = () => {
+      overlay.querySelectorAll('.cs-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderTab(tab.dataset.tab);
+    };
+  });
+  renderTab('overview');
+}
+
+async function loadChannelPermissions(body, channelId, guildId) {
+  const permList = body.querySelector('#cs-perm-list');
+  if (!permList) return;
+  try {
+    const ch = await API.get(`/api/channels/${channelId}`);
+    const overwrites = ch.permission_overwrites || [];
+    if (!overwrites.length) {
+      permList.innerHTML = '<div style="color:var(--text-3);padding:8px">Нет переопределений</div>';
+      return;
+    }
+    permList.innerHTML = overwrites.map(ow => `
+      <div style="padding:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span>${ow.target_type === 0 ? '🛡️ Роль' : '👤 Участник'}: ${escHtml(ow.target_id)}</span>
+        <span style="color:var(--text-3);font-size:12px">allow: ${ow.allow || 0} | deny: ${ow.deny || 0}</span>
+      </div>
+    `).join('');
+  } catch { permList.innerHTML = '<div style="color:var(--text-3)">Не удалось загрузить</div>'; }
+}
+
+// ─── NOTIFICATION SETTINGS ────────────────────────────────────────────────────
+async function openNotificationSettings(guildId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'da-dialog-overlay';
+  overlay.innerHTML = `
+    <div class="da-dialog-box" role="dialog" aria-modal="true">
+      <div class="da-dialog-head"><h3>${IC.bell} Настройки уведомлений</h3></div>
+      <div class="da-dialog-body" id="ns-body">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+      <div class="da-dialog-foot">
+        <button class="btn btn-outline" id="ns-cancel">Отмена</button>
+        <button class="btn btn-accent" id="ns-save">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#ns-cancel').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  // Load current settings
+  let settings = { muted: 0, message_notifications: -1, suppress_everyone: 0, suppress_roles: 0 };
+  try {
+    settings = await API.get(`/api/users/@me/guilds/${guildId}/settings`);
+  } catch { }
+
+  const body = overlay.querySelector('#ns-body');
+  body.innerHTML = `
+    <div class="form-group">
+      <label>Заглушить сервер</label>
+      <input type="checkbox" id="ns-muted" ${settings.muted ? 'checked' : ''}>
+    </div>
+    <div class="form-group">
+      <label>Уведомления о сообщениях</label>
+      <select id="ns-level">
+        <option value="-1" ${settings.message_notifications === -1 ? 'selected' : ''}>По умолчанию</option>
+        <option value="0" ${settings.message_notifications === 0 ? 'selected' : ''}>Все сообщения</option>
+        <option value="1" ${settings.message_notifications === 1 ? 'selected' : ''}>Только упоминания</option>
+        <option value="2" ${settings.message_notifications === 2 ? 'selected' : ''}>Ничего</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label><input type="checkbox" id="ns-suppress-everyone" ${settings.suppress_everyone ? 'checked' : ''}> Подавлять @everyone и @here</label>
+    </div>
+    <div class="form-group">
+      <label><input type="checkbox" id="ns-suppress-roles" ${settings.suppress_roles ? 'checked' : ''}> Подавлять уведомления ролей</label>
+    </div>
+  `;
+
+  overlay.querySelector('#ns-save').onclick = async () => {
+    try {
+      await API.patch(`/api/users/@me/guilds/${guildId}/settings`, {
+        muted: body.querySelector('#ns-muted').checked ? 1 : 0,
+        message_notifications: parseInt(body.querySelector('#ns-level').value),
+        suppress_everyone: body.querySelector('#ns-suppress-everyone').checked ? 1 : 0,
+        suppress_roles: body.querySelector('#ns-suppress-roles').checked ? 1 : 0,
+      });
+      showToast('Настройки сохранены', 'success');
+      overlay.remove();
+    } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+  };
 }
 
 // ─── DRAG & DROP FILE UPLOAD ──────────────────────────────────────────────────

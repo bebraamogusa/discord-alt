@@ -21,7 +21,14 @@ import guildsCoreRoutes from './routes/guildsCore.js';
 import messagesCoreRoutes from './routes/messagesCore.js';
 import socialCoreRoutes from './routes/socialCore.js';
 import embedsCoreRoutes from './routes/embedsCore.js';
+import voiceRoutes from './routes/voice.js';
+import phase4Routes from './routes/phase4Core.js';
+import auditLogRoutes from './routes/auditLog.js';
+import readStateRoutes from './routes/readStates.js';
+import { buildAuditLogService } from './services/auditLogService.js';
+import { startCronJobs } from './cron.js';
 import { buildSocketServer } from './socket.js';
+import { createWorkers } from './media/mediasoup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -85,9 +92,18 @@ await app.register(authRoutes, { authService, config, authenticate });
 await app.register(usersRoutes, { db, authenticate, authService, config });
 await app.register(embedsCoreRoutes, { authenticate, embedService });
 const io = buildSocketServer(app.server, { db, config });
+app.decorate('io', io); // Make io accessible in fastify req.server
+
+const auditLog = buildAuditLogService({ db, snowflake, io });
+app.decorate('auditLog', auditLog);
+
 await app.register(guildsCoreRoutes, { db, authenticate, snowflake, io });
 await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io, config, fileService });
 await app.register(socialCoreRoutes, { db, authenticate, snowflake, io });
+await app.register(voiceRoutes, { prefix: '/api/voice', db, authenticate });
+await app.register(phase4Routes, { prefix: '/api/v1', db, authenticate, snowflake, io });
+await app.register(auditLogRoutes, { db, authenticate });
+await app.register(readStateRoutes, { db, authenticate, io });
 
 app.get('/app', async (_req, reply) => {
   return reply.sendFile('app.html');
@@ -110,6 +126,12 @@ app.setErrorHandler((error, _req, reply) => {
     error: error.message || 'Internal server error',
   });
 });
+
+await createWorkers();
+app.log.info('Mediasoup workers created');
+
+startCronJobs({ db, io });
+app.log.info('Background cron jobs started');
 
 await app.listen({ host: config.host, port: config.port });
 

@@ -1923,10 +1923,72 @@ body.is-tauri textarea {
   white-space: nowrap;
 }
 
-/* Search modal practicality */
-.search-input-wrap { padding: 12px 14px; }
-.search-results { max-height: 56vh; }
+/* Quick Switcher / Enhanced Search */
+.qs-box { max-width: 600px; width: 92vw; }
+.qs-kbd {
+  background: var(--bg-3); color: var(--text-3); padding: 2px 6px;
+  border-radius: 3px; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border);
+}
+.qs-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+}
+.qs-tab {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); padding: 8px 14px; font-size: 13px; font-weight: 500;
+  border-bottom: 2px solid transparent; transition: all .12s;
+}
+.qs-tab:hover { color: var(--text-2); }
+.qs-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.qs-category {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-3); padding: 10px 14px 4px; margin-top: 0;
+}
+.qs-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; cursor: pointer;
+  color: var(--text-2); transition: background .08s;
+  border-radius: 4px; margin: 0 6px;
+}
+.qs-item:hover, .qs-item.selected { background: var(--bg-active); color: var(--text); }
+.qs-item .qs-icon { flex-shrink: 0; width: 20px; display: flex; align-items: center; justify-content: center; color: var(--text-3); }
+.qs-item .qs-icon .ic { width: 18px; height: 18px; }
+.qs-item .qs-icon img { border-radius: 50%; }
+.qs-item .qs-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-item .qs-sub { font-size: 12px; color: var(--text-3); margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-footer {
+  display: flex; gap: 16px; padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-3);
+}
+.search-input-wrap {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+}
+.search-input-wrap .ic { width: 18px; height: 18px; color: var(--text-3); flex-shrink: 0; }
+.search-results { max-height: 56vh; overflow-y: auto; }
 .search-result { padding: 9px 14px; }
+
+/* Channel Settings Tabs */
+.cs-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+}
+.cs-tab {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); padding: 10px 16px; font-size: 14px; font-weight: 500;
+  border-bottom: 2px solid transparent; transition: all .12s;
+}
+.cs-tab:hover { color: var(--text-2); }
+.cs-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Channel Settings close button */
+.da-dialog-close-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 20px; line-height: 1;
+  padding: 4px; border-radius: 3px;
+}
+.da-dialog-close-btn:hover { color: var(--text); background: var(--bg-hover); }
+.da-dialog-head { display: flex; justify-content: space-between; align-items: center; }
 
 /* Mobile keeps dense style */
 @media (max-width: 768px) {
@@ -1940,5 +2002,6 @@ body.is-tauri textarea {
     right: 0;
     height: 320px;
   }
+  .qs-box { width: 96vw; }
 }
 
