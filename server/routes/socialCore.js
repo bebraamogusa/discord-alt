@@ -682,18 +682,6 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
     return payload;
   }
 
-  fastify.put('/api/channels/:channelId/messages/:messageId/reactions/:emoji/@me', { preHandler: authenticate }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    return handleReact(req, reply, 'add');
-  });
-
-  fastify.delete('/api/channels/:channelId/messages/:messageId/reactions/:emoji/@me', { preHandler: authenticate }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    return handleReact(req, reply, 'remove');
-  });
-
   fastify.post('/api/messages/:messageId/reactions/:emoji', { preHandler: authenticate }, async (req, reply) => {
     return handleReact(req, reply, 'add');
   });
