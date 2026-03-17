@@ -88,14 +88,8 @@ export function buildSocketServer(httpServer, { db, config }) {
     WHERE vs.channel_id = ?
   `);
   const insertVoiceState = db.prepare(`
-    INSERT INTO voice_states (user_id, guild_id, channel_id, mute, deaf, self_mute, self_deaf, self_stream, self_video)
+    INSERT OR REPLACE INTO voice_states (user_id, guild_id, channel_id, mute, deaf, self_mute, self_deaf, self_stream, self_video)
     VALUES (?, ?, ?, 0, 0, ?, ?, ?, 0)
-    ON CONFLICT(user_id) DO UPDATE SET
-      guild_id = excluded.guild_id,
-      channel_id = excluded.channel_id,
-      self_mute = excluded.self_mute,
-      self_deaf = excluded.self_deaf,
-      self_stream = excluded.self_stream
   `);
   const deleteVoiceState = db.prepare('DELETE FROM voice_states WHERE user_id = ?');
   const getGuildIdForChannel = db.prepare('SELECT guild_id FROM channels WHERE id = ?');
