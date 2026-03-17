@@ -1257,7 +1257,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
           hoist: { type: 'integer', minimum: 0, maximum: 1 },
           mentionable: { type: 'integer', minimum: 0, maximum: 1 },
           position: { type: 'integer' },
-          permissions: { type: 'string', minLength: 1, maxLength: 30 },
+          permissions: { type: ['string', 'object'] },
         },
       },
     },
@@ -1281,12 +1281,13 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       req.body.color ?? 0,
       req.body.hoist ?? 0,
       req.body.position ?? (highest + 1),
-      req.body.permissions ?? '0',
+      typeof req.body.permissions === 'object' ? JSON.stringify(req.body.permissions) : (req.body.permissions ?? '0'),
       0,
       req.body.mentionable ?? 0,
       0,
       now
     );
+    permissions.clearCache();
 
     const role = getRoleById.get(roleId);
     io?.to(`guild:${guild.id}`)?.emit('guild:role:create', role);
@@ -1305,7 +1306,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
           hoist: { type: 'integer', minimum: 0, maximum: 1 },
           mentionable: { type: 'integer', minimum: 0, maximum: 1 },
           position: { type: 'integer' },
-          permissions: { type: 'string', minLength: 1, maxLength: 30 },
+          permissions: { type: ['string', 'object'] },
         },
       },
     },
@@ -1327,11 +1328,12 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       body.color,
       body.hoist,
       body.mentionable,
-      body.permissions,
+      typeof body.permissions === 'object' ? JSON.stringify(body.permissions) : body.permissions,
       body.position,
       role.id,
       guild.id
     );
+    permissions.clearCache();
 
     const updated = getRoleById.get(role.id);
     io?.to(`guild:${guild.id}`)?.emit('guild:role:update', updated);
@@ -1352,6 +1354,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
 
     deleteRole.run(role.id, guild.id);
+    permissions.clearCache();
     io?.to(`guild:${guild.id}`)?.emit('guild:role:delete', { guild_id: guild.id, role_id: role.id });
     return { ok: true };
   });
@@ -1373,6 +1376,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
 
     insertMemberRole.run(guild.id, req.params.userId, role.id);
+    permissions.clearCache();
     io?.to(`guild:${guild.id}`)?.emit('guild:member:role:add', {
       guild_id: guild.id,
       user_id: req.params.userId,
@@ -1395,6 +1399,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     if (!targetMember) return reply.code(404).send({ error: 'Target member not found' });
 
     deleteMemberRole.run(guild.id, req.params.userId, req.params.roleId);
+    permissions.clearCache();
     io?.to(`guild:${guild.id}`)?.emit('guild:member:role:remove', {
       guild_id: guild.id,
       user_id: req.params.userId,

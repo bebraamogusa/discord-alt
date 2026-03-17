@@ -94,11 +94,47 @@ export function buildPermissionService(db) {
   const getChannel = db.prepare('SELECT id, guild_id FROM channels WHERE id = ?');
   const getOverwrites = db.prepare('SELECT target_id, target_type, allow, deny FROM channel_permission_overwrites WHERE channel_id = ?');
 
+  // Simple TTL cache (10 seconds)
+  const cacheOptions = { ttl: 10000 };
+  const cache = new Map();
+
+  function getFromCache(key) {
+    const item = cache.get(key);
+    if (!item) return undefined;
+    if (Date.now() > item.expiresAt) {
+      cache.delete(key);
+      return undefined;
+    }
+    return item.value;
+  }
+
+  function setToCache(key, value) {
+    if (cache.size > 5000) { // arbitrary limit memory
+      const oldest = cache.keys().next().value;
+      cache.delete(oldest);
+    }
+    cache.set(key, { value, expiresAt: Date.now() + cacheOptions.ttl });
+  }
+
   function getGuildPermissions(guildId, userId) {
+    const cacheKey = `guild:${guildId}:${userId}`;
+    const cached = getFromCache(cacheKey);
+    if (cached !== undefined) return cached === 'null' ? null : cached;
+
     const guild = getGuildOwner.get(guildId);
-    if (!guild) return null;
-    if (guild.owner_id === userId) return (1n << 62n) - 1n;
-    if (!getGuildMember.get(guildId, userId)) return null;
+    if (!guild) {
+      setToCache(cacheKey, 'null');
+      return null;
+    }
+    if (guild.owner_id === userId) {
+      const perms = (1n << 62n) - 1n;
+      setToCache(cacheKey, perms);
+      return perms;
+    }
+    if (!getGuildMember.get(guildId, userId)) {
+      setToCache(cacheKey, 'null');
+      return null;
+    }
 
     let bits = 0n;
 
@@ -109,20 +145,33 @@ export function buildPermissionService(db) {
     for (const row of rows) bits |= parsePermissions(row.permissions);
 
     if (can(bits, Permissions.ADMINISTRATOR)) {
-      return (1n << 62n) - 1n;
+      bits = (1n << 62n) - 1n;
     }
 
+    setToCache(cacheKey, bits);
     return bits;
   }
 
   function getChannelPermissions(channelId, userId) {
+    const cacheKey = `channel:${channelId}:${userId}`;
+    const cached = getFromCache(cacheKey);
+    if (cached !== undefined) return cached === 'null' ? null : cached;
+
     const channel = getChannel.get(channelId);
-    if (!channel) return null;
-    if (!channel.guild_id) return null;
+    if (!channel || !channel.guild_id) {
+       setToCache(cacheKey, 'null');
+       return null;
+    }
 
     const guildBits = getGuildPermissions(channel.guild_id, userId);
-    if (guildBits == null) return null;
-    if (can(guildBits, Permissions.ADMINISTRATOR)) return guildBits;
+    if (guildBits == null) {
+       setToCache(cacheKey, 'null');
+       return null;
+    }
+    if (can(guildBits, Permissions.ADMINISTRATOR)) {
+       setToCache(cacheKey, guildBits);
+       return guildBits;
+    }
 
     let bits = guildBits;
     const rows = getOverwrites.all(channelId);
@@ -155,6 +204,7 @@ export function buildPermissionService(db) {
       bits |= parsePermissions(memberOw.allow);
     }
 
+    setToCache(cacheKey, bits);
     return bits;
   }
 
@@ -171,5 +221,8 @@ export function buildPermissionService(db) {
       if (bits == null) return false;
       return can(bits, permission);
     },
+    clearCache() {
+      cache.clear();
+    }
   };
 }

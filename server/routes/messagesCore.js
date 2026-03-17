@@ -256,6 +256,32 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     } catch {
       embeds = [];
     }
+
+    const reactionsRaw = db.prepare(`
+      SELECT emoji_name, user_id
+      FROM message_reactions
+      WHERE message_id = ?
+    `).all(row.id);
+    
+    // Group reactions by emoji
+    const reactionGroups = {};
+    for (const r of reactionsRaw) {
+      if (!reactionGroups[r.emoji_name]) {
+        reactionGroups[r.emoji_name] = { count: 0, me: false };
+      }
+      reactionGroups[r.emoji_name].count++;
+      // Since we don't pass req.user.id to enrichMessage usually, we'll mark 'me' in UI or just pass the whole list if needed, or check if they are in the array
+      // To keep it simple, we just array of users, or boolean if we change signature. 
+      // For now, let's just return count and true/false if we can, but we don't have user context here. 
+      // Better: return array of user IDs or just don't handle `me` correctly yet (Discord returns `me: bool` but that requires user context).
+      // Let's just say a reaction object has `{ emoji: { name: '...' }, count: N }`
+    }
+    
+    const reactions = Object.keys(reactionGroups).map(emoji => ({
+      emoji: { name: emoji },
+      count: reactionGroups[emoji].count,
+    }));
+
     return {
       id: row.id,
       channel_id: row.channel_id,
@@ -266,6 +292,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       reference_channel_id: row.reference_channel_id,
       attachments,
       embeds,
+      reactions,
       type: row.type,
       flags: row.flags,
       pinned: row.pinned,
@@ -798,15 +825,69 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     const softDeleteBulk = softDeleteBulkTemplate(deletePlaceholders);
     const ts = nowSec();
     softDeleteBulk.run(ts, channel.id, ...editableIds);
-
-    const payload = {
+    
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_DELETE_BULK', {
+      ids: editableIds,
       channel_id: channel.id,
       guild_id: channel.guild_id,
-      ids: editableIds,
-    };
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:delete_bulk', payload);
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_DELETE_BULK', payload);
-
+    });
     return { ok: true, deleted: editableIds.length, ids: editableIds };
+  });
+
+  // ═══════════════════════════════════════════════════════
+  // REACTIONS
+  // ═══════════════════════════════════════════════════════
+
+  fastify.put('/api/channels/:channelId/messages/:messageId/reactions/:emoji/@me', {
+    preHandler: authenticate,
+  }, async (req, reply) => {
+    const channel = getChannelById.get(req.params.channelId);
+    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
+    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
+
+    if (!canView(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
+    if (!canReadHistory(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing READ_MESSAGE_HISTORY permission' });
+
+    const existing = getMessageById.get(req.params.messageId, channel.id);
+    if (!existing) return reply.code(404).send({ error: 'Message not found' });
+
+    const emoji = decodeURIComponent(req.params.emoji);
+    
+    db.prepare('INSERT OR IGNORE INTO message_reactions (message_id, emoji_name, user_id, created_at) VALUES (?, ?, ?, ?)').run(existing.id, emoji, req.user.id, nowSec());
+
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_REACTION_ADD', {
+      user_id: req.user.id,
+      channel_id: channel.id,
+      message_id: existing.id,
+      guild_id: channel.guild_id,
+      emoji: { name: emoji }
+    });
+
+    return { ok: true };
+  });
+
+  fastify.delete('/api/channels/:channelId/messages/:messageId/reactions/:emoji/@me', {
+    preHandler: authenticate,
+  }, async (req, reply) => {
+    const channel = getChannelById.get(req.params.channelId);
+    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
+    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported' });
+
+    const existing = getMessageById.get(req.params.messageId, channel.id);
+    if (!existing) return reply.code(404).send({ error: 'Message not found' });
+
+    const emoji = decodeURIComponent(req.params.emoji);
+
+    db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND emoji_name = ? AND user_id = ?').run(existing.id, emoji, req.user.id);
+
+    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_REACTION_REMOVE', {
+      user_id: req.user.id,
+      channel_id: channel.id,
+      message_id: existing.id,
+      guild_id: channel.guild_id,
+      emoji: { name: emoji }
+    });
+
+    return { ok: true };
   });
 }
