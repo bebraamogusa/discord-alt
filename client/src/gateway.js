@@ -5,25 +5,49 @@ import * as VoiceClient from '/voice.js';
 import { S, V } from './state.js';
 import { 
   $, normalizeMe, showToast, parseMarkdown, 
-  displayNameFor, getServer, getChannel
+  displayNameFor, getServer, getChannel, updateSidebarUser
 } from './utils.js';
+import {
+  renderChannelList,
+  renderServerIcons,
+  renderMembersPanel,
+  renderMessages,
+  renderVoicePanel,
+  showWelcomeScreen,
+  selectServer,
+  showFriendsView,
+} from './ui.js';
+import { loadFriendCount } from './api_requests.js';
 
-import { socket } from '../app.js';
-import { 
-  renderApp, renderChannelList, renderServerIcons, 
-  renderMembersPanel, renderMessages, renderTyping, 
-  renderVoicePanel, renderVoiceBar, showWelcomeScreen,
-  appendMessage, scrollToBottom, updateReactions,
-  selectServer, showFriendsView, updateSidebarUser, loadFriendCount
-} from '../app.js';
+export let socket = null;
 
-import { NotifSound } from '../app.js'; // Assuming we export this later or move it
+function renderTyping() {
+  if (typeof window.renderTyping === 'function') window.renderTyping();
+}
+
+function renderVoiceBar() {
+  if (typeof window.renderVoiceBar === 'function') window.renderVoiceBar();
+}
+
+function updateReactions(messageId, channelId, emoji, userId, add) {
+  if (typeof window.updateReactions === 'function') {
+    window.updateReactions(messageId, channelId, emoji, userId, add);
+    return;
+  }
+  if (channelId === S.activeChannelId) renderMessages();
+}
+
+export function sendTyping() {
+  if (!socket || !S.activeChannelId) return;
+  socket.emit('TYPING_START', { channel_id: S.activeChannelId });
+}
 
 export function connectGateway() {
   const sio = window.io;
   if (!sio) { console.warn('socket.io not loaded'); return; }
 
   const newSocket = sio('/gateway', { transports: ['websocket'] });
+  socket = newSocket;
 
   newSocket.on('connect', () => {
     newSocket.emit('IDENTIFY', { token: API.getToken() });
@@ -35,7 +59,12 @@ export function connectGateway() {
     S.dmChannels = dm_channels;
     S.presences = presences;
     S.voiceStates = voice_states || {};
-    renderApp();
+    renderServerIcons();
+    renderChannelList();
+    updateSidebarUser();
+    if (!S.activeServerId) {
+      void selectServer('@me');
+    }
     const savedStatus = localStorage.getItem('da_status');
     if (savedStatus && savedStatus !== 'online') {
       newSocket.emit('UPDATE_STATUS', { status: savedStatus, custom_status: (S.me?.custom_status || '') });
@@ -47,8 +76,9 @@ export function connectGateway() {
     if (S.messages[msg.channel_id].some(m => m.id === msg.id)) return;
     S.messages[msg.channel_id].push(msg);
     if (msg.channel_id === S.activeChannelId) {
-      appendMessage(msg);
-      scrollToBottom();
+      renderMessages();
+      const wrapper = document.getElementById('messages-wrapper');
+      if (wrapper) wrapper.scrollTo({ top: wrapper.scrollHeight, behavior: 'instant' });
     } else {
       S.unread[msg.channel_id] = (S.unread[msg.channel_id] || 0) + 1;
       renderChannelList();
