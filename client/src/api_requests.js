@@ -1,6 +1,6 @@
 import { S, V } from './state.js';
 import { API, t } from './utils.js';
-import { showToast, daConfirm, daPrompt, t } from './utils.js';
+import { showToast, daConfirm, daPrompt } from './utils.js';
 import { renderServerIcons, renderChannelList, renderMembersPanel, getChannel, getServer, selectServer, renderVoicePanel, renderMessages } from './ui.js';
 
 export async function toggleReaction(msgId, emoji) {

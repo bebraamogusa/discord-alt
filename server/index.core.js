@@ -111,6 +111,10 @@ app.get('/app', async (_req, reply) => {
   return reply.sendFile('app.html');
 });
 
+app.get('/favicon.ico', async (_req, reply) => {
+  reply.code(204).send();
+});
+
 app.get('/', async (_req, reply) => {
   return reply.redirect('/app');
 });
