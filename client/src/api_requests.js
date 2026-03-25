@@ -1,7 +1,7 @@
 import { S, V } from './state.js';
 import { API, t } from './utils.js';
-import { showToast, daConfirm, daPrompt } from './utils.js';
-import { renderServerIcons, renderChannelList, renderMembersPanel, getChannel, getServer, selectServer, renderVoicePanel, renderMessages } from './ui.js';
+import { showToast, daConfirm, daPrompt, getChannel, getServer } from './utils.js';
+import { renderServerIcons, renderChannelList, renderMembersPanel, selectServer, renderVoicePanel, renderMessages } from './ui.js';
 
 export async function toggleReaction(msgId, emoji) {
   const msgs = S.messages[S.activeChannelId] || [];
