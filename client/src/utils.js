@@ -1,6 +1,9 @@
-import { t, getLang } from '/i18n.js';
+import * as API from '/api.js';
+import { t, getLang, setLang, LANG_NAMES } from '/i18n.js';
 import { IC } from './icons.js';
 import { S } from './state.js';
+
+export { API, t, getLang, setLang, LANG_NAMES };
 
 export const $ = id => document.getElementById(id);
 export const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
