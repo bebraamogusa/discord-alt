@@ -25,6 +25,34 @@ const $ = id => document.getElementById(id);
 let sendingMessage = false;
 const COMPOSER_EMOJIS = ['😀', '😂', '😍', '😎', '🥺', '😭', '😡', '🤔', '🙏', '👍', '👎', '❤️', '🔥', '✅', '❌', '⭐', '🎉', '🚀'];
 
+function resizeComposerInput(input) {
+  input.style.height = 'auto';
+  input.style.overflowY = 'hidden';
+  const contentHeight = input.scrollHeight;
+  input.style.height = `${Math.min(contentHeight, 220)}px`;
+  input.style.overflowY = contentHeight > 220 ? 'auto' : 'hidden';
+}
+
+function positionComposerEmojiPicker() {
+  const picker = $('emoji-picker');
+  const anchor = $('btn-emoji');
+  if (!picker || picker.classList.contains('hidden') || !anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const gutter = 8;
+  const width = Math.min(320, Math.max(0, window.innerWidth - gutter * 2));
+  picker.style.width = `${width}px`;
+  picker.style.left = `${Math.max(gutter, Math.min(rect.right - width, window.innerWidth - width - gutter))}px`;
+  picker.style.right = 'auto';
+  const height = picker.offsetHeight;
+  const above = rect.top - height - gutter;
+  const below = rect.bottom + gutter;
+  const top = above >= gutter ? above : Math.min(below, Math.max(gutter, window.innerHeight - height - gutter));
+  picker.style.top = `${top}px`;
+}
+
+window.addEventListener('resize', positionComposerEmojiPicker);
+window.addEventListener('scroll', positionComposerEmojiPicker, true);
+
 async function sendMessage() {
   const input = $('msg-input');
   const channelId = S.activeChannelId;
@@ -35,7 +63,7 @@ async function sendMessage() {
     await sendMessageRequest(content, S.replyTo?.id);
     if (S.activeChannelId === channelId && input.value.trim() === content) {
       input.value = '';
-      input.style.height = 'auto';
+      resizeComposerInput(input);
       saveDraft(channelId, '');
       S.replyTo = null;
       document.getElementById('reply-bar')?.classList.remove('visible');
@@ -218,6 +246,7 @@ function toggleComposerEmojiPicker() {
   const isHidden = picker.classList.contains('hidden');
   picker.classList.toggle('hidden', !isHidden);
   if (!isHidden) return;
+  if (picker.parentElement !== document.body) document.body.appendChild(picker);
   picker.replaceChildren();
   picker.setAttribute('role', 'menu');
   picker.setAttribute('aria-label', t('react'));
@@ -238,6 +267,7 @@ function toggleComposerEmojiPicker() {
     });
     picker.appendChild(button);
   }
+  positionComposerEmojiPicker();
   picker.querySelector('button')?.focus();
 }
 
@@ -461,8 +491,7 @@ function setupDOMEventListeners() {
     else sendTyping();
   });
   input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 220) + 'px';
+    resizeComposerInput(input);
     saveDraft(S.activeChannelId, input.value);
   });
 

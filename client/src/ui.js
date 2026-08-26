@@ -139,7 +139,10 @@ function restoreDraft(channelId) {
   const draft = readDrafts()[channelId] || '';
   input.value = draft;
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 220) + 'px';
+  input.style.overflowY = 'hidden';
+  const contentHeight = input.scrollHeight;
+  input.style.height = Math.min(contentHeight, 220) + 'px';
+  input.style.overflowY = contentHeight > 220 ? 'auto' : 'hidden';
 }
 
 // ─── LOCAL STORAGE REFS ───────────────────────────────────────────────────────

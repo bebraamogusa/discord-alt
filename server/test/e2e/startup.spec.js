@@ -157,6 +157,14 @@ for (const viewport of [
 
       await page.locator('#btn-emoji').click();
       await expect(page.locator('#emoji-picker')).not.toHaveClass(/hidden/);
+      const pickerBounds = await page.locator('#emoji-picker').evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      });
+      expect(pickerBounds.left).toBeGreaterThanOrEqual(0);
+      expect(pickerBounds.top).toBeGreaterThanOrEqual(0);
+      expect(pickerBounds.right).toBeLessThanOrEqual(viewport.viewport.width);
+      expect(pickerBounds.bottom).toBeLessThanOrEqual(viewport.viewport.height);
       await page.locator('#emoji-picker button').first().click();
       await expect(page.locator('#msg-input')).not.toHaveValue('');
 
@@ -173,6 +181,12 @@ for (const viewport of [
       await expect(page.locator('#ctx-menu')).toBeVisible();
       await page.locator('#ctx-menu [data-action="msg_reply"]').click();
       await expect(page.locator('#reply-bar')).toHaveClass(/visible/);
+      const replyLayout = await page.locator('#reply-bar').evaluate(el => {
+        const style = getComputedStyle(el);
+        return { marginBottom: style.marginBottom, borderBottom: style.borderBottomWidth };
+      });
+      expect(replyLayout.marginBottom).toBe('0px');
+      expect(replyLayout.borderBottom).toBe('0px');
 
       await message.hover();
       await message.locator('[data-action="react"]').click();
