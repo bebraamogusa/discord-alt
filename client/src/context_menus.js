@@ -198,11 +198,33 @@ async function handleCtxAction(action, data) {
   }
   
   // Server Actions
-  else if (action === 'srv_invite') createInvite(data.serverId);
+  } else if (action === 'srv_invite') createInvite(data.serverId);
+  else if (action === 'srv_events') openGuildEventsModal(data.serverId);
   else if (action === 'srv_notifications') openNotificationSettings(data.serverId);
   else if (action === 'srv_settings') document.dispatchEvent(new CustomEvent('da:open-server-settings', { detail: { serverId: data.serverId } }));
   else if (action === 'srv_leave') document.dispatchEvent(new CustomEvent('da:leave-server', { detail: { serverId: data.serverId } }));
   else if (action === 'srv_delete') document.dispatchEvent(new CustomEvent('da:delete-server', { detail: { serverId: data.serverId } }));
+  else if (action === 'mem_profile') {
+    const row = document.querySelector(`.member-item[data-user-id="${CSS.escape(String(data.userId))}"]`);
+    if (row) showProfileCard(data.userId, row);
+  } else if (action === 'mem_timeout') {
+    const minutes = await daPrompt('Введите длительность timeout в минутах (0 — снять):', {
+      title: t('ctx_timeout'), placeholder: '60', confirmText: t('ok')
+    });
+    if (minutes === null) return;
+    const value = Number(minutes);
+    if (!Number.isInteger(value) || value < 0 || value > 40320) {
+      showToast('Укажите целое число от 0 до 40320', 'error');
+      return;
+    }
+    try {
+      await API.put(`/api/guilds/${S.activeServerId}/members/${data.userId}/timeout`, {
+        communication_disabled_until: value === 0 ? null : Math.floor(Date.now() / 1000) + value * 60,
+      });
+      renderMembersPanel();
+      showToast(t('saved'), 'success');
+    } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+  }
 
   // DM Actions
   else if (action === 'dm_leave_group') await leaveGroupDm(data.channelId);
