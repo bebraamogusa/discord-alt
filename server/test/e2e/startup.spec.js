@@ -124,6 +124,15 @@ for (const viewport of [
 
       await page.evaluate(channelId => window.selectChannel(channelId), channelId);
       await expect(page.locator('#msg-input')).toBeVisible();
+      if (viewport.name === 'desktop') {
+        await expect(page.locator('#members-panel .member-item').first()).toBeVisible();
+        const memberAvatarBounds = await page.locator('#members-panel .member-avatar').first().evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        });
+        expect(memberAvatarBounds.width).toBe(32);
+        expect(memberAvatarBounds.height).toBe(32);
+      }
       const alignedWidths = await page.evaluate(() => {
         const messages = document.querySelector('#messages-container')?.getBoundingClientRect().width || 0;
         const composer = document.querySelector('#input-box')?.getBoundingClientRect().width || 0;
@@ -134,6 +143,13 @@ for (const viewport of [
         await page.locator('#btn-members').click();
         await expect(page.locator('#app')).toHaveClass(/mobile-members-open/);
         await expect(page.locator('#members-panel')).toBeVisible();
+        await expect(page.locator('#members-panel .member-item').first()).toBeVisible();
+        const memberAvatarBounds = await page.locator('#members-panel .member-avatar').first().evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        });
+        expect(memberAvatarBounds.width).toBe(32);
+        expect(memberAvatarBounds.height).toBe(32);
         await page.keyboard.press('Escape');
         await expect(page.locator('#app')).not.toHaveClass(/mobile-members-open/);
         await expect(page.locator('#members-panel')).toBeHidden();

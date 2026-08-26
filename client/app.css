@@ -204,12 +204,12 @@ body:not(.is-tauri) .desktop-server-config { display: none; }
 .members-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--text-3); padding: 0 8px; margin-bottom: 8px; }
 .member-item { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text-3); min-height: 34px; }
 .member-item:hover { background: var(--bg-hover); color: var(--text-2); }
-.member-item .mem-av { position: relative; flex-shrink: 0; }
-.member-item .mem-av img, .member-item .mem-av .av-fallback { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
-.mem-av .status-dot { border-color: var(--bg-2); }
-.member-item .mem-info { overflow: hidden; flex: 1; min-width: 0; }
-.member-item .mem-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member-item .mem-role { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-item .member-avatar { position: relative; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: visible; font-size: 13px; font-weight: 600; color: #fff; }
+.member-item .member-avatar img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; display: block; }
+.member-avatar .status-dot { border-color: var(--bg-2); }
+.member-item .member-info { overflow: hidden; flex: 1; min-width: 0; }
+.member-item .member-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.member-item .member-status { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .modal-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; }
 .modal-overlay.hidden { display: none; }
 .modal { background: var(--surface-raised); border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); box-shadow: var(--shadow); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
