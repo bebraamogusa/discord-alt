@@ -87,6 +87,13 @@ async function registerAndCreateGuild(page, mobile) {
   await page.locator('#new-server-name').fill('E2E Bootstrap Guild');
   await page.locator('#btn-confirm-create-server').click();
   await expect(page.locator('#sidebar-server-name')).toHaveText('E2E Bootstrap Guild');
+  if (mobile) {
+    await expect(page.locator('#app')).not.toHaveClass(/mobile-sidebar-open/);
+    await page.locator('#btn-mobile-menu').click();
+    await expect(page.locator('#app')).toHaveClass(/mobile-sidebar-open/);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#app')).not.toHaveClass(/mobile-sidebar-open/);
+  }
   return page.evaluate(() => ({
     guildId: window.S.activeServerId,
     channelId: window.S.servers.find(server => server.id === window.S.activeServerId).channels[0].id,
@@ -117,6 +124,20 @@ for (const viewport of [
 
       await page.evaluate(channelId => window.selectChannel(channelId), channelId);
       await expect(page.locator('#msg-input')).toBeVisible();
+      const alignedWidths = await page.evaluate(() => {
+        const messages = document.querySelector('#messages-container')?.getBoundingClientRect().width || 0;
+        const composer = document.querySelector('#input-box')?.getBoundingClientRect().width || 0;
+        return { messages, composer };
+      });
+      expect(Math.abs(alignedWidths.messages - alignedWidths.composer)).toBeLessThanOrEqual(1);
+      if (viewport.name === 'mobile') {
+        await page.locator('#btn-members').click();
+        await expect(page.locator('#app')).toHaveClass(/mobile-members-open/);
+        await expect(page.locator('#members-panel')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#app')).not.toHaveClass(/mobile-members-open/);
+        await expect(page.locator('#members-panel')).toBeHidden();
+      }
       const token = await page.evaluate(() => localStorage.getItem('da_token'));
       await createProtectedAttachment(testServer.baseURL, token, channelId);
       await page.reload();

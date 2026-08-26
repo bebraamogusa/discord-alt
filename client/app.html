@@ -60,6 +60,8 @@
 <!-- ── Main App ────────────────────────────────────────────────── -->
 <div id="app" class="hidden">
 
+  <!-- Mobile drawer: server rail + channel sidebar -->
+  <div id="mobile-drawer">
   <!-- Server list (72px) -->
   <div id="server-list">
     <!-- DM home button -->
@@ -110,6 +112,7 @@
         </button>
       </div>
     </div>
+  </div>
   </div>
 
   <!-- Main -->
@@ -164,6 +167,7 @@
     <div id="messages-wrapper" class="hidden">
       <div id="messages-list">
         <div id="messages-load-more" class="hidden" role="button" tabindex="0"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> <span class="load-more-label">Загрузить ещё</span></div>
+        <div id="messages-spacer" aria-hidden="true"></div>
         <div id="messages-container"></div>
       </div>
     </div>

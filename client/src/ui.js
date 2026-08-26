@@ -760,7 +760,8 @@ export async function selectChannel(id) {
     restoreDraft(id);
   }
 
-  if (S.membersVisible && S.activeServerId !== '@me') {
+  const mobileViewport = window.matchMedia?.('(max-width: 768px)').matches;
+  if (!mobileViewport && S.membersVisible && S.activeServerId !== '@me') {
     document.getElementById('members-panel')?.classList.remove('hidden');
     renderMembersPanel();
   } else {

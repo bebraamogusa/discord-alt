@@ -117,7 +117,9 @@ body:not(.is-tauri) .desktop-server-config { display: none; }
 #sidebar-header .connection-status.disconnected { color: var(--danger); }
 #chat-header .header-actions { display: flex; gap: 4px; margin-left: auto; }
 #messages-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
-#messages-list { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 8px 0 2px; }
+#messages-list { flex: 1; min-height: 100%; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 16px 2px; }
+#messages-spacer { flex: 1 1 auto; min-height: 0; }
+#messages-container, #messages-load-more { width: min(100%, 960px); margin-inline: auto; }
 #messages-load-more { text-align: center; padding: 12px; color: var(--text-3); font-size: 13px; cursor: pointer; }
 #messages-load-more:hover { color: var(--text-2); }
 .msg-group { position: relative; padding: 1px 12px; }
@@ -185,7 +187,7 @@ body:not(.is-tauri) .desktop-server-config { display: none; }
 #typing-indicator { padding: 0 16px 4px; font-size: 12px; color: var(--text-3); height: 20px; flex-shrink: 0; }
 #typing-indicator span { font-weight: 600; }
 #input-area { padding: 8px 16px 12px; flex-shrink: 0; }
-#input-box { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; align-items: flex-end; gap: 4px; padding: 0 8px; box-shadow: var(--shadow); }
+#input-box { width: min(100%, 960px); margin-inline: auto; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; align-items: flex-end; gap: 4px; padding: 0 8px; box-shadow: var(--shadow); }
 #input-box textarea { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 16px; font-family: var(--font); resize: none; padding: 7px 8px; min-height: 34px; max-height: 220px; overflow-y: auto; line-height: 1.375; }
 #input-box textarea::placeholder { color: var(--text-3); }
 #input-box .input-action { background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 22px; padding: 4px; line-height: 1; min-width: 32px; min-height: 32px; flex-shrink: 0; align-self: flex-end; }
@@ -347,19 +349,21 @@ to { opacity: 1; transform: none; }
 .mt-16 { margin-top: 16px; }
 .mb-8 { margin-bottom: 8px; }
 .w100 { width: 100%; }
+#mobile-drawer { display: contents; }
 #mobile-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 45; background: rgba(0,0,0,.55); }
 #btn-mobile-menu { display: none; }
 .welcome-menu-button { display: none; margin-top: 8px; }
-@media (max-width: 768px) { :root { --serverlist-w: 56px; --sidebar-w: calc(100vw - 56px); --header-h: 44px; --touch-target: 44px; }
+@media (max-width: 768px) { :root { --serverlist-w: 56px; --sidebar-w: 224px; --header-h: 44px; --touch-target: 44px; }
 #msg-input { font-size: 16px !important; }
 #app { position: fixed; inset: 0; }
-#server-list { position: fixed; left: 0; top: 0; bottom: 0; width: var(--serverlist-w); z-index: 50; transform: translateX(-100%); transition: transform .25s cubic-bezier(.4,0,.2,1); padding: 8px 0; }
-#sidebar { position: fixed; left: var(--serverlist-w); top: 0; bottom: 0; width: var(--sidebar-w); z-index: 50; transform: translateX(calc(-100% - var(--serverlist-w))); transition: transform .25s cubic-bezier(.4,0,.2,1); }
-#app.mobile-sidebar-open #server-list { transform: translateX(0); }
-#app.mobile-sidebar-open #sidebar { transform: translateX(0); }
-#app.mobile-sidebar-open #mobile-sidebar-overlay { display: block; }
+#mobile-drawer { display: flex; position: fixed; left: 0; top: 0; bottom: 0; width: min(calc(100vw - var(--serverlist-w)), 280px); max-width: 86vw; z-index: 50; transform: translateX(-100%); transition: transform .25s cubic-bezier(.4,0,.2,1); }
+#server-list { position: static; width: var(--serverlist-w); transform: none; transition: none; }
+#sidebar { position: static; width: calc(100% - var(--serverlist-w)); transform: none; transition: none; }
+#app.mobile-sidebar-open #mobile-drawer { transform: translateX(0); }
+#app.mobile-sidebar-open #mobile-sidebar-overlay, #app.mobile-members-open #mobile-sidebar-overlay { display: block; }
 #main { flex: 1; min-width: 0; }
-#members-panel { display: none !important; }
+#members-panel { display: none; position: fixed; right: 0; top: 0; bottom: 0; width: min(280px, 86vw); z-index: 60; border-left: 1px solid var(--border-subtle); box-shadow: var(--shadow); }
+#members-panel:not(.hidden) { display: block; }
 #btn-mobile-menu { display: flex !important; }
 .welcome-menu-button { display: inline-flex; align-items: center; justify-content: center; }
 #chat-header { padding: 0 8px; gap: 6px; }
@@ -367,6 +371,7 @@ to { opacity: 1; transform: none; }
 #chat-header .header-actions { flex-shrink: 0; }
 .header-search-btn kbd { display: none; }
 .header-search-btn { padding: 6px 8px; }
+#messages-list { padding-left: 8px; padding-right: 8px; }
 #input-area { padding: 0 8px calc(12px + env(safe-area-inset-bottom, 0px)); }
 .input-action { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
 #auth-overlay { padding: 16px; }
