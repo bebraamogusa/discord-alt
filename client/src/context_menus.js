@@ -198,7 +198,7 @@ async function handleCtxAction(action, data) {
   }
   
   // Server Actions
-  } else if (action === 'srv_invite') createInvite(data.serverId);
+  else if (action === 'srv_invite') createInvite(data.serverId);
   else if (action === 'srv_events') openGuildEventsModal(data.serverId);
   else if (action === 'srv_notifications') openNotificationSettings(data.serverId);
   else if (action === 'srv_settings') document.dispatchEvent(new CustomEvent('da:open-server-settings', { detail: { serverId: data.serverId } }));
