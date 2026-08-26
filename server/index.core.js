@@ -26,10 +26,12 @@ import phase4Routes from './routes/phase4Core.js';
 import auditLogRoutes from './routes/auditLog.js';
 import readStateRoutes from './routes/readStates.js';
 import advancedFeaturesRoutes from './routes/advancedFeatures.js';
+import { buildRateLimiter } from './middleware/rateLimit.js';
 import { buildAuditLogService } from './services/auditLogService.js';
 import { startCronJobs } from './cron.js';
 import { buildSocketServer } from './socket.js';
 import { createWorkers } from './media/mediasoup.js';
+import fileRoutes from './routes/files.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -42,10 +44,11 @@ mkdirSync(config.uploadsRoot, { recursive: true });
 const snowflake = new SnowflakeGenerator(config.workerId, config.processId);
 const authService = buildAuthService({ db, snowflake, config });
 const embedService = buildEmbedService();
-const fileService = buildFileService({ uploadsRoot: config.uploadsRoot, snowflake });
+const fileService = buildFileService({ uploadsRoot: config.uploadsRoot, snowflake, maxFileSizeBytes: config.maxFileSizeBytes });
 
 const app = Fastify({
   logger: config.env !== 'test',
+  trustProxy: config.trustProxy,
   ajv: {
     customOptions: {
       removeAdditional: true,
@@ -67,7 +70,7 @@ await app.register(fastifyFormbody);
 
 await app.register(fastifyMultipart, {
   limits: {
-    fileSize: 50 * 1024 * 1024,
+    fileSize: config.maxFileSizeBytes,
     files: 10,
     fieldSize: 5 * 1024 * 1024,
   },
@@ -78,18 +81,12 @@ await app.register(fastifyStatic, {
   prefix: '/',
 });
 
-await app.register(fastifyStatic, {
-  root: config.uploadsRoot,
-  prefix: '/files/',
-  decorateReply: false,
-  immutable: true,
-  maxAge: '1y',
-  etag: true,
-});
+const authenticate = buildAuthMiddleware({ db, jwtSecret: config.jwtSecret, env: config.env });
+const authRateLimit = buildRateLimiter({ windowMs: 60_000, max: 20 });
+const uploadRateLimit = buildRateLimiter({ windowMs: 60_000, max: 30 });
+const webhookRateLimit = buildRateLimiter({ windowMs: 60_000, max: 50 });
 
-const authenticate = buildAuthMiddleware({ db, jwtSecret: config.jwtSecret });
-
-await app.register(authRoutes, { authService, config, authenticate });
+await app.register(authRoutes, { authService, config, authenticate, authRateLimit });
 await app.register(usersRoutes, { db, authenticate, authService, config });
 await app.register(embedsCoreRoutes, { authenticate, embedService });
 const io = buildSocketServer(app.server, { db, config });
@@ -99,13 +96,14 @@ const auditLog = buildAuditLogService({ db, snowflake, io });
 app.decorate('auditLog', auditLog);
 
 await app.register(guildsCoreRoutes, { db, authenticate, snowflake, io });
-await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io, config, fileService });
+await app.register(messagesCoreRoutes, { db, authenticate, snowflake, io, config, fileService, uploadRateLimit });
 await app.register(socialCoreRoutes, { db, authenticate, snowflake, io });
 await app.register(voiceRoutes, { prefix: '/api/voice', db, authenticate });
 await app.register(phase4Routes, { prefix: '/api/v1', db, authenticate, snowflake, io });
 await app.register(auditLogRoutes, { db, authenticate });
 await app.register(readStateRoutes, { db, authenticate, io });
-await app.register(advancedFeaturesRoutes, { db, authenticate, snowflake, io });
+await app.register(advancedFeaturesRoutes, { db, authenticate, snowflake, io, webhookRateLimit });
+await app.register(fileRoutes, { db, config, authenticate });
 
 app.get('/app', async (_req, reply) => {
   return reply.sendFile('app.html');
@@ -125,19 +123,23 @@ app.get('/api/health', async () => ({
   now: Date.now(),
 }));
 
-app.setErrorHandler((error, _req, reply) => {
-  app.log.error(error);
+app.setErrorHandler((error, req, reply) => {
+  app.log.error({ err: error, requestId: req.id }, 'request failed');
   if (reply.sent) return;
-  reply.code(error.statusCode || 500).send({
-    error: error.message || 'Internal server error',
-  });
+  const statusCode = error.statusCode || 500;
+  const message = config.env === 'production' ? 'Internal server error' : (error.message || 'Internal server error');
+  reply.code(statusCode).send({ error: message, request_id: req.id });
 });
 
-await createWorkers();
-app.log.info('Mediasoup workers created');
+if (process.env.DISABLE_MEDIA !== '1') {
+  await createWorkers();
+  app.log.info('Mediasoup workers created');
+}
 
-startCronJobs({ db, io });
-app.log.info('Background cron jobs started');
+if (process.env.DISABLE_CRON !== '1') {
+  startCronJobs({ db, io, fileService, tempFileMaxAgeMs: config.tempFileMaxAgeMs });
+  app.log.info('Background cron jobs started');
+}
 
 await app.listen({ host: config.host, port: config.port });
 

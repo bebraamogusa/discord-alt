@@ -2,7 +2,7 @@
 <html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
@@ -12,7 +12,7 @@
 <body>
 
 <!-- ── Splash / loading screen ────────────────────────────────── -->
-<div id="splash-screen">
+<div id="splash-screen" role="status" aria-live="polite" aria-label="Загрузка">
   <div class="splash-logo"><svg class="ic" width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 12H7v-2h10v2zm0-3H7V9h10v2zm0-3H7V6h10v2z" fill="currentColor"/></svg></div>
   <div class="splash-spinner"></div>
   <div class="splash-text">Загрузка…</div>
@@ -23,27 +23,37 @@
   <div id="auth-login" class="auth-card">
     <h2>Добро пожаловать!</h2>
     <p class="sub">Рады видеть тебя снова!</p>
-    <div class="auth-error" id="auth-login-err"></div>
+     <div class="auth-error" id="auth-login-err" role="alert" aria-live="polite"></div>
     <label for="li-email">E-mail</label>
     <input id="li-email" type="email" autocomplete="off" placeholder="вы@example.com" tabindex="0">
     <label for="li-pass">Пароль</label>
     <input id="li-pass" type="password" autocomplete="off" placeholder="••••••••" tabindex="0">
-    <button class="btn-primary" id="li-btn">Войти</button>
-    <p class="auth-switch">Нет аккаунта? <a id="goto-register">Зарегистрироваться</a></p>
+    <button class="btn-primary" id="li-btn" type="button">Войти</button>
+    <p class="auth-switch">Нет аккаунта? <button class="link-button" id="goto-register" type="button">Зарегистрироваться</button></p>
+  </div>
+
+  <div id="auth-mfa" class="auth-card hidden">
+    <h2>Подтвердите вход</h2>
+    <p class="sub">Введите шестизначный код из приложения-аутентификатора.</p>
+    <div class="auth-error" id="auth-mfa-err" role="alert" aria-live="polite"></div>
+    <label for="mfa-code">Код подтверждения</label>
+    <input id="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="auth-mfa-err">
+    <button class="btn-primary" id="mfa-btn" type="button">Подтвердить</button>
+    <p class="auth-switch"><button class="link-button" id="mfa-back" type="button">Назад</button></p>
   </div>
 
   <div id="auth-register" class="auth-card hidden">
     <h2>Создать аккаунт</h2>
     <p class="sub">Присоединяйся к нам, это бесплатно!</p>
-    <div class="auth-error" id="auth-reg-err"></div>
+     <div class="auth-error" id="auth-reg-err" role="alert" aria-live="polite"></div>
     <label for="reg-email">E-mail</label>
     <input id="reg-email" type="email" autocomplete="email" placeholder="вы@example.com" tabindex="0">
     <label for="reg-name">Имя пользователя</label>
     <input id="reg-name" type="text" autocomplete="off" placeholder="МойНик" tabindex="0">
     <label for="reg-pass">Пароль</label>
     <input id="reg-pass" type="password" autocomplete="new-password" placeholder="Минимум 8 символов" tabindex="0">
-    <button class="btn-primary" id="reg-btn">Зарегистрироваться</button>
-    <p class="auth-switch">Уже есть аккаунт? <a id="goto-login">Войти</a></p>
+    <button class="btn-primary" id="reg-btn" type="button">Зарегистрироваться</button>
+    <p class="auth-switch">Уже есть аккаунт? <button class="link-button" id="goto-login" type="button">Войти</button></p>
   </div>
 </div>
 
@@ -54,7 +64,7 @@
   <div id="server-list">
     <!-- DM home button -->
     <div class="tooltip-wrapper">
-      <div class="server-icon active" id="btn-home" data-id="@me">
+      <div class="server-icon active" id="btn-home" data-id="@me" role="button" tabindex="0" aria-label="Личные сообщения">
         <svg width="28" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
         <div class="pill"></div>
       </div>
@@ -65,7 +75,7 @@
     <div id="server-icons"></div>
     <div id="server-list-divider2" class="hidden"><div style="width:32px;height:2px;background:var(--border);border-radius:1px"></div></div>
     <div class="tooltip-wrapper">
-      <button class="server-add-btn" id="btn-add-server">＋</button>
+      <button class="server-add-btn" id="btn-add-server" type="button" aria-label="Добавить сервер">＋</button>
       <div class="tooltip-label">Добавить сервер</div>
     </div>
   </div>
@@ -75,6 +85,7 @@
     <div id="sidebar-header">
       <span class="server-name" id="sidebar-server-name">Личные сообщения</span>
       <span id="sidebar-header-arrow">⌄</span>
+      <span class="connection-status connecting" id="connection-status" data-state="connecting" role="status" aria-live="polite">Подключение…</span>
     </div>
     <!-- Server dropdown menu -->
     <div class="server-menu hidden" id="server-dropdown"></div>
@@ -91,10 +102,10 @@
         <div class="su-status" id="su-custom-status"></div>
       </div>
       <div class="su-actions">
-        <button class="icon-btn" id="btn-toggle-mute" title="Микрофон">
+        <button class="icon-btn" id="btn-toggle-mute" type="button" title="Микрофон" aria-label="Микрофон">
           <svg id="mute-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
         </button>
-        <button class="icon-btn" id="btn-settings" title="Настройки">
+        <button class="icon-btn" id="btn-settings" type="button" title="Настройки" aria-label="Настройки">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
         </button>
       </div>
@@ -108,25 +119,42 @@
       <div class="empty-icon" id="welcome-empty-icon"></div>
       <div class="empty-text">Выберите канал для начала</div>
       <div class="empty-sub text-muted">Или откройте личные сообщения</div>
+      <button class="btn btn-outline welcome-menu-button" id="welcome-open-menu" type="button" aria-label="Открыть навигацию">Открыть навигацию</button>
+    </div>
+
+    <!-- Friends view -->
+    <div id="friends-view" class="hidden">
+      <div class="friends-header">
+        <div class="fh-title"><span class="fh-icon" id="friends-fh-icon"></span><span data-i18n="friends">Друзья</span></div>
+        <div class="fh-divider"></div>
+        <nav class="friends-tabs" id="friends-tabs" role="tablist">
+          <button class="friends-tab" type="button" role="tab" data-tab="online" data-i18n="online_friends">В сети</button>
+          <button class="friends-tab" type="button" role="tab" data-tab="all" data-i18n="all_friends">Все</button>
+          <button class="friends-tab" type="button" role="tab" data-tab="pending" data-i18n="pending_friends">Ожидающие</button>
+          <button class="friends-tab" type="button" role="tab" data-tab="blocked" data-i18n="blocked_users">Заблокированные</button>
+        </nav>
+        <button class="friends-tab green" type="button" role="tab" data-tab="add-friend" data-i18n="add_friend">Добавить в друзья</button>
+      </div>
+      <div id="friends-body" class="friends-body"></div>
     </div>
 
     <!-- Chat header -->
     <div id="chat-header" class="hidden">
-      <button class="icon-btn" id="btn-mobile-menu" title="Меню" style="display:none">
+      <button class="icon-btn" id="btn-mobile-menu" type="button" title="Меню" aria-label="Меню" style="display:none">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <span class="ch-icon" id="chat-ch-icon">#</span>
       <span class="ch-title" id="chat-ch-name"></span>
       <span class="ch-topic" id="chat-ch-topic"></span>
       <div class="header-actions">
-        <button class="icon-btn header-search-btn" id="btn-search" title="Поиск (Ctrl+K)">
+        <button class="icon-btn header-search-btn" id="btn-search" type="button" title="Поиск (Ctrl+K)" aria-label="Поиск (Ctrl+K)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <kbd>Ctrl+K</kbd>
         </button>
-        <button class="icon-btn" id="btn-pins" title="Закреплённые">
+        <button class="icon-btn" id="btn-pins" type="button" title="Закреплённые" aria-label="Закреплённые">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
         </button>
-        <button class="icon-btn" id="btn-members" title="Участники">
+        <button class="icon-btn" id="btn-members" type="button" title="Участники" aria-label="Участники">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
         </button>
       </div>
@@ -135,7 +163,7 @@
     <!-- Messages -->
     <div id="messages-wrapper" class="hidden">
       <div id="messages-list">
-        <div id="messages-load-more" class="hidden"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Загрузить ещё</div>
+        <div id="messages-load-more" class="hidden" role="button" tabindex="0"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> <span class="load-more-label">Загрузить ещё</span></div>
         <div id="messages-container"></div>
       </div>
     </div>
@@ -147,23 +175,23 @@
     <div id="reply-bar">
       <span>Ответ для <span class="reply-name" id="reply-name"></span></span>
       <span class="text-muted" id="reply-preview"></span>
-      <button class="reply-close" id="reply-close">✕</button>
+      <button class="reply-close" id="reply-close" type="button" aria-label="Отмена">✕</button>
     </div>
 
     <!-- Input area -->
     <div id="input-area" class="hidden">
       <div id="input-box">
-        <button class="input-action" id="btn-attach" title="Прикрепить файл">
+        <button class="input-action" id="btn-attach" type="button" title="Прикрепить файл" aria-label="Прикрепить файл">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
         </button>
         <textarea id="msg-input" placeholder="Написать сообщение..." rows="1"></textarea>
         <div style="position:relative">
-          <button class="input-action" id="btn-poll" title="Создать опрос">
+          <button class="input-action" id="btn-poll" type="button" title="Создать опрос" aria-label="Создать опрос">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="13" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
           </button>
         </div>
         <div style="position:relative">
-          <button class="input-action" id="btn-emoji" title="Эмодзи">
+          <button class="input-action" id="btn-emoji" type="button" title="Эмодзи" aria-label="Эмодзи">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </button>
           <div id="emoji-picker" class="emoji-picker hidden"></div>
@@ -187,7 +215,7 @@
   <div class="modal modal-sm" id="modal-add-server-inner">
     <div class="modal-header">
       <h3 id="add-server-title">Добавить сервер</h3>
-      <button class="modal-close" data-close="modal-add-server">✕</button>
+      <button class="modal-close" type="button" data-close="modal-add-server" aria-label="Закрыть">✕</button>
     </div>
     <div class="modal-body" id="add-server-body">
       <!-- step 0 -->
@@ -205,7 +233,7 @@
           <label for="new-server-name">Название сервера</label>
           <input id="new-server-name" type="text" placeholder="Мой сервер">
         </div>
-        <div class="auth-error" id="cs-error"></div>
+        <div class="auth-error" id="cs-error" role="alert" aria-live="polite"></div>
         <button class="btn-primary w100" id="btn-confirm-create-server">Создать</button>
       </div>
       <!-- step join -->
@@ -215,7 +243,7 @@
         <div class="form-group">
           <input id="join-invite-input" type="text" placeholder="Ссылка или код приглашения">
         </div>
-        <div class="auth-error" id="js-error"></div>
+        <div class="auth-error" id="js-error" role="alert" aria-live="polite"></div>
         <button class="btn-primary w100" id="btn-confirm-join-server">Вступить</button>
       </div>
     </div>
@@ -227,7 +255,7 @@
   <div class="modal modal-sm">
     <div class="modal-header">
       <h3>Создать канал</h3>
-      <button class="modal-close" data-close="modal-create-channel">✕</button>
+      <button class="modal-close" type="button" data-close="modal-create-channel" aria-label="Закрыть">✕</button>
     </div>
     <div class="modal-body">
       <div class="form-group">
@@ -236,6 +264,8 @@
           <option value="text">Текстовый #</option>
           <option value="voice">Голосовой</option>
           <option value="announcement">Объявления</option>
+          <option value="stage">Сцена</option>
+          <option value="forum">Форум</option>
         </select>
       </div>
       <div class="form-group">
@@ -247,7 +277,7 @@
         <input id="new-ch-topic" type="text" placeholder="Описание канала">
       </div>
       <input type="hidden" id="new-ch-category-id">
-      <div class="auth-error" id="cc-error"></div>
+       <div class="auth-error" id="cc-error" role="alert" aria-live="polite"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close="modal-create-channel">Отмена</button>
@@ -261,7 +291,7 @@
   <div class="modal modal-sm">
     <div class="modal-header">
       <h3>Закреплённые сообщения</h3>
-      <button class="modal-close" data-close="modal-pins">✕</button>
+      <button class="modal-close" type="button" data-close="modal-pins" aria-label="Закрыть">✕</button>
     </div>
     <div class="modal-body" id="pins-list" style="min-height:80px"></div>
   </div>
@@ -274,7 +304,7 @@
 <div id="ctx-menu" class="ctx-menu hidden"></div>
 
 <!-- Toast -->
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <!-- Server settings (full screen) -->
 <div id="server-settings" class="settings-overlay hidden">
@@ -282,14 +312,14 @@
     <div class="settings-nav-title" id="ss-server-name"></div>
     <div id="ss-nav-items"></div>
     <div class="settings-nav-divider"></div>
-    <div class="settings-nav-item text-danger" id="ss-leave-server"><span class="nav-icon" data-icon="leave"></span><span data-i18n="leave_server"></span></div>
-    <div class="settings-nav-item text-danger hidden" id="ss-delete-server"><span class="nav-icon" data-icon="trash"></span><span data-i18n="delete_server"></span></div>
+   <div class="settings-nav-item text-danger" id="ss-leave-server" role="button" tabindex="0"><span class="nav-icon" data-icon="leave"></span><span data-i18n="leave_server"></span></div>
+   <div class="settings-nav-item text-danger hidden" id="ss-delete-server" role="button" tabindex="0"><span class="nav-icon" data-icon="trash"></span><span data-i18n="delete_server"></span></div>
   </div>
   <div class="settings-content" id="ss-content">
     <div class="settings-section-title" id="ss-page-title"></div>
     <div id="ss-page-body"></div>
   </div>
-  <button class="settings-close" id="ss-close">✕</button>
+  <button class="settings-close" id="ss-close" type="button" aria-label="Закрыть">✕</button>
 </div>
 
 <!-- User settings -->
@@ -297,15 +327,16 @@
   <div class="settings-nav">
     <div class="settings-nav-title" data-i18n="settings_title"></div>
     <div id="us-nav-items">
-      <div class="settings-nav-item active" data-page="profile"><span class="nav-icon" data-icon="user"></span><span data-i18n="us_profile"></span></div>
-      <div class="settings-nav-item" data-page="appearance"><span class="nav-icon" data-icon="palette"></span><span data-i18n="us_appearance"></span></div>
-      <div class="settings-nav-item" data-page="language"><span class="nav-icon" data-icon="globe"></span><span data-i18n="us_language"></span></div>
+       <div class="settings-nav-item active" data-page="profile" role="button" tabindex="0"><span class="nav-icon" data-icon="user"></span><span data-i18n="us_profile"></span></div>
+       <div class="settings-nav-item" data-page="appearance" role="button" tabindex="0"><span class="nav-icon" data-icon="palette"></span><span data-i18n="us_appearance"></span></div>
+       <div class="settings-nav-item" data-page="security" role="button" tabindex="0"><span class="nav-icon" data-icon="lock"></span><span data-i18n="us_security"></span></div>
+       <div class="settings-nav-item" data-page="language" role="button" tabindex="0"><span class="nav-icon" data-icon="globe"></span><span data-i18n="us_language"></span></div>
       <div class="settings-nav-divider"></div>
-      <div class="settings-nav-item text-danger" id="us-logout"><span class="nav-icon" data-icon="leave"></span><span data-i18n="logout"></span></div>
+       <div class="settings-nav-item text-danger" id="us-logout" role="button" tabindex="0"><span class="nav-icon" data-icon="leave"></span><span data-i18n="logout"></span></div>
     </div>
   </div>
   <div class="settings-content" id="us-content"></div>
-  <button class="settings-close" id="us-close">✕</button>
+  <button class="settings-close" id="us-close" type="button" aria-label="Закрыть">✕</button>
 </div>
 
 <script type="module" src="/app.js"></script>

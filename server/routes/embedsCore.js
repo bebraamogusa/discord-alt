@@ -37,9 +37,8 @@ export default async function embedsCoreRoutes(fastify, { authenticate, embedSer
     const timeout = setTimeout(() => controller.abort(), 8000);
 
     try {
-      const upstream = await fetch(normalized, {
+      const upstream = await embedService.fetchPublic(normalized, {
         method: 'GET',
-        redirect: 'follow',
         signal: controller.signal,
         headers: {
           'user-agent': 'DiscordAltBot/1.0 (+self-hosted)',
@@ -59,10 +58,21 @@ export default async function embedsCoreRoutes(fastify, { authenticate, embedSer
         return reply.code(413).send({ error: 'Image too large' });
       }
 
-      const buffer = Buffer.from(await upstream.arrayBuffer());
-      if (buffer.byteLength > 5 * 1024 * 1024) {
-        return reply.code(413).send({ error: 'Image too large' });
+      const reader = upstream.body?.getReader();
+      if (!reader) return reply.code(502).send({ error: 'Image fetch failed' });
+      const chunks = [];
+      let bytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 5 * 1024 * 1024) {
+          await reader.cancel();
+          return reply.code(413).send({ error: 'Image too large' });
+        }
+        chunks.push(value);
       }
+      const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 
       reply.header('content-type', contentType);
       reply.header('cache-control', 'public, max-age=3600');

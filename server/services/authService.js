@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, createHmac, randomUUID } from 'crypto';
 
 const USERNAME_RE = /^[a-z0-9._]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -72,12 +72,16 @@ function makeAccessToken({ jwtSecret, jwtAccessTtlSec }, user) {
   return jwt.sign(
     { sub: user.id, username: user.username },
     jwtSecret,
-    { expiresIn: jwtAccessTtlSec }
+    { algorithm: 'HS256', expiresIn: jwtAccessTtlSec }
   );
 }
 
 function makeRefreshToken() {
   return randomUUID();
+}
+
+function hashRefreshToken(token, secret) {
+  return createHmac('sha256', secret).update(String(token)).digest('hex');
 }
 
 function publicUserFromRow(user) {
@@ -123,28 +127,40 @@ export function buildAuthService({ db, snowflake, config }) {
   const insertUserSettings = db.prepare('INSERT INTO user_settings (user_id) VALUES (?)');
 
   const insertSession = db.prepare(`
-    INSERT INTO user_sessions (id, user_id, refresh_token, device, ip, created_at, expires_at, last_used_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO user_sessions (id, user_id, refresh_token, refresh_token_hash, refresh_token_family_id, device, ip, created_at, expires_at, last_used_at)
+    VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const findSessionByRefresh = db.prepare(
-    'SELECT * FROM user_sessions WHERE refresh_token = ?'
+  const findSessionByRefreshHash = db.prepare(
+    'SELECT * FROM user_sessions WHERE refresh_token_hash = ? AND revoked_at IS NULL'
+  );
+  const findLegacySessionByRefresh = db.prepare(
+    'SELECT * FROM user_sessions WHERE refresh_token = ? AND refresh_token <> \'\' AND revoked_at IS NULL'
+  );
+  const findSessionByUsedToken = db.prepare(
+    'SELECT session_id FROM user_session_token_history WHERE token_hash = ?'
   );
 
-  const deleteSessionByRefresh = db.prepare('DELETE FROM user_sessions WHERE refresh_token = ?');
+  const deleteSessionByRefresh = db.prepare('DELETE FROM user_sessions WHERE refresh_token = ? OR refresh_token_hash = ?');
   const deleteSessionById = db.prepare('DELETE FROM user_sessions WHERE id = ?');
   const updateSessionRefresh = db.prepare(
-    'UPDATE user_sessions SET refresh_token = ?, expires_at = ?, last_used_at = ?, ip = ?, device = ? WHERE id = ?'
+    'UPDATE user_sessions SET refresh_token = \'\', refresh_token_hash = ?, expires_at = ?, last_used_at = ?, ip = ?, device = ? WHERE id = ?'
   );
+  const insertTokenHistory = db.prepare(
+    'INSERT OR IGNORE INTO user_session_token_history (token_hash, session_id, used_at) VALUES (?, ?, ?)'
+  );
+  const revokeSession = db.prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ?');
   const updatePasswordHash = db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?');
 
   const upsertMfaTicket = db.prepare(
-    `INSERT INTO mfa_tickets (ticket, user_id, expires_at, created_at)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO mfa_tickets (ticket, user_id, expires_at, created_at, attempts)
+     VALUES (?, ?, ?, ?, 0)
      ON CONFLICT(ticket) DO UPDATE SET user_id=excluded.user_id, expires_at=excluded.expires_at, created_at=excluded.created_at`
   );
+  const deleteMfaTicketsForUser = db.prepare('DELETE FROM mfa_tickets WHERE user_id = ?');
   const findMfaTicket = db.prepare('SELECT * FROM mfa_tickets WHERE ticket = ?');
   const deleteMfaTicket = db.prepare('DELETE FROM mfa_tickets WHERE ticket = ?');
+  const incrementMfaAttempts = db.prepare('UPDATE mfa_tickets SET attempts = attempts + 1 WHERE ticket = ?');
   const cleanupExpiredMfaTickets = db.prepare('DELETE FROM mfa_tickets WHERE expires_at <= ?');
 
   const updateMfaSecret = db.prepare('UPDATE users SET mfa_secret = ?, updated_at = ? WHERE id = ?');
@@ -163,7 +179,8 @@ export function buildAuthService({ db, snowflake, config }) {
     insertSession.run(
       sessionId,
       user.id,
-      refreshToken,
+      hashRefreshToken(refreshToken, config.jwtSecret),
+      randomUUID(),
       meta?.device || null,
       meta?.ip || null,
       createdAt,
@@ -270,6 +287,7 @@ export function buildAuthService({ db, snowflake, config }) {
       cleanupExpiredMfaTickets.run(now());
 
       if (user.mfa_enabled) {
+        deleteMfaTicketsForUser.run(user.id);
         const ticket = randomUUID();
         upsertMfaTicket.run(ticket, user.id, now() + 300, now());
         return {
@@ -310,6 +328,9 @@ export function buildAuthService({ db, snowflake, config }) {
         window: 1,
       });
       if (!verified) {
+        const attempts = Number(row.attempts || 0) + 1;
+        if (attempts >= (config.mfaMaxAttempts || 5)) deleteMfaTicket.run(ticket);
+        else incrementMfaAttempts.run(ticket);
         const error = new Error('Invalid MFA code');
         error.statusCode = 401;
         throw error;
@@ -333,8 +354,18 @@ export function buildAuthService({ db, snowflake, config }) {
         throw error;
       }
 
-      const session = findSessionByRefresh.get(refreshToken);
-      if (!session || session.expires_at <= now()) {
+      const refreshHash = hashRefreshToken(refreshToken, config.jwtSecret);
+      let session = findSessionByRefreshHash.get(refreshHash);
+      const legacySession = session ? null : findLegacySessionByRefresh.get(refreshToken);
+      session = session || legacySession;
+      if (!session) {
+        const usedToken = findSessionByUsedToken.get(refreshHash);
+        if (usedToken) revokeSession.run(now(), usedToken.session_id);
+        const error = new Error('Invalid refresh token');
+        error.statusCode = 401;
+        throw error;
+      }
+      if (session.expires_at <= now()) {
         if (session) deleteSessionById.run(session.id);
         const error = new Error('Invalid refresh token');
         error.statusCode = 401;
@@ -351,14 +382,17 @@ export function buildAuthService({ db, snowflake, config }) {
 
       const nextRefresh = makeRefreshToken();
       const expiresAt = now() + config.jwtRefreshTtlSec;
-      updateSessionRefresh.run(
-        nextRefresh,
-        expiresAt,
-        now(),
-        meta?.ip || null,
-        meta?.device || null,
-        session.id
-      );
+      db.transaction(() => {
+        insertTokenHistory.run(refreshHash, session.id, now());
+        updateSessionRefresh.run(
+          hashRefreshToken(nextRefresh, config.jwtSecret),
+          expiresAt,
+          now(),
+          meta?.ip || null,
+          meta?.device || null,
+          session.id
+        );
+      })();
 
       return {
         token: makeAccessToken(config, user),
@@ -369,7 +403,7 @@ export function buildAuthService({ db, snowflake, config }) {
 
     logout(refreshToken) {
       if (!refreshToken) return;
-      deleteSessionByRefresh.run(refreshToken);
+      deleteSessionByRefresh.run(refreshToken, hashRefreshToken(refreshToken, config.jwtSecret));
     },
 
     async beginEnableMfa(userId) {

@@ -3,7 +3,7 @@
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
-export function startCronJobs({ db, io }) {
+export function startCronJobs({ db, io, fileService, tempFileMaxAgeMs }) {
     // 1. Thread auto-archive — every 5 minutes
     setInterval(() => {
         try {
@@ -94,6 +94,14 @@ export function startCronJobs({ db, io }) {
             db.prepare(`DELETE FROM audit_log WHERE created_at < ?`).run(cutoff);
         } catch (e) { console.error('[CRON] Audit log cleanup error:', e.message); }
     }, 24 * 60 * 60 * 1000);
+
+    // 7. Temporary upload cleanup — hourly
+    setInterval(() => {
+        if (!fileService?.cleanupExpiredTempFiles) return;
+        fileService.cleanupExpiredTempFiles({ maxAgeMs: tempFileMaxAgeMs }).catch((e) => {
+            console.error('[CRON] Temporary upload cleanup error:', e.message);
+        });
+    }, 60 * 60 * 1000);
 
     console.log('[CRON] Background jobs started');
 }

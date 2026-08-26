@@ -1,21 +1,27 @@
 import { S, V } from './state.js';
 import { API, t } from './utils.js';
 import { showToast, daConfirm, daPrompt, getChannel, getServer } from './utils.js';
-import { renderServerIcons, renderChannelList, renderMembersPanel, selectServer, renderVoicePanel, renderMessages } from './ui.js';
+import { renderServerIcons, renderChannelList, renderMembersPanel, selectServer, renderVoicePanel, renderMessages, loadFriendCount } from './ui.js';
+
+export { API };
+
+export { loadFriendCount };
 
 export async function toggleReaction(msgId, emoji) {
+  if (!S.activeChannelId) return;
   const msgs = S.messages[S.activeChannelId] || [];
   const msg = msgs.find(m => m.id === msgId);
-  const existing = msg?.reactions?.find(r => r.emoji === emoji);
+  const existing = msg?.reactions?.find(r => (r.emoji?.name || r.emoji) === emoji);
   const hasMyReaction = existing?.me;
   try {
     if (hasMyReaction) {
-      await API.del(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
+      await API.del(`/api/channels/${S.activeChannelId}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}/@me`);
     } else {
-      await API.post(`/api/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`);
+      await API.put(`/api/channels/${S.activeChannelId}/messages/${msgId}/reactions/${encodeURIComponent(emoji)}/@me`);
     }
   } catch (e) {
-    // Ignore — server socket event will correct the UI
+    showToast(e.body?.error || t('error_generic'), 'error');
+    throw e;
   }
 }
 
@@ -119,16 +125,6 @@ export async function createCategory(serverId) {
     const srv = await API.get(`/api/guilds/${serverId}`);
     const idx = S.servers.findIndex(s => s.id === serverId);
     if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...srv };
-    renderChannelList();
-  } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
-}
-
-export async function loadFriendCount() {
-  try {
-    S.friends = await API.get('/api/users/@me/relationships');
-  } catch {
-    S.friends = [];
-  }
-  S._friendRequestCount = S.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
-  if (S.activeServerId === '@me') renderChannelList();
+      renderChannelList();
+    } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
 }

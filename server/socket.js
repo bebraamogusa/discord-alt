@@ -1,15 +1,28 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import { buildPermissionService, Permissions } from './services/permissions.js';
+import { cleanupPeer, mediaState } from './media/mediasoup.js';
 
 function nowSec() {
   return Math.floor(Date.now() / 1000);
 }
 
+const SIGNALING_LIMIT = 30;
+const SIGNALING_WINDOW_MS = 1000;
+const SIGNALING_MAX_BYTES = {
+  WEBRTC_OFFER: 256 * 1024,
+  WEBRTC_ANSWER: 256 * 1024,
+  WEBRTC_ICE: 32 * 1024,
+};
+
 function toLegacyChannelType(type) {
   if (type === 2) return 'voice';
   if (type === 4) return 'category';
   if (type === 5) return 'announcement';
+  if (type === 11) return 'thread';
+  if (type === 13) return 'stage';
+  if (type === 15) return 'forum';
   if (type === 1) return 'dm';
   if (type === 3) return 'group';
   return 'text';
@@ -27,6 +40,7 @@ export function buildSocketServer(httpServer, { db, config }) {
   const rootNs = server.of('/');
   const gatewayNs = server.of('/gateway');
   const userSockets = new Map();
+  const permissions = buildPermissionService(db);
 
   const getGuildIds = db.prepare('SELECT guild_id FROM guild_members WHERE user_id = ?');
   const getDmChannelIds = db.prepare(`
@@ -62,6 +76,21 @@ export function buildSocketServer(httpServer, { db, config }) {
     WHERE dp.channel_id = ? AND dp.user_id <> ? AND u.deleted_at IS NULL
     LIMIT 1
   `);
+  const getDmRecipients = db.prepare(`
+    SELECT u.id, u.username, u.display_name, u.avatar, u.accent_color, u.status
+    FROM dm_participants dp
+    JOIN users u ON u.id = dp.user_id
+    WHERE dp.channel_id = ? AND dp.closed = 0 AND u.deleted_at IS NULL
+    ORDER BY dp.joined_at ASC
+  `);
+  const getDmParticipant = db.prepare('SELECT 1 FROM dm_participants WHERE channel_id = ? AND user_id = ? AND closed = 0');
+  const listDmParticipantIds = db.prepare('SELECT user_id FROM dm_participants WHERE channel_id = ? AND closed = 0');
+  const getMessageInChannel = db.prepare('SELECT id FROM messages WHERE id = ? AND channel_id = ? AND deleted = 0');
+  const upsertReadState = db.prepare(`
+    INSERT INTO read_states (user_id, channel_id, last_read_message_id, mention_count)
+    VALUES (?, ?, ?, 0)
+    ON CONFLICT(user_id, channel_id) DO UPDATE SET last_read_message_id = excluded.last_read_message_id, mention_count = 0
+  `);
   const getPresencesForUser = db.prepare(`
     SELECT DISTINCT u.id, u.status, u.custom_status_text
     FROM users u
@@ -93,9 +122,11 @@ export function buildSocketServer(httpServer, { db, config }) {
   `);
   const deleteVoiceState = db.prepare('DELETE FROM voice_states WHERE user_id = ?');
   const getGuildIdForChannel = db.prepare('SELECT guild_id FROM channels WHERE id = ?');
+  const getGuildMember = db.prepare('SELECT 1 FROM guild_members WHERE guild_id = ? AND user_id = ?');
   const updateVoiceSelfMute = db.prepare('UPDATE voice_states SET self_mute = ? WHERE user_id = ?');
   const updateVoiceSelfDeaf = db.prepare('UPDATE voice_states SET self_deaf = ? WHERE user_id = ?');
   const updateVoiceSelfStream = db.prepare('UPDATE voice_states SET self_stream = ? WHERE user_id = ?');
+  const getVoiceState = db.prepare('SELECT guild_id, channel_id FROM voice_states WHERE user_id = ?');
 
   const updatePresence = db.prepare('UPDATE users SET status = ?, custom_status_text = ?, updated_at = ? WHERE id = ?');
   const upsertQr = db.prepare(`
@@ -115,7 +146,7 @@ export function buildSocketServer(httpServer, { db, config }) {
 
   function verifyToken(token) {
     try {
-      const payload = jwt.verify(token, config.jwtSecret);
+      const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
       return getUserById.get(payload.sub) || null;
     } catch {
       return null;
@@ -156,6 +187,7 @@ export function buildSocketServer(httpServer, { db, config }) {
         category_id: c.parent_id,
         position: c.position,
         nsfw: !!c.nsfw,
+        last_message_id: c.last_message_id,
       }));
 
     const roles = getRolesForGuild.all(guild.id).map((r) => ({
@@ -184,9 +216,12 @@ export function buildSocketServer(httpServer, { db, config }) {
 
   function mapLegacyDmChannel(channel, userId) {
     const recipient = getDmRecipient.get(channel.id, userId);
+    const recipients = channel.type === 3 ? getDmRecipients.all(channel.id).map(mapLegacyUser) : undefined;
     return {
       id: channel.id,
       type: channel.type === 3 ? 'group' : 'dm',
+      name: channel.type === 3 ? channel.name : undefined,
+      owner_id: channel.type === 3 ? channel.owner_id : undefined,
       recipient: recipient ? {
         id: recipient.id,
         username: recipient.username,
@@ -195,6 +230,7 @@ export function buildSocketServer(httpServer, { db, config }) {
         avatar_color: recipient.accent_color || '#5865f2',
         status: recipient.status || 'offline',
       } : null,
+      recipients,
       last_message_id: channel.last_message_id,
       updated_at: channel.updated_at || channel.created_at,
     };
@@ -275,6 +311,7 @@ export function buildSocketServer(httpServer, { db, config }) {
 
     if (socket.voiceChannelId) {
       deleteVoiceState.run(userId);
+      socket.leave(`channel:${socket.voiceChannelId}`);
       broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
       socket.voiceChannelId = null;
       socket.voiceGuildId = null;
@@ -285,11 +322,89 @@ export function buildSocketServer(httpServer, { db, config }) {
     set.delete(socket.id);
     if (set.size === 0) {
       userSockets.delete(userId);
+      cleanupPeer(userId);
       updatePresence.run('offline', null, nowSec(), userId);
       rootNs.emit('presence:update', { user_id: userId, status: 'offline', activities: [], client_status: { web: 'offline' } });
       rootNs.emit('PRESENCE_UPDATE', { user_id: userId, status: 'offline', custom_status: '' });
       gatewayNs.emit('presence:update', { user_id: userId, status: 'offline', activities: [], client_status: { web: 'offline' } });
       gatewayNs.emit('PRESENCE_UPDATE', { user_id: userId, status: 'offline', custom_status: '' });
+    }
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function payloadSize(value) {
+    try {
+      return Buffer.byteLength(JSON.stringify(value), 'utf8');
+    } catch {
+      return Infinity;
+    }
+  }
+
+  function signalingRateAllowed(socket, peerId) {
+    const now = Date.now();
+    if (!socket.signalingRates) socket.signalingRates = new Map();
+    let entry = socket.signalingRates.get(peerId);
+    if (!entry || now - entry.startedAt >= SIGNALING_WINDOW_MS) {
+      entry = { startedAt: now, count: 0 };
+      socket.signalingRates.set(peerId, entry);
+    }
+    entry.count += 1;
+    return entry.count <= SIGNALING_LIMIT;
+  }
+
+  function getAuthorizedVoiceSession(socket) {
+    if (!socket.user || !socket.voiceChannelId || !socket.voiceGuildId) return null;
+    const channel = getGuildIdForChannel.get(socket.voiceChannelId);
+    const state = getVoiceState.get(socket.user.id);
+    if (!channel || channel.guild_id !== socket.voiceGuildId || !state ||
+      state.guild_id !== socket.voiceGuildId || state.channel_id !== socket.voiceChannelId) return null;
+    if (!getGuildMember.get(socket.voiceGuildId, socket.user.id) ||
+      !permissions.hasChannelPermission(socket.voiceChannelId, socket.user.id, Permissions.CONNECT)) return null;
+    return { channelId: socket.voiceChannelId, guildId: socket.voiceGuildId };
+  }
+
+  function canAccessRealtimeChannel(channelId, userId) {
+    const channel = getGuildIdForChannel.get(channelId);
+    if (!channel) return false;
+    if (!channel.guild_id) return !!getDmParticipant.get(channelId, userId);
+    return permissions.hasChannelPermission(channelId, userId, Permissions.VIEW_CHANNEL);
+  }
+
+  // DM rooms resolve participants at emit time so mid-session channels
+  // deliver instantly and removed participants stop receiving events.
+  function deliver(room, event, payload) {
+    const match = typeof room === 'string' ? /^channel:(.+)$/.exec(room) : null;
+    const channel = match ? getGuildIdForChannel.get(match[1]) : null;
+    if (match && channel && !channel.guild_id) {
+      for (const row of listDmParticipantIds.all(match[1])) {
+        rootNs.to(`user:${row.user_id}`).emit(event, payload);
+        gatewayNs.to(`user:${row.user_id}`).emit(event, payload);
+      }
+      return;
+    }
+    rootNs.to(room).emit(event, payload);
+    gatewayNs.to(room).emit(event, payload);
+  }
+
+  function forwardSignaling(socket, event, recipientId, data) {
+    const session = getAuthorizedVoiceSession(socket);
+    const validData = event === 'WEBRTC_ICE'
+      ? isPlainObject(data) && typeof data.candidate === 'string'
+      : isPlainObject(data) && typeof data.type === 'string' && typeof data.sdp === 'string';
+    if (!session || recipientId === socket.user.id || typeof recipientId !== 'string' ||
+      !recipientId || recipientId.length > 128 || !validData || payloadSize(data) > SIGNALING_MAX_BYTES[event] ||
+      !signalingRateAllowed(socket, recipientId)) return;
+
+    const recipientSocketIds = userSockets.get(recipientId);
+    if (!recipientSocketIds) return;
+    for (const socketId of recipientSocketIds) {
+      const recipient = gatewayNs.sockets.get(socketId);
+      if (!recipient || !getAuthorizedVoiceSession(recipient) ||
+        recipient.voiceChannelId !== session.channelId || recipient.voiceGuildId !== session.guildId) continue;
+      recipient.emit(event, { from_user_id: socket.user.id, [event === 'WEBRTC_OFFER' ? 'offer' : event === 'WEBRTC_ANSWER' ? 'answer' : 'candidate']: data });
     }
   }
 
@@ -405,54 +520,87 @@ export function buildSocketServer(httpServer, { db, config }) {
     socket.on('presence:update', (payload = {}) => handlePresenceUpdate(socket, payload));
     registerQrHandlers(socket, gatewayNs);
 
+    socket.on('TYPING_START', ({ channel_id } = {}) => {
+      if (!socket.user || typeof channel_id !== 'string' || !canAccessRealtimeChannel(channel_id, socket.user.id)) return;
+      const channel = getGuildIdForChannel.get(channel_id);
+      const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel_id}`;
+      deliver(room, 'TYPING_START', { channel_id, user_id: socket.user.id, username: socket.user.username, timestamp: Date.now() });
+    });
+
+    socket.on('READ_ACK', ({ channel_id, message_id } = {}) => {
+      if (!socket.user || typeof channel_id !== 'string' || typeof message_id !== 'string' || !canAccessRealtimeChannel(channel_id, socket.user.id)) return;
+      if (!getMessageInChannel.get(message_id, channel_id)) return;
+      upsertReadState.run(socket.user.id, channel_id, message_id);
+      const channel = getGuildIdForChannel.get(channel_id);
+      const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
+      deliver(room, 'READ_STATE_UPDATE', { user_id: socket.user.id, channel_id, last_read_message_id: message_id, mention_count: 0 });
+    });
+
     // Voice & WebRTC Signaling
-    socket.on('VOICE_JOIN', ({ channel_id }) => {
+    socket.on('VOICE_JOIN', ({ channel_id } = {}) => {
+      if (!socket.user) return;
+      if (!channel_id || typeof channel_id !== 'string') return;
       const channel = getGuildIdForChannel.get(channel_id);
       if (!channel || !channel.guild_id) return;
       
-      insertVoiceState.run(socket.user.id, channel.guild_id, channel_id, 0, 0, 0); // mute/deaf/screen
-      socket.voiceChannelId = channel_id;
-      socket.voiceGuildId = channel.guild_id;
+      const member = getGuildMember.get(channel.guild_id, socket.user.id);
+      if (!member) return;
+      if (!permissions.hasChannelPermission(channel_id, socket.user.id, Permissions.CONNECT)) return;
 
-      broadcastVoiceState(channel_id, channel.guild_id);
+    if (socket.voiceChannelId && socket.voiceChannelId !== channel_id) cleanupPeer(socket.user.id);
 
-      const peers = getVoiceStatesForChannel.all(channel_id).filter(r => r.user_id !== socket.user.id);
-      socket.emit('VOICE_READY', { channel_id, peers });
-    });
+    insertVoiceState.run(socket.user.id, channel.guild_id, channel_id, 0, 0, 0);
+    socket.voiceChannelId = channel_id;
+    socket.voiceGuildId = channel.guild_id;
+    socket.join(`channel:${channel_id}`);
 
-    socket.on('VOICE_MUTE', (payload) => {
-      if (!socket.voiceChannelId) return;
+    broadcastVoiceState(channel_id, channel.guild_id);
+
+    const peers = getVoiceStatesForChannel.all(channel_id).filter(r => r.user_id !== socket.user.id);
+    const producers = [];
+    for (const [producerId, meta] of mediaState.producerMeta) {
+      if (meta.channelId === channel_id && meta.userId !== socket.user.id && mediaState.producers.has(producerId)) {
+        producers.push({ producerId, kind: mediaState.producers.get(producerId).kind, user_id: meta.userId });
+      }
+    }
+    socket.emit('VOICE_READY', { channel_id, peers, producers });
+  });
+
+    socket.on('VOICE_MUTE', (payload = {}) => {
+      if (!socket.user || !socket.voiceChannelId) return;
       if (payload.muted !== undefined) updateVoiceSelfMute.run(payload.muted ? 1 : 0, socket.user.id);
       if (payload.deafened !== undefined) updateVoiceSelfDeaf.run(payload.deafened ? 1 : 0, socket.user.id);
       broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
     });
 
-    socket.on('VOICE_SCREEN', ({ sharing }) => {
-      if (!socket.voiceChannelId) return;
+    socket.on('VOICE_SCREEN', ({ sharing } = {}) => {
+      if (!socket.user || !socket.voiceChannelId) return;
       updateVoiceSelfStream.run(sharing ? 1 : 0, socket.user.id);
       broadcastVoiceState(socket.voiceChannelId, socket.voiceGuildId);
     });
 
     socket.on('VOICE_LEAVE', () => {
-      if (!socket.voiceChannelId) return;
+      if (!socket.user || !socket.voiceChannelId) return;
       const ch = socket.voiceChannelId;
       const g = socket.voiceGuildId;
       deleteVoiceState.run(socket.user.id);
+      socket.leave(`channel:${ch}`);
       socket.voiceChannelId = null;
       socket.voiceGuildId = null;
       broadcastVoiceState(ch, g);
     });
 
-    socket.on('WEBRTC_OFFER', ({ to_user_id, offer }) => {
-      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_OFFER', { from_user_id: socket.user.id, offer });
+    socket.on('WEBRTC_OFFER', (payload = {}) => {
+      if (!isPlainObject(payload)) return;
+      forwardSignaling(socket, 'WEBRTC_OFFER', payload.to_user_id, payload.offer);
     });
-
-    socket.on('WEBRTC_ANSWER', ({ to_user_id, answer }) => {
-      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_ANSWER', { from_user_id: socket.user.id, answer });
+    socket.on('WEBRTC_ANSWER', (payload = {}) => {
+      if (!isPlainObject(payload)) return;
+      forwardSignaling(socket, 'WEBRTC_ANSWER', payload.to_user_id, payload.answer);
     });
-
-    socket.on('WEBRTC_ICE', ({ to_user_id, candidate }) => {
-      gatewayNs.to(`user:${to_user_id}`).emit('WEBRTC_ICE', { from_user_id: socket.user.id, candidate });
+    socket.on('WEBRTC_ICE', (payload = {}) => {
+      if (!isPlainObject(payload)) return;
+      forwardSignaling(socket, 'WEBRTC_ICE', payload.to_user_id, payload.candidate);
     });
 
     socket.on('disconnect', () => removeUserSocket(socket));
@@ -462,8 +610,7 @@ export function buildSocketServer(httpServer, { db, config }) {
     to(room) {
       return {
         emit(event, payload) {
-          rootNs.to(room).emit(event, payload);
-          gatewayNs.to(room).emit(event, payload);
+          deliver(room, event, payload);
         },
       };
     },

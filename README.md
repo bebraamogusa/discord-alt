@@ -1,229 +1,91 @@
 # Discord Alt
 
-Desktop messenger + self-hosted server for 2–5 people.  
-Text chat, video calls, screen sharing, file uploads.
+Discord Alt is a self-hosted chat service with a browser client and a small native Windows client. The server runs Node.js, SQLite, mediasoup, and nginx in Docker Compose.
 
----
+The shipped clients use one fixed production endpoint:
 
-## Architecture
-
-```
-┌──────────────────────┐         ┌──────────────────────┐
-│  Desktop App (Tauri)  │ ──────▶ │   Server (Docker)     │
-│  Windows / Linux      │ Socket  │   Node.js + SQLite    │
-│  ~5 MB                │  .io    │   VPS 1 CPU / 1 GB   │
-└──────────────────────┘         └──────────────────────┘
-        │                                 │
-        └────── WebRTC P2P (media) ──────┘
+```text
+https://lolihentai.online
 ```
 
-## Project Structure
+This is a fixed production URL, not a configurable server field. Its TLS certificate must contain `DNS:lolihentai.online` in the Subject Alternative Name (SAN).
 
-```
-├── app/                          # Tauri desktop application
-│   ├── package.json              # Tauri CLI
-│   ├── scripts/
-│   │   └── gen-icons.cjs         # Generates app icons (PNG + ICO)
-│   ├── frontend/
-│   │   ├── index.html            # UI + CSS
-│   │   └── main.js               # App logic (chat, WebRTC, etc.)
-│   └── src-tauri/
-│       ├── Cargo.toml            # Rust dependencies
-│       ├── tauri.conf.json       # Tauri config
-│       ├── capabilities/
-│       │   └── default.json      # Permission grants
-│       └── src/
-│           ├── main.rs           # Entry point
-│           └── lib.rs            # Tray icon, notifications
-│
-├── server/                       # Signal server
-│   ├── index.core.js             # Fastify + Socket.io + SQLite (core)
-│   └── package.json
-│
-├── client/                       # Web client (standalone browser version)
-│   └── index.html
-│
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
+## Capabilities
 
----
+| Capability | Browser at the fixed HTTPS endpoint | Native Windows client |
+|---|---:|---:|
+| Register and sign in | Yes | Yes |
+| Guild/server and text-channel navigation | Yes | Yes |
+| Read and send text messages | Yes | Yes |
+| Upload and download files | Yes | No |
+| Voice and video | Yes | No |
+| Screen sharing | Yes | No |
+| Browser notifications and realtime Socket.io updates | Yes | No |
 
-## 1. Deploy the Server
+The browser client is the supported and complete client. The native Windows client is legacy and unsupported: it currently provides account access, guild/channel navigation, message history, and text messaging only. Do not use it for production troubleshooting or expect feature parity, accessibility fixes, or ongoing maintenance there.
 
-### One-command install (Ubuntu/Debian VPS)
+The native client repaints automatically for window input and only uses a short bounded poll while an HTTP task is active, so an idle window does not run an unconditional timer.
+
+## Production deployment
+
+Follow [`DEPLOY.md`](DEPLOY.md) for the executable production procedure. It covers:
+
+- Ubuntu/Debian prerequisites, firewall rules, and Docker Compose
+- The fixed public IP and the required IP SAN certificate
+- Required `.env` values and `install.sh --validate` / `--dry-run`
+- Health checks, logs, first account setup, uploads, and voice verification
+- Updates, rollback, TLS renewal, and integrity-checked backup/restore
+
+The public firewall should expose only TCP `80`, TCP `443`, and UDP `30000-30200`. Port `3000` is the internal app port behind nginx and must not be published to the Internet.
+
+## Quick operational commands
+
+Run these from the deployment directory after installation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USER/discord-alt/main/install.sh | sudo bash
+docker compose ps
+docker compose logs -f app
+docker compose logs -f nginx
+docker compose up -d --build
+curl -fsS https://lolihentai.online/api/health
 ```
 
-The script will:
-- Install Docker, Docker Compose, git (if missing)
-- Clone/update the repo in your home directory
-- Ask for port and upload size
-- Build and start the server
-- Keep deployment Docker-only (no SSL auto-setup)
+Never enter credentials through an `http://` URL or send them through a proxy that downgrades HTTPS. Use the fixed `https://` endpoint only.
 
-### Manual install
+## Build the native client
 
-```bash
-git clone <repo> && cd discord-alt
-cp .env.example .env
-# Edit .env if needed (PORT, MAX_FILE_SIZE)
-docker-compose up -d
-```
+Install Rust with [rustup](https://rustup.rs) and Node.js 18 or newer on Windows. Then:
 
-Server listens on port 3000. A web client is also available at `http://YOUR_IP:3000`.
-
-### HTTPS (required for WebRTC on non-localhost)
-
-**Option A — Caddy (simplest, auto HTTPS):**
-
-```bash
-sudo apt install caddy
-```
-
-Create `/etc/caddy/Caddyfile`:
-
-```
-chat.example.com {
-    reverse_proxy localhost:3000
-}
-```
-
-```bash
-sudo systemctl restart caddy
-```
-
-**Option B — nginx + certbot:**
-
-```nginx
-server {
-    listen 80;
-    server_name chat.example.com;
-    return 301 https://$host$request_uri;
-}
-server {
-    listen 443 ssl http2;
-    server_name chat.example.com;
-    ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-
-```bash
-sudo certbot --nginx -d chat.example.com
-```
-
----
-
-## 2. Build the Desktop App
-
-### Prerequisites
-
-| Tool | Install |
-|------|---------|
-| **Rust** | [rustup.rs](https://rustup.rs) |
-| **Node.js** >= 18 | [nodejs.org](https://nodejs.org) |
-| **System libs** (Linux only) | See below |
-
-**Linux build dependencies (Ubuntu/Debian):**
-
-```bash
-sudo apt install -y \
-  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-  patchelf build-essential curl wget file \
-  libssl-dev libgtk-3-dev libayatana-appindicator3-dev
-```
-
-**Windows:** No extra dependencies — just Rust + Node.js.
-
-### Build Steps
-
-```bash
+```powershell
 cd app
-
-# Install Tauri CLI
 npm install
-
-# Generate app icons (PNG + ICO)
-npm run icons
-
-# Development mode (opens app window)
-npm run dev
-
-# Production build → .exe / .deb / .dmg
-npm run build
+npm run package:windows
 ```
 
-### Build Output
+The distributable executable is `app/release-staging/discord-alt.exe`; the package also includes its SHA-256 checksum and deployment documentation. The build output in `app/src-tauri/target` is temporary and may be deleted after packaging. The client already targets `https://lolihentai.online`; it does not ask for a server URL.
 
-| Platform | Output path |
-|----------|-------------|
-| Windows  | `src-tauri/target/release/bundle/nsis/*.exe` |
-| Windows  | `src-tauri/target/release/bundle/msi/*.msi` |
-| Linux    | `src-tauri/target/release/bundle/deb/*.deb` |
-| Linux    | `src-tauri/target/release/bundle/appimage/*.AppImage` |
-| macOS    | `src-tauri/target/release/bundle/dmg/*.dmg` |
+## Tests
 
----
+The server suite uses Node.js 20 or newer. Browser startup coverage uses Playwright Chromium and creates a temporary SQLite database and upload directory; it does not contact the production service.
 
-## 3. Using the App
-
-1. Launch the built application
-2. Enter **Server Address** — e.g. `https://chat.example.com`
-3. Enter your **Nickname**
-4. Enter a **Room Code** or leave blank to create a new room
-5. Click **Connect**
-
-### Features
-
-| Feature | How |
-|---------|-----|
-| Text chat | Type and press Enter |
-| Share room | Click 📋 — copies room code to clipboard |
-| Voice / video call | Click 📞, toggle 🎤 📹 |
-| Screen share | Click 🖥️ during a call |
-| Upload files | Click 📎, drag & drop, or Ctrl+V (images) |
-| Notifications | Native OS notifications when window is not focused |
-| System tray | Closing the window minimizes to tray. Right-click tray → Show / Quit |
-
----
-
-## Environment Variables (.env)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `MAX_FILE_SIZE` | `5242880` | Max upload in bytes (5 MB) |
-| `UPLOADS_DIR` | `/app/uploads` | File storage path |
-| `DB_PATH` | `/app/data/discord-clone.db` | SQLite database path |
-
----
-
-## TURN Server (optional)
-
-For users behind strict/symmetric NAT, add a TURN server ([coturn](https://github.com/coturn/coturn)):
-
-```bash
-sudo apt install coturn
+```powershell
+cd server
+npm install
+npx playwright install chromium
+npm run test
+npm run test:e2e
 ```
 
-Edit `ICE_SERVERS` in `app/frontend/main.js`:
+`npm run test:e2e:headed` is available for local diagnosis. The E2E runner starts the server with media workers and cron jobs disabled because voice and scheduled cleanup are outside its startup/auth contract.
 
-```js
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'turn:YOUR_VPS:3478', username: 'user', credential: 'pass' },
-];
+## Repository layout
+
+```text
+server/                 Node.js API, auth, SQLite, Socket.io, mediasoup
+client/                 Browser client served by the API
+app/src-tauri/          Native Windows client source
+docker-compose.yml      App and nginx services
+nginx/                  HTTPS reverse-proxy template and certificate mount
+install.sh              Ubuntu/Debian install and update script
+DEPLOY.md               Production runbook
 ```

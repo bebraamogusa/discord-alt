@@ -1,4 +1,4 @@
-import { Permissions, buildPermissionService } from '../services/permissions.js';
+﻿import { Permissions, buildPermissionService } from '../services/permissions.js';
 
 function nowSec() {
   return Math.floor(Date.now() / 1000);
@@ -27,7 +27,7 @@ function parseMentions(content) {
     mentionEveryone,
   };
 }
-export default async function messagesCoreRoutes(fastify, { db, authenticate, snowflake, io, config, fileService }) {
+export default async function messagesCoreRoutes(fastify, { db, authenticate, snowflake, io, config, fileService, uploadRateLimit }) {
   const permissions = buildPermissionService(db);
   const uploadsRoot = config?.uploadsRoot;
 
@@ -41,6 +41,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     ON CONFLICT(user_id, channel_id, nonce) DO NOTHING
   `);
   const getAuthorLite = db.prepare('SELECT id, username, display_name, avatar FROM users WHERE id = ?');
+  const getDmParticipant = db.prepare('SELECT 1 FROM dm_participants WHERE channel_id = ? AND user_id = ? AND closed = 0');
   const isGuildMember = db.prepare('SELECT 1 FROM guild_members WHERE guild_id = ? AND user_id = ?');
   const listGuildMemberIds = db.prepare('SELECT user_id FROM guild_members WHERE guild_id = ?');
   const listMemberIdsByRole = db.prepare('SELECT user_id FROM member_roles WHERE guild_id = ? AND role_id = ?');
@@ -138,19 +139,33 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   `);
 
   function canView(channelId, userId) {
+    const channel = getChannelById.get(channelId);
+    if (channel && !channel.guild_id) return !!getDmParticipant.get(channelId, userId);
     return permissions.hasChannelPermission(channelId, userId, Permissions.VIEW_CHANNEL);
   }
 
   function canReadHistory(channelId, userId) {
+    const channel = getChannelById.get(channelId);
+    if (channel && !channel.guild_id) return !!getDmParticipant.get(channelId, userId);
     return permissions.hasChannelPermission(channelId, userId, Permissions.READ_MESSAGE_HISTORY);
   }
 
   function canSend(channelId, userId) {
+    const channel = getChannelById.get(channelId);
+    if (channel && !channel.guild_id) return !!getDmParticipant.get(channelId, userId);
     return permissions.hasChannelPermission(channelId, userId, Permissions.SEND_MESSAGES);
   }
 
   function canManageMessages(channelId, userId) {
+    const channel = getChannelById.get(channelId);
+    if (channel && !channel.guild_id) return false;
     return permissions.hasChannelPermission(channelId, userId, Permissions.MANAGE_MESSAGES);
+  }
+
+  function emitToChannel(channel, modernEvent, legacyEvent, payload) {
+    const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
+    io?.to(room)?.emit(modernEvent, payload);
+    io?.to(room)?.emit(legacyEvent, payload);
   }
 
   async function parseCreateMessageInput(req, reply) {
@@ -198,19 +213,24 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       }
 
       const attachments = [];
-      for (let i = 0; i < uploadedFiles.length; i += 1) {
-        const filePart = uploadedFiles[i];
-        const uploaded = await fileService.uploadTempFile({ userId: req.user.id, file: filePart });
-        const meta = metadata[i] && typeof metadata[i] === 'object' ? metadata[i] : {};
-        attachments.push({
-          url: uploaded.url,
-          filename: String(meta.filename || uploaded.filename),
-          size: Number(meta.size || uploaded.size || 0),
-          mime_type: String(meta.mime_type || uploaded.mime_type || 'application/octet-stream'),
-          description: meta.description ? String(meta.description).slice(0, 1024) : undefined,
-          spoiler: !!meta.spoiler,
-          flags: Number(meta.flags || 0),
-        });
+      try {
+        for (let i = 0; i < uploadedFiles.length; i += 1) {
+          const filePart = uploadedFiles[i];
+          const uploaded = await fileService.uploadTempFile({ userId: req.user.id, file: filePart });
+          const meta = metadata[i] && typeof metadata[i] === 'object' ? metadata[i] : {};
+          attachments.push({
+            url: uploaded.url,
+            filename: String(meta.filename || uploaded.filename),
+            size: Number(meta.size || uploaded.size || 0),
+            mime_type: String(meta.mime_type || uploaded.mime_type || 'application/octet-stream'),
+            description: meta.description ? String(meta.description).slice(0, 1024) : undefined,
+            spoiler: !!meta.spoiler,
+            flags: Number(meta.flags || 0),
+          });
+        }
+      } catch (error) {
+        await Promise.all(attachments.map((attachment) => fileService.removeTempFile({ userId: req.user.id, url: attachment.url })));
+        throw error;
       }
 
       return {
@@ -230,7 +250,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     };
   }
 
-  function enrichMessage(row) {
+  function enrichMessage(row, viewerId = null) {
     const author = getAuthorLite.get(row.author_id);
     const attachments = listAttachmentsByMessage.all(row.id).map((a) => ({
       id: a.id,
@@ -258,9 +278,11 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     }
 
     const reactionsRaw = db.prepare(`
-      SELECT emoji_name, user_id
+      SELECT emoji_name, user_id,
+             MIN(created_at) OVER (PARTITION BY emoji_name) AS first_created_at
       FROM message_reactions
       WHERE message_id = ?
+      ORDER BY first_created_at ASC, user_id ASC
     `).all(row.id);
     
     // Group reactions by emoji
@@ -270,16 +292,13 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
         reactionGroups[r.emoji_name] = { count: 0, me: false };
       }
       reactionGroups[r.emoji_name].count++;
-      // Since we don't pass req.user.id to enrichMessage usually, we'll mark 'me' in UI or just pass the whole list if needed, or check if they are in the array
-      // To keep it simple, we just array of users, or boolean if we change signature. 
-      // For now, let's just return count and true/false if we can, but we don't have user context here. 
-      // Better: return array of user IDs or just don't handle `me` correctly yet (Discord returns `me: bool` but that requires user context).
-      // Let's just say a reaction object has `{ emoji: { name: '...' }, count: N }`
+      if (viewerId && r.user_id === viewerId) reactionGroups[r.emoji_name].me = true;
     }
     
     const reactions = Object.keys(reactionGroups).map(emoji => ({
       emoji: { name: emoji },
       count: reactionGroups[emoji].count,
+      me: reactionGroups[emoji].me,
     }));
 
     return {
@@ -355,8 +374,6 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
-
     if (!canView(channel.id, req.user.id)) {
       return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
     }
@@ -372,20 +389,20 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     if (around) {
       const half = Math.floor(limit / 2);
-      const beforeRows = listMessagesAroundBefore.all(channel.id, around, half + 1);
-      const afterRows = listMessagesAroundAfter.all(channel.id, around, limit - beforeRows.length);
-      rows = [...beforeRows, ...afterRows.reverse()].slice(0, limit);
+      const olderDesc = listMessagesAroundBefore.all(channel.id, around, half);
+      const newerAsc = listMessagesAroundAfter.all(channel.id, around, limit - olderDesc.length);
+      rows = [...newerAsc.reverse(), ...olderDesc];
     } else if (after) {
       rows = listMessagesAfter.all(channel.id, after, limit).reverse();
     } else {
       rows = listMessages.all(channel.id, before, before, limit);
     }
 
-    return rows.map(enrichMessage);
+    return rows.map(row => enrichMessage(row, req.user.id));
   });
 
   fastify.post('/api/upload', {
-    preHandler: authenticate,
+    preHandler: uploadRateLimit ? [authenticate, uploadRateLimit] : [authenticate],
   }, async (req, reply) => {
     if (!uploadsRoot) return reply.code(500).send({ error: 'Uploads not configured' });
     if (!fileService) return reply.code(500).send({ error: 'File service not configured' });
@@ -448,8 +465,6 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
-
     if (!canSend(channel.id, req.user.id)) {
       return reply.code(403).send({ error: 'Missing SEND_MESSAGES permission' });
     }
@@ -472,19 +487,14 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     const content = input.content;
     const attachments = input.attachments;
     const nonce = input.nonce || null;
-    const messageReference = input.message_reference || null;
+    const messageReference = input.message_reference || (req.body?.reply_to_id ? { message_id: req.body.reply_to_id } : null);
     const pollData = input.poll || (req.body?.poll && typeof req.body.poll === 'object' ? req.body.poll : null);
-
-    // Legacy reply_to_id support
-    if (!messageReference && req.body?.reply_to_id) {
-      input.message_reference = { message_id: req.body.reply_to_id };
-    }
 
     if (nonce) {
       const existingNonce = getMessageNonce.get(req.user.id, channel.id, nonce);
       if (existingNonce?.message_id) {
         const existingMessage = getMessageById.get(existingNonce.message_id, channel.id);
-        if (existingMessage) return enrichMessage(existingMessage);
+        if (existingMessage) return enrichMessage(existingMessage, req.user.id);
       }
     }
 
@@ -495,8 +505,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       if (!ref) {
         return reply.code(400).send({ error: 'Invalid message reference' });
       }
-      if (ref.guild_id !== channel.guild_id) {
-        return reply.code(400).send({ error: 'Referenced message must be in same guild' });
+      if (channel.guild_id ? ref.guild_id !== channel.guild_id : ref.channel_id !== channel.id) {
+        return reply.code(400).send({ error: 'Referenced message must be in the same conversation' });
       }
       if (messageReference.channel_id && String(messageReference.channel_id) !== String(ref.channel_id)) {
         return reply.code(400).send({ error: 'Invalid reference channel' });
@@ -516,19 +526,21 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     const mentionMeta = parseMentions(content);
     const mentionTargetUsers = new Set();
 
-    for (const userId of mentionMeta.userIds) {
-      if (userId !== req.user.id && isGuildMember.get(channel.guild_id, userId)) {
-        mentionTargetUsers.add(userId);
+    if (channel.guild_id) {
+      for (const userId of mentionMeta.userIds) {
+        if (userId !== req.user.id && isGuildMember.get(channel.guild_id, userId)) {
+          mentionTargetUsers.add(userId);
+        }
       }
-    }
-    if (mentionMeta.mentionEveryone) {
-      for (const row of listGuildMemberIds.all(channel.guild_id)) {
-        if (row.user_id !== req.user.id) mentionTargetUsers.add(row.user_id);
+      if (mentionMeta.mentionEveryone) {
+        for (const row of listGuildMemberIds.all(channel.guild_id)) {
+          if (row.user_id !== req.user.id) mentionTargetUsers.add(row.user_id);
+        }
       }
-    }
-    for (const roleId of mentionMeta.roleIds) {
-      for (const row of listMemberIdsByRole.all(channel.guild_id, roleId)) {
-        if (row.user_id !== req.user.id) mentionTargetUsers.add(row.user_id);
+      for (const roleId of mentionMeta.roleIds) {
+        for (const row of listMemberIdsByRole.all(channel.guild_id, roleId)) {
+          if (row.user_id !== req.user.id) mentionTargetUsers.add(row.user_id);
+        }
       }
     }
 
@@ -582,11 +594,13 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
         insertMessageMention.run(id, userId);
         upsertReadStateMentionCount.run(userId, channel.id);
       }
-      for (const roleId of mentionMeta.roleIds) {
-        insertMessageMentionRole.run(id, roleId);
-      }
-      for (const channelId of mentionMeta.channelIds) {
-        insertMessageMentionChannel.run(id, channelId);
+      if (channel.guild_id) {
+        for (const roleId of mentionMeta.roleIds) {
+          insertMessageMentionRole.run(id, roleId);
+        }
+        for (const channelId of mentionMeta.channelIds) {
+          insertMessageMentionChannel.run(id, channelId);
+        }
       }
       upsertAuthorReadState.run(req.user.id, channel.id, id);
 
@@ -612,7 +626,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       setChannelLastMessage.run(id, ts, channel.id);
 
       // Create poll if provided
-      if (pollData && pollData.question && Array.isArray(pollData.answers) && pollData.answers.length >= 2) {
+      if (channel.guild_id && pollData && pollData.question && Array.isArray(pollData.answers) && pollData.answers.length >= 2) {
         const durationHours = pollData.duration_hours || 24;
         const expiry = ts + (durationHours * 3600);
         db.prepare('INSERT INTO polls (message_id, question, allow_multiselect, expiry, layout_type) VALUES (?, ?, ?, ?, ?)')
@@ -624,9 +638,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
       }
     })();
 
-    const message = enrichMessage(getMessageById.get(id, channel.id));
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:create', message);
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_CREATE', message);
+    const message = enrichMessage(getMessageById.get(id, channel.id), req.user.id);
+    emitToChannel(channel, 'message:create', 'MESSAGE_CREATE', message);
     for (const targetUserId of mentionTargetUsers) {
       io?.to(`user:${targetUserId}`)?.emit('mention', {
         user_id: targetUserId,
@@ -654,8 +667,6 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
-
     const existing = getMessageById.get(req.params.messageId, channel.id);
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
@@ -670,9 +681,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     const generatedEmbeds = await fastify.embedService.generateEmbedsFromContent(next);
     updateMessage.run(next, JSON.stringify(generatedEmbeds), nowSec(), existing.id, channel.id);
-    const updated = enrichMessage(getMessageById.get(existing.id, channel.id));
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:update', updated);
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_UPDATE', updated);
+    const updated = enrichMessage(getMessageById.get(existing.id, channel.id), req.user.id);
+    emitToChannel(channel, 'message:update', 'MESSAGE_UPDATE', updated);
 
     return updated;
   });
@@ -694,7 +704,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
     const channel = getChannelById.get(existing.channel_id);
-    if (!channel || !channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
+    if (!channel || !canView(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing channel access' });
 
     const isAuthor = existing.author_id === req.user.id;
     const canModerate = canManageMessages(channel.id, req.user.id);
@@ -707,9 +717,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     const generatedEmbeds = await fastify.embedService.generateEmbedsFromContent(next);
     updateMessage.run(next, JSON.stringify(generatedEmbeds), nowSec(), existing.id, channel.id);
-    const updated = enrichMessage(getMessageById.get(existing.id, channel.id));
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:update', updated);
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_UPDATE', updated);
+    const updated = enrichMessage(getMessageById.get(existing.id, channel.id), req.user.id);
+    emitToChannel(channel, 'message:update', 'MESSAGE_UPDATE', updated);
 
     return updated;
   });
@@ -719,8 +728,6 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
-
     const existing = getMessageById.get(req.params.messageId, channel.id);
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
@@ -732,12 +739,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     softDeleteMessage.run(nowSec(), existing.id, channel.id);
 
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:delete', {
+    emitToChannel(channel, 'message:delete', 'MESSAGE_DELETE', {
       id: existing.id,
-      channel_id: channel.id,
-      guild_id: channel.guild_id,
-    });
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_DELETE', {
       message_id: existing.id,
       channel_id: channel.id,
       guild_id: channel.guild_id,
@@ -753,7 +756,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
     const channel = getChannelById.get(existing.channel_id);
-    if (!channel || !channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
+    if (!channel || !canView(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing channel access' });
 
     const isAuthor = existing.author_id === req.user.id;
     const canModerate = canManageMessages(channel.id, req.user.id);
@@ -763,12 +766,8 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
 
     softDeleteMessage.run(nowSec(), existing.id, channel.id);
 
-    io?.to(`guild:${channel.guild_id}`)?.emit('message:delete', {
+    emitToChannel(channel, 'message:delete', 'MESSAGE_DELETE', {
       id: existing.id,
-      channel_id: channel.id,
-      guild_id: channel.guild_id,
-    });
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_DELETE', {
       message_id: existing.id,
       channel_id: channel.id,
       guild_id: channel.guild_id,
@@ -797,7 +796,7 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
+    if (!channel.guild_id) return reply.code(400).send({ error: 'Bulk delete is only supported in guild channels' });
 
     if (!canManageMessages(channel.id, req.user.id)) {
       return reply.code(403).send({ error: 'Missing MANAGE_MESSAGES permission' });
@@ -834,34 +833,36 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
     return { ok: true, deleted: editableIds.length, ids: editableIds };
   });
 
-  // ═══════════════════════════════════════════════════════
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
   // REACTIONS
-  // ═══════════════════════════════════════════════════════
+  // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 
   fastify.put('/api/channels/:channelId/messages/:messageId/reactions/:emoji/@me', {
     preHandler: authenticate,
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported in this endpoint' });
-
     if (!canView(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
     if (!canReadHistory(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing READ_MESSAGE_HISTORY permission' });
 
     const existing = getMessageById.get(req.params.messageId, channel.id);
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
-    const emoji = decodeURIComponent(req.params.emoji);
-    
-    db.prepare('INSERT OR IGNORE INTO message_reactions (message_id, emoji_name, user_id, created_at) VALUES (?, ?, ?, ?)').run(existing.id, emoji, req.user.id, nowSec());
+    const emoji = decodeURIComponent(req.params.emoji).trim();
+    if (!emoji || emoji.length > 128) return reply.code(400).send({ error: 'Invalid emoji' });
 
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_REACTION_ADD', {
-      user_id: req.user.id,
-      channel_id: channel.id,
-      message_id: existing.id,
-      guild_id: channel.guild_id,
-      emoji: { name: emoji }
-    });
+    const result = db.prepare('INSERT OR IGNORE INTO message_reactions (message_id, emoji_name, user_id, created_at) VALUES (?, ?, ?, ?)').run(existing.id, emoji, req.user.id, nowSec());
+
+    if (result.changes > 0) {
+      const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
+      io?.to(room)?.emit('MESSAGE_REACTION_ADD', {
+        user_id: req.user.id,
+        channel_id: channel.id,
+        message_id: existing.id,
+        guild_id: channel.guild_id,
+        emoji: { name: emoji }
+      });
+    }
 
     return { ok: true };
   });
@@ -871,22 +872,27 @@ export default async function messagesCoreRoutes(fastify, { db, authenticate, sn
   }, async (req, reply) => {
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels are supported' });
+    if (!canView(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
+    if (!canReadHistory(channel.id, req.user.id)) return reply.code(403).send({ error: 'Missing READ_MESSAGE_HISTORY permission' });
 
     const existing = getMessageById.get(req.params.messageId, channel.id);
     if (!existing) return reply.code(404).send({ error: 'Message not found' });
 
-    const emoji = decodeURIComponent(req.params.emoji);
+    const emoji = decodeURIComponent(req.params.emoji).trim();
+    if (!emoji || emoji.length > 128) return reply.code(400).send({ error: 'Invalid emoji' });
 
-    db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND emoji_name = ? AND user_id = ?').run(existing.id, emoji, req.user.id);
+    const result = db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND emoji_name = ? AND user_id = ?').run(existing.id, emoji, req.user.id);
 
-    io?.to(`guild:${channel.guild_id}`)?.emit('MESSAGE_REACTION_REMOVE', {
-      user_id: req.user.id,
-      channel_id: channel.id,
-      message_id: existing.id,
-      guild_id: channel.guild_id,
-      emoji: { name: emoji }
-    });
+    if (result.changes > 0) {
+      const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
+      io?.to(room)?.emit('MESSAGE_REACTION_REMOVE', {
+        user_id: req.user.id,
+        channel_id: channel.id,
+        message_id: existing.id,
+        guild_id: channel.guild_id,
+        emoji: { name: emoji }
+      });
+    }
 
     return { ok: true };
   });

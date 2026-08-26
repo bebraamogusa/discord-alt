@@ -1,42 +1,12 @@
 import { S, V } from './state.js';
-import { API, escHtml, fmtTime, showToast, daPrompt, t } from './utils.js';
-import { getServer, selectChannel, renderChannelList } from './ui.js';
+import { API, escHtml, fmtTime, showToast, daPrompt, t, getServer, renderPollHtml } from './utils.js';
+import { selectChannel, renderChannelList } from './ui.js';
 
 // ═══════════════════════════════════════════════════════
 // POLLS — Render & Interact
 // ═══════════════════════════════════════════════════════
 
-export function renderPollHtml(msg) {
-  const poll = msg.poll;
-  if (!poll) return '';
-  const expired = poll.expiry && poll.expiry < Math.floor(Date.now() / 1000);
-  const totalVotes = poll.answers.reduce((s, a) => s + (a.count || 0), 0);
-  const answersHtml = poll.answers.map(a => {
-    const pct = totalVotes > 0 ? Math.round(((a.count || 0) / totalVotes) * 100) : 0;
-    return `
-      <div class="poll-answer ${a.me ? 'poll-voted' : ''} ${expired ? 'poll-expired' : ''}"
-           data-msg-id="${escHtml(msg.id)}" data-answer-id="${a.id}" data-ch-id="${escHtml(msg.channel_id)}">
-        <div class="poll-answer-bar" style="width:${pct}%"></div>
-        <span class="poll-answer-text">${a.emoji ? escHtml(a.emoji) + ' ' : ''}${escHtml(a.text || '')}</span>
-        <span class="poll-answer-count">${a.count || 0} (${pct}%)</span>
-      </div>
-    `;
-  }).join('');
-
-  const expiryText = expired ? '✅ Голосование завершено' :
-    (poll.expiry ? `⏱ Завершится ${fmtTime(poll.expiry * 1000)}` : '');
-
-  return `
-    <div class="poll-container" data-msg-id="${escHtml(msg.id)}">
-      <div class="poll-question">📊 ${escHtml(poll.question)}</div>
-      <div class="poll-answers">${answersHtml}</div>
-      <div class="poll-footer">
-        <span class="poll-total">${totalVotes} голос${totalVotes === 1 ? '' : totalVotes > 1 && totalVotes < 5 ? 'а' : 'ов'}</span>
-        <span class="poll-expiry">${expiryText}</span>
-      </div>
-    </div>
-  `;
-}
+export { renderPollHtml };
 
 // Attach poll vote handlers (called within attachMsgHandlers)
 export function attachPollHandlers(container) {
@@ -75,7 +45,7 @@ export function openPollCreator() {
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3>📊 Создать опрос</h3>
-        <button class="modal-close" id="poll-modal-close">✕</button>
+         <button class="modal-close" id="poll-modal-close" type="button" aria-label="${t('close')}">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -141,13 +111,13 @@ export function openPollCreator() {
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 }
 
-function renderPollAnswerInputs() {
+export function renderPollAnswerInputs() {
   const list = document.getElementById('poll-answers-list');
   if (!list) return;
   list.innerHTML = _pollAnswers.map((val, i) => `
     <div class="poll-answer-input" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
       <input type="text" class="poll-answer-field" data-idx="${i}" value="${escHtml(val)}" placeholder="Вариант ${i + 1}" maxlength="55" style="flex:1">
-      ${_pollAnswers.length > 2 ? `<button class="btn-icon-sm poll-remove-answer" data-idx="${i}" title="Удалить">✕</button>` : ''}
+       ${_pollAnswers.length > 2 ? `<button class="btn-icon-sm poll-remove-answer" type="button" data-idx="${i}" title="${t('delete')}" aria-label="${t('delete')}">✕</button>` : ''}
     </div>
   `).join('');
   list.querySelectorAll('.poll-answer-field').forEach(inp => {
@@ -177,7 +147,7 @@ export async function createThread(channelId, messageId) {
       if (srv) {
         if (!srv.channels.find(c => c.id === thread.id)) {
           srv.channels.push({
-            id: thread.id, name: thread.name || name, type: 'text',
+            id: thread.id, name: thread.name || name, type: 'thread',
             server_id: srv.id, guild_id: srv.id, category_id: null, parent_id: channelId, position: 999
           });
         }
@@ -200,7 +170,7 @@ export function handlePollSocketEvents() {
   window.socket.on('poll:vote_remove', (data) => updatePollInMessage(data));
 }
 
-function updatePollInMessage(data) {
+export function updatePollInMessage(data) {
   const { message_id, poll } = data;
   // Update data model
   for (const [chId, msgs] of Object.entries(S.messages)) {

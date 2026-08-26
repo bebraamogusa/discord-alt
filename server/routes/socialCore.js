@@ -105,31 +105,6 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
   const getDmParticipant = db.prepare('SELECT * FROM dm_participants WHERE channel_id = ? AND user_id = ?');
   const setDmClosed = db.prepare('UPDATE dm_participants SET closed = ? WHERE channel_id = ? AND user_id = ?');
   const getMessageById = db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0');
-  const getReactionByUser = db.prepare('SELECT 1 FROM reactions WHERE message_id = ? AND emoji = ? AND user_id = ?');
-  const addReaction = db.prepare('INSERT OR IGNORE INTO reactions (message_id, emoji, user_id, created_at) VALUES (?, ?, ?, ?)');
-  const removeReaction = db.prepare('DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_id = ?');
-  const removeReactionForUser = db.prepare('DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_id = ?');
-  const removeReactionsByEmoji = db.prepare('DELETE FROM reactions WHERE message_id = ? AND emoji = ?');
-  const removeAllReactions = db.prepare('DELETE FROM reactions WHERE message_id = ?');
-  const listReactionSummary = db.prepare(`
-    SELECT emoji, COUNT(*) AS count,
-           MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS me
-    FROM reactions
-    WHERE message_id = ?
-    GROUP BY emoji
-    ORDER BY MIN(created_at) ASC
-  `);
-  const listReactionUsers = db.prepare(`
-    SELECT r.user_id, r.created_at,
-           u.username, u.display_name, u.avatar, u.accent_color, u.status
-    FROM reactions r
-    JOIN users u ON u.id = r.user_id
-    WHERE r.message_id = ?
-      AND r.emoji = ?
-      AND (? IS NULL OR r.user_id > ?)
-    ORDER BY r.user_id ASC
-    LIMIT ?
-  `);
 
   const listPins = db.prepare(`
     SELECT p.channel_id, p.message_id, p.pinned_by, p.pinned_at,
@@ -209,19 +184,6 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
     if (channel.guild_id) return permissions.hasChannelPermission(channel.id, userId, Permissions.VIEW_CHANNEL);
     const p = db.prepare('SELECT 1 FROM dm_participants WHERE channel_id = ? AND user_id = ? AND closed = 0').get(channel.id, userId);
     return !!p;
-  }
-
-  function buildReactionPayload(messageId, channelId, actorId, userId) {
-    return {
-      message_id: messageId,
-      channel_id: channelId,
-      user_id: actorId,
-      reactions: listReactionSummary.all(userId, messageId).map((r) => ({
-        emoji: r.emoji,
-        count: r.count,
-        me: !!r.me,
-      })),
-    };
   }
 
   function emitCompat(eventModern, eventLegacy, room, payload) {
@@ -602,7 +564,10 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
     const channel = getChannelById.get(req.params.channelId);
     if (!channel) return reply.code(404).send({ error: 'Channel not found' });
     if (!canAccessChannel(req.user.id, channel)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
-    return listPins.all(channel.id);
+    return listPins.all(channel.id).map((row) => ({
+      ...row,
+      author: authorLite.get(row.author_id) || null,
+    }));
   });
 
   fastify.put('/api/channels/:channelId/pins/:messageId', { preHandler: authenticate }, async (req, reply) => {
@@ -615,7 +580,9 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
 
     const message = getMessageById.get(req.params.messageId);
     if (!message || message.channel_id !== channel.id) return reply.code(404).send({ error: 'Message not found' });
-    if (getPin.get(channel.id, message.id)) return { ok: true };
+    if (getPin.get(channel.id, message.id)) {
+      return { ok: true, channel_id: channel.id, message_id: message.id, pinned: true };
+    }
 
     if ((countPins.get(channel.id)?.c || 0) >= 50) {
       return reply.code(400).send({ error: 'Pin limit reached' });
@@ -630,7 +597,7 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
 
     const payload = { channel_id: channel.id, last_pin_timestamp: ts };
     emitCompat('channel:pins_update', 'CHANNEL_PINS_UPDATE', `guild:${channel.guild_id}`, payload);
-    return { ok: true };
+    return { ok: true, channel_id: channel.id, message_id: message.id, pinned: true };
   });
 
   fastify.delete('/api/channels/:channelId/pins/:messageId', { preHandler: authenticate }, async (req, reply) => {
@@ -651,128 +618,7 @@ export default async function socialCoreRoutes(fastify, { db, authenticate, snow
 
     const payload = { channel_id: channel.id, last_pin_timestamp: ts };
     emitCompat('channel:pins_update', 'CHANNEL_PINS_UPDATE', `guild:${channel.guild_id}`, payload);
-    return { ok: true };
-  });
-
-  async function handleReact(req, reply, mode) {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message) return reply.code(404).send({ error: 'Message not found' });
-
-    const channel = getChannelById.get(message.channel_id);
-    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!canAccessChannel(req.user.id, channel)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
-
-    const emoji = decodeURIComponent(String(req.params.emoji || '')).trim();
-    if (!emoji || emoji.length > 128) return reply.code(400).send({ error: 'Invalid emoji' });
-
-    if (mode === 'add') {
-      if (!getReactionByUser.get(message.id, emoji, req.user.id)) {
-        addReaction.run(message.id, emoji, req.user.id, nowSec());
-      }
-      const payload = buildReactionPayload(message.id, channel.id, req.user.id, req.user.id);
-      const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
-      emitCompat('message:reaction_add', 'REACTION_ADD', room, payload);
-      return payload;
-    }
-
-    removeReaction.run(message.id, emoji, req.user.id);
-    const payload = buildReactionPayload(message.id, channel.id, req.user.id, req.user.id);
-    const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
-    emitCompat('message:reaction_remove', 'REACTION_REMOVE', room, payload);
-    return payload;
-  }
-
-  fastify.post('/api/messages/:messageId/reactions/:emoji', { preHandler: authenticate }, async (req, reply) => {
-    return handleReact(req, reply, 'add');
-  });
-
-  fastify.delete('/api/messages/:messageId/reactions/:emoji', { preHandler: authenticate }, async (req, reply) => {
-    return handleReact(req, reply, 'remove');
-  });
-
-  fastify.get('/api/channels/:channelId/messages/:messageId/reactions/:emoji', {
-    preHandler: authenticate,
-    schema: {
-      querystring: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
-          after: { type: 'string', minLength: 1, maxLength: 64 },
-        },
-      },
-    },
-  }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    const channel = getChannelById.get(message.channel_id);
-    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!canAccessChannel(req.user.id, channel)) return reply.code(403).send({ error: 'Missing VIEW_CHANNEL permission' });
-
-    const emoji = decodeURIComponent(String(req.params.emoji || '')).trim();
-    const rows = listReactionUsers.all(message.id, emoji, req.query.after || null, req.query.after || null, req.query.limit || 25);
-    return rows.map((r) => ({
-      user_id: r.user_id,
-      created_at: r.created_at,
-      user: {
-        id: r.user_id,
-        username: r.username,
-        display_name: r.display_name,
-        avatar_url: r.avatar || '',
-        avatar_color: r.accent_color || '#5865f2',
-        status: r.status || 'offline',
-      },
-    }));
-  });
-
-  fastify.delete('/api/channels/:channelId/messages/:messageId/reactions/:emoji/:userId', { preHandler: authenticate }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    const channel = getChannelById.get(message.channel_id);
-    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!permissions.hasChannelPermission(channel.id, req.user.id, Permissions.MANAGE_MESSAGES)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_MESSAGES permission' });
-    }
-
-    const emoji = decodeURIComponent(String(req.params.emoji || '')).trim();
-    removeReactionForUser.run(message.id, emoji, req.params.userId);
-    const payload = buildReactionPayload(message.id, channel.id, req.user.id, req.user.id);
-    const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
-    emitCompat('message:reaction_remove', 'REACTION_REMOVE', room, payload);
-    return { ok: true };
-  });
-
-  fastify.delete('/api/channels/:channelId/messages/:messageId/reactions', { preHandler: authenticate }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    const channel = getChannelById.get(message.channel_id);
-    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!permissions.hasChannelPermission(channel.id, req.user.id, Permissions.MANAGE_MESSAGES)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_MESSAGES permission' });
-    }
-
-    removeAllReactions.run(message.id);
-    const payload = buildReactionPayload(message.id, channel.id, req.user.id, req.user.id);
-    const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
-    emitCompat('message:reaction_remove_all', 'REACTION_REMOVE', room, payload);
-    return { ok: true };
-  });
-
-  fastify.delete('/api/channels/:channelId/messages/:messageId/reactions/:emoji', { preHandler: authenticate }, async (req, reply) => {
-    const message = getMessageById.get(req.params.messageId);
-    if (!message || message.channel_id !== req.params.channelId) return reply.code(404).send({ error: 'Message not found in channel' });
-    const channel = getChannelById.get(message.channel_id);
-    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
-    if (!permissions.hasChannelPermission(channel.id, req.user.id, Permissions.MANAGE_MESSAGES)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_MESSAGES permission' });
-    }
-
-    const emoji = decodeURIComponent(String(req.params.emoji || '')).trim();
-    removeReactionsByEmoji.run(message.id, emoji);
-    const payload = buildReactionPayload(message.id, channel.id, req.user.id, req.user.id);
-    const room = channel.guild_id ? `guild:${channel.guild_id}` : `channel:${channel.id}`;
-    emitCompat('message:reaction_remove_emoji', 'REACTION_REMOVE', room, payload);
-    return { ok: true };
+    return { ok: true, channel_id: channel.id, message_id: req.params.messageId, pinned: false };
   });
 
   fastify.get('/api/channels/:channelId/messages/search', {

@@ -1,10 +1,46 @@
 import { S, V } from './state.js';
-import { API, escHtml, clamp, fmtDatetime, fmtTime, t, showToast, daConfirm, daPrompt, avatarEl, displayNameFor, getLang, setLang, LANG_NAMES } from './utils.js';
+import { API, escHtml, clamp, fmtDatetime, fmtTime, t, showToast, daConfirm, daPrompt, avatarEl, displayNameFor, getLang, setLang, LANG_NAMES, normalizeServer, intToHexColor, hexToIntColor } from './utils.js';
 import { IC } from './icons.js';
-import { getServer, getChannel, selectServer, selectChannel, renderServerIcons, renderChannelList, renderMembersPanel, renderMessages, renderVoicePanel, openCreateEventModal, userHasPermissionClient, applyI18nToHtml } from './ui.js';
+import { getServer, getChannel, selectServer, selectChannel, renderServerIcons, renderChannelList, renderMembersPanel, renderMessages, renderVoicePanel, userHasPermissionClient, applyI18nToHtml } from './ui.js';
 import { createInvite, deleteServer, leaveServer, createCategory } from './api_requests.js';
 
 // ─── SERVER SETTINGS ──────────────────────────────────────────────────────────
+const ROLE_PERM_BITS = {
+  send_messages: 1n << 11n,
+  manage_messages: 1n << 13n,
+  kick_members: 1n << 1n,
+  ban_members: 1n << 2n,
+  manage_channels: 1n << 4n,
+  manage_server: 1n << 5n,
+  manage_roles: 1n << 28n,
+  view_channel: 1n << 10n,
+  administrator: 1n << 3n,
+  moderate_members: 1n << 40n,
+  manage_webhooks: 1n << 29n,
+  manage_expressions: 1n << 30n,
+  manage_events: 1n << 33n,
+};
+
+function rolePermBits(role) {
+  const raw = String(role?.permissions ?? '0').trim();
+  if (raw.startsWith('{')) {
+    let bits = 0n;
+    try {
+      const obj = JSON.parse(raw);
+      for (const [name, enabled] of Object.entries(obj || {})) {
+        if (enabled === true && ROLE_PERM_BITS[name]) bits |= ROLE_PERM_BITS[name];
+      }
+    } catch { }
+    return bits;
+  }
+  try { return BigInt(raw || '0'); } catch { return 0n; }
+}
+
+function rolePill(role) {
+  const c = intToHexColor(role.color);
+  return `<span class="role-pill"${c ? ` style="background:${escHtml(c)}"` : ''}>${escHtml(role.name)}</span>`;
+}
+
 export function openServerSettings(serverId) {
   const srv = getServer(serverId);
   if (!srv) return;
@@ -13,6 +49,9 @@ export function openServerSettings(serverId) {
   const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
   const canBan = userHasPermissionClient(serverId, 'ban_members');
   const canViewAudit = userHasPermissionClient(serverId, 'view_audit_log') || canManageServer;
+  const canManageWebhooks = userHasPermissionClient(serverId, 'manage_webhooks');
+  const canManageExpressions = userHasPermissionClient(serverId, 'manage_expressions');
+  const canManageEvents = userHasPermissionClient(serverId, 'manage_events');
 
   document.getElementById('ss-server-name').textContent = srv.name;
   document.getElementById('ss-leave-server').classList.toggle('hidden', isOwner);
@@ -22,6 +61,9 @@ export function openServerSettings(serverId) {
     { id: 'overview', label: t('ss_overview'), icon: IC.overview, show: true },
     { id: 'roles', label: t('ss_roles'), icon: IC.shield, show: canManageRoles },
     { id: 'members', label: t('ss_members'), icon: IC.members, show: true },
+    { id: 'webhooks', label: t('ss_webhooks'), icon: IC.link, show: canManageWebhooks },
+    { id: 'emoji', label: t('ss_emoji'), icon: IC.smile, show: canManageExpressions },
+    { id: 'events', label: t('ss_events'), icon: IC.clock, show: canManageEvents },
     { id: 'bans', label: t('ss_bans'), icon: IC.hammer, show: canBan },
     { id: 'invites', label: t('ss_invites'), icon: IC.link, show: canManageServer },
     { id: 'audit', label: t('ss_audit'), icon: IC.scroll, show: canViewAudit },
@@ -29,29 +71,32 @@ export function openServerSettings(serverId) {
   const pages = allPages.filter(p => p.show);
 
   document.getElementById('ss-nav-items').innerHTML = pages.map(p => `
-    <div class="settings-nav-item ${p.id === 'overview' ? 'active' : ''}" data-ss-page="${p.id}"><span class="nav-icon">${p.icon}</span>${p.label}</div>
+     <div class="settings-nav-item ${p.id === 'overview' ? 'active' : ''}" role="button" tabindex="0" data-ss-page="${p.id}"><span class="nav-icon">${p.icon}</span>${p.label}</div>
   `).join('');
 
   document.getElementById('ss-nav-items').querySelectorAll('[data-ss-page]').forEach(el => {
     el.addEventListener('click', () => {
       document.getElementById('ss-nav-items').querySelectorAll('[data-ss-page]').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
-      renderServerSettingsPage(serverId, el.dataset.ssPage);
-    });
-  });
+       renderServerSettingsPage(serverId, el.dataset.ssPage);
+     });
+     el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } });
+   });
 
   document.getElementById('ss-leave-server').onclick = () => leaveServer(serverId);
   document.getElementById('ss-delete-server').onclick = () => deleteServer(serverId);
+  document.getElementById('ss-leave-server').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } };
+  document.getElementById('ss-delete-server').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } };
 
   renderServerSettingsPage(serverId, 'overview');
   document.getElementById('server-settings').classList.remove('hidden');
 }
 
-async function renderServerSettingsPage(serverId, page) {
+export async function renderServerSettingsPage(serverId, page) {
   const srv = getServer(serverId);
   if (!srv) return;
-  const titleIcons = { overview: IC.overview, roles: IC.shield, members: IC.members, bans: IC.hammer, invites: IC.link, audit: IC.scroll };
-  document.getElementById('ss-page-title').innerHTML = `${titleIcons[page] || ''} ${{ overview: t('ss_overview'), roles: t('ss_roles'), members: t('ss_members'), bans: t('ss_bans'), invites: t('ss_invites'), audit: t('ss_audit') }[page] || page}`;
+  const titleIcons = { overview: IC.overview, roles: IC.shield, members: IC.members, webhooks: IC.link, emoji: IC.smile, events: IC.clock, bans: IC.hammer, invites: IC.link, audit: IC.scroll };
+  document.getElementById('ss-page-title').innerHTML = `${titleIcons[page] || ''} ${{ overview: t('ss_overview'), roles: t('ss_roles'), members: t('ss_members'), webhooks: t('ss_webhooks'), emoji: t('ss_emoji'), events: t('ss_events'), bans: t('ss_bans'), invites: t('ss_invites'), audit: t('ss_audit') }[page] || page}`;
   const body = document.getElementById('ss-page-body');
   body.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 
@@ -91,6 +136,7 @@ async function renderServerSettingsPage(serverId, page) {
       </div>
       <button class="btn btn-primary mt-8" id="ss-save-overview">${t('save_changes')}</button>
       ` : `
+      <div class="perm-denied-notice" id="ss-no-perm">${IC.lock} ${escHtml(t('ss_no_manage_server'))}</div>
       <div class="form-group">
         <label>${t('server_name')}</label>
         <div style="padding:10px 12px;color:var(--text);font-size:14px">${escHtml(srv.name)}</div>
@@ -153,11 +199,11 @@ async function renderServerSettingsPage(serverId, page) {
           const updated = await API.patch(`/api/guilds/${serverId}`, {
             name: document.getElementById('ss-name').value.trim(),
             description: document.getElementById('ss-desc').value.trim(),
-            icon_url: document.getElementById('ss-icon').value.trim(),
-            banner_url: document.getElementById('ss-banner').value.trim(),
+            icon: document.getElementById('ss-icon').value.trim(),
+            banner: document.getElementById('ss-banner').value.trim(),
           });
           const idx = S.servers.findIndex(s => s.id === serverId);
-          if (idx !== -1) S.servers[idx] = { ...S.servers[idx], ...updated };
+          if (idx !== -1) S.servers[idx] = normalizeServer({ ...S.servers[idx], ...updated });
           renderServerIcons();
           showToast(t('saved'), 'success');
         } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -171,14 +217,15 @@ async function renderServerSettingsPage(serverId, page) {
     const guild = await API.get(`/api/guilds/${serverId}`).catch(() => null);
     const roles = guild?.roles || [];
     const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
-    const perms = ['send_messages', 'manage_messages', 'kick_members', 'ban_members', 'manage_channels', 'manage_server', 'mention_everyone', 'manage_roles', 'view_channel', 'administrator'];
+    const perms = ['send_messages', 'manage_messages', 'kick_members', 'ban_members', 'manage_channels', 'manage_server', 'manage_roles', 'view_channel', 'administrator', 'moderate_members', 'manage_webhooks', 'manage_expressions', 'manage_events'];
     // Calculate member counts per role
     const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
     const roleCounts = {};
     for (const r of roles) {
-      if (r.is_default) { roleCounts[r.id] = members.length; continue; }
-      roleCounts[r.id] = members.filter(m => (m.roles || []).some(mr => mr.id === r.id)).length;
+      const isDefault = r.id === serverId;
+      if (isDefault) { roleCounts[r.id] = members.length; continue; }
+      roleCounts[r.id] = members.filter(m => ((m.role_ids || []).includes(r.id)) || (m.roles || []).some(mr => mr.id === r.id)).length;
     }
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -190,12 +237,12 @@ async function renderServerSettingsPage(serverId, page) {
         <tbody>
           ${roles.map(r => `
             <tr data-role-id="${escHtml(r.id)}">
-              <td><span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span></td>
+              <td>${rolePill(r)}</td>
               <td>${roleCounts[r.id] || 0}</td>
               <td class="table-actions">
                 ${canManageRoles ? `
                   <button class="table-btn edit-role-btn" data-role-id="${escHtml(r.id)}" title="${t('edit')}">&#9998;</button>
-                  ${!r.is_default ? `<button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="${t('delete')}">&#128465;</button>` : ''}
+                  ${r.id !== serverId ? `<button class="table-btn del delete-role-btn" data-role-id="${escHtml(r.id)}" title="${t('delete')}">&#128465;</button>` : ''}
                 ` : ''}
               </td>
             </tr>
@@ -209,8 +256,7 @@ async function renderServerSettingsPage(serverId, page) {
       if (!name) return;
       const color = await daPrompt(t('role_color') + ' (hex)', { title: t('create_role'), placeholder: '#99aab5', confirmText: t('ok') });
       try {
-        const parsedColor = color ? Number.parseInt(color.replace('#', ''), 16) || 0 : 0;
-        const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: parsedColor });
+        const role = await API.post(`/api/guilds/${serverId}/roles`, { name, color: hexToIntColor(color) });
         const idx = S.servers.findIndex(s => s.id === serverId);
         if (idx !== -1) S.servers[idx].roles = [...(S.servers[idx].roles || []), role];
         renderServerSettingsPage(serverId, 'roles');
@@ -235,10 +281,13 @@ async function renderServerSettingsPage(serverId, page) {
   if (page === 'members') {
     const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
-    const roles = getServer(serverId)?.roles?.filter(r => !r.is_default) || [];
     const canManage = userHasPermissionClient(serverId, 'kick_members');
     const canBan = userHasPermissionClient(serverId, 'ban_members');
     const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
+    const guildRoles = getServer(serverId)?.roles || [];
+    const roles = guildRoles.filter(r => r.id !== serverId);
+    const rolesById = new Map(guildRoles.map(r => [r.id, r]));
+    const memberRolesOf = m => [...new Set([...(m.role_ids || []), ...(m.roles || []).map(r => r.id)])].map(id => rolesById.get(id)).filter(Boolean);
     body.innerHTML = `
       <table class="settings-table">
         <thead><tr><th>${t('member_user')}</th><th>${t('member_nick')}</th><th>${t('member_roles')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
@@ -251,8 +300,8 @@ async function renderServerSettingsPage(serverId, page) {
               <td><div class="flex-row">${avatarEl({ id: m.user_id, ...m }, 24)} ${escHtml(m.nickname || m.username)}${isMemberOwner ? ' <span class="owner-crown" title="' + t('server_owner') + '">' + IC.crown + '</span>' : ''}</div></td>
               <td>${escHtml(m.nickname || '—')}</td>
               <td>
-                ${(m.roles || []).map(r => `<span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>`).join(' ')}
-                ${canManageRoles && roles.length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.user_id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
+                ${memberRolesOf(m).map(rolePill).join(' ')}
+                ${canManageRoles && guildRoles.filter(r => r.id !== serverId).length && !isMemberOwner ? `<button class="table-btn assign-role-btn" data-user-id="${escHtml(m.user_id)}" title="${t('assign_role')}">&#65291;</button>` : ''}
               </td>
               <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(m.joined_at)}</td>
               <td class="table-actions">
@@ -285,11 +334,11 @@ async function renderServerSettingsPage(serverId, page) {
         e.stopPropagation();
         const memberId = btn.dataset.userId;
         const member = members.find(m => m.user_id === memberId);
-        const assignedIds = new Set((member?.roles || []).map(r => r.id));
+        const assignedIds = new Set(memberRolesOf(member).map(r => r.id));
         const items = roles.map(r => `
           <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
             <input type="checkbox" data-role-id="${escHtml(r.id)}" ${assignedIds.has(r.id) ? 'checked' : ''}>
-            <span class="role-pill" style="background:${escHtml(r.color)}">${escHtml(r.name)}</span>
+            ${rolePill(r)}
           </label>
         `).join('');
         const overlay = document.createElement('div');
@@ -313,6 +362,410 @@ async function renderServerSettingsPage(serverId, page) {
           close();
           renderServerSettingsPage(serverId, 'members');
         };
+      };
+    });
+  }
+
+  if (page === 'webhooks') {
+    let webhooks = [];
+    let loadError = null;
+    try {
+      webhooks = await API.get(`/api/guilds/${serverId}/webhooks`);
+    } catch (e) { loadError = e.body?.error || t('error_generic'); }
+
+    if (loadError) {
+      body.innerHTML = `
+        <div class="perm-denied-notice">${IC.lock} ${escHtml(loadError)}</div>
+        <button class="btn btn-outline mt-8" id="wh-retry">${t('retry')}</button>
+      `;
+      document.getElementById('wh-retry').onclick = () => renderServerSettingsPage(serverId, 'webhooks');
+      return;
+    }
+
+    let channels = getServer(serverId)?.channels || [];
+    if (!channels.length) {
+      try { const fresh = await API.get(`/api/guilds/${serverId}`); channels = fresh.channels || []; const idx = S.servers.findIndex(s => s.id === serverId); if (idx !== -1) S.servers[idx] = { ...S.servers[idx], channels }; } catch {}
+    }
+    const channelName = id => {
+      const ch = channels.find(c => c.id === id);
+      return ch ? `#${ch.name}` : id || '—';
+    };
+
+    body.innerHTML = `
+      <button class="btn btn-primary mb-8" id="wh-create">${t('webhooks_create')}</button>
+      ${!webhooks.length ? `<div class="empty-state"><div class="empty-text">${t('no_webhooks')}</div></div>` : `
+      <table class="settings-table" id="webhooks-table">
+        <thead><tr><th>${t('webhook_name')}</th><th>${t('webhook_channel')}</th><th>${t('member_joined')}</th><th></th></tr></thead>
+        <tbody>
+          ${webhooks.map(w => `
+            <tr data-webhook-id="${escHtml(w.id)}">
+              <td class="wh-name">${escHtml(w.name || '—')}</td>
+              <td>${escHtml(channelName(w.channel_id))}</td>
+              <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(w.created_at)}</td>
+              <td class="table-actions">
+                <button class="table-btn edit-wh-btn" title="${t('edit')}">&#9998;</button>
+                <button class="table-btn copy-wh-btn" title="${t('copy')}">${IC.copy}</button>
+                <button class="table-btn regen-wh-btn" title="${t('webhook_regenerate')}">&#8635;</button>
+                <button class="table-btn del del-wh-btn" title="${t('delete')}">&#128465;</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`}
+    `;
+
+    const textChannelOptions = selectedId => channels
+      .filter(c => c.type === 0 || c.type === 5 || c.type === 'text' || c.type === 'announcement')
+      .map(c => `<option value="${escHtml(c.id)}" ${String(c.id) === String(selectedId) ? 'selected' : ''}>#${escHtml(c.name)}</option>`)
+      .join('');
+
+    function openWebhookDialog(existing) {
+      const overlay = document.createElement('div');
+      overlay.className = 'da-dialog-overlay';
+      overlay.innerHTML = `
+        <div class="da-dialog-box" role="dialog" aria-modal="true">
+          <div class="da-dialog-head"><h3>${existing ? t('webhook_edit') : t('webhooks_create')}</h3></div>
+          <div class="da-dialog-body">
+            <div class="form-group">
+              <label>${t('webhook_name')}</label>
+              <input id="whd-name" maxlength="80" value="${escHtml(existing?.name || '')}">
+            </div>
+            <div class="form-group">
+              <label>${t('webhook_channel')}</label>
+              <select id="whd-channel">${textChannelOptions(existing?.channel_id)}</select>
+            </div>
+            <div class="form-hint text-danger hidden" id="whd-error"></div>
+          </div>
+          <div class="da-dialog-foot">
+            <button class="btn btn-outline" id="whd-cancel">${t('cancel')}</button>
+            <button class="btn btn-accent" id="whd-save">${t('save')}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      overlay.querySelector('#whd-cancel').onclick = close;
+      overlay.onclick = ev => { if (ev.target === overlay) close(); };
+      overlay.querySelector('#whd-save').onclick = async () => {
+        const errEl = overlay.querySelector('#whd-error');
+        const name = overlay.querySelector('#whd-name').value.trim();
+        const channelId = overlay.querySelector('#whd-channel').value;
+        if (!name) { errEl.textContent = t('enter_name'); errEl.classList.remove('hidden'); return; }
+        try {
+          if (existing) await API.patch(`/api/webhooks/${existing.id}`, { name, channel_id: channelId });
+          else await API.post(`/api/channels/${channelId}/webhooks`, { name });
+          close();
+          showToast(t(existing ? 'webhook_updated' : 'webhook_created'), 'success');
+          renderServerSettingsPage(serverId, 'webhooks');
+        } catch (e) { errEl.textContent = e.body?.error || t('error_generic'); errEl.classList.remove('hidden'); }
+      };
+      overlay.querySelector('#whd-name').focus();
+    }
+
+    body.querySelector('#wh-create')?.addEventListener('click', () => openWebhookDialog(null));
+
+    body.querySelectorAll('.edit-wh-btn').forEach(btn => {
+      btn.onclick = () => openWebhookDialog(webhooks.find(w => w.id === btn.closest('tr')?.dataset.webhookId));
+    });
+
+    body.querySelectorAll('.copy-wh-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.closest('tr')?.dataset.webhookId;
+        try {
+          const wh = await API.get(`/api/webhooks/${id}`);
+          if (!wh.url) throw new Error(t('error_generic'));
+          await navigator.clipboard.writeText(`${location.origin}${wh.url}`).catch(() => { });
+          showToast(t('copied'), 'success');
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    });
+
+    body.querySelectorAll('.regen-wh-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.closest('tr')?.dataset.webhookId;
+        try {
+          const res = await API.post(`/api/webhooks/${id}/regenerate-token`, {});
+          showToast(t('webhook_regenerated'), 'success');
+          void res;
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    });
+
+    body.querySelectorAll('.del-wh-btn').forEach(btn => {
+      btn.onclick = async () => {
+        if (!await daConfirm(t('confirm_delete_webhook'), { title: t('confirm_delete_webhook_title'), danger: true })) return;
+        try {
+          await API.del(`/api/webhooks/${btn.closest('tr')?.dataset.webhookId}`);
+          showToast(t('webhook_deleted'), 'success');
+          renderServerSettingsPage(serverId, 'webhooks');
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    });
+  }
+
+  if (page === 'emoji') {
+    let emojis = [];
+    let loadError = null;
+    try {
+      emojis = await API.get(`/api/v1/guilds/${serverId}/emojis`);
+    } catch (e) { loadError = e.body?.error || t('error_generic'); }
+
+    if (loadError) {
+      body.innerHTML = `
+        <div class="perm-denied-notice">${IC.lock} ${escHtml(loadError)}</div>
+        <button class="btn btn-outline mt-8" id="emoji-retry">${t('retry')}</button>
+      `;
+      document.getElementById('emoji-retry').onclick = () => renderServerSettingsPage(serverId, 'emoji');
+      return;
+    }
+
+    body.innerHTML = `
+      <button class="btn btn-primary mb-8" id="emoji-upload-btn">${t('emoji_upload')}</button>
+      ${!emojis.length ? `<div class="empty-state"><div class="empty-text">${t('no_emoji')}</div></div>` : `
+      <div class="emoji-grid" id="emoji-grid">
+        ${emojis.map(em => `
+          <div class="emoji-card" data-emoji-id="${escHtml(em.id)}">
+            <img class="emoji-img" src="${escHtml(em.image || '')}" alt=":${escHtml(em.name)}:" title=":${escHtml(em.name)}:">
+            <span class="emoji-name">:${escHtml(em.name)}:</span>
+            <button class="table-btn del emoji-del-btn" title="${t('delete')}">&#128465;</button>
+          </div>
+        `).join('')}
+      </div>`}
+    `;
+
+    function openEmojiUploadDialog() {
+      const overlay = document.createElement('div');
+      overlay.className = 'da-dialog-overlay';
+      overlay.innerHTML = `
+        <div class="da-dialog-box" role="dialog" aria-modal="true">
+          <div class="da-dialog-head"><h3>${t('emoji_upload')}</h3></div>
+          <div class="da-dialog-body">
+            <div class="form-group">
+              <label>${t('emoji_file')}</label>
+              <input type="file" id="emojid-file" accept="image/png,image/jpeg,image/gif,image/webp">
+            </div>
+            <div class="form-group">
+              <label>${t('emoji_name')}</label>
+              <input id="emojid-name" maxlength="32" placeholder="my_emoji">
+            </div>
+            <div class="form-hint text-danger hidden" id="emojid-error"></div>
+          </div>
+          <div class="da-dialog-foot">
+            <button class="btn btn-outline" id="emojid-cancel">${t('cancel')}</button>
+            <button class="btn btn-accent" id="emojid-save">${t('upload_btn')}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      const fileInput = overlay.querySelector('#emojid-file');
+      const nameInput = overlay.querySelector('#emojid-name');
+      fileInput.onchange = () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        if (!nameInput.value.trim()) {
+          nameInput.value = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
+        }
+      };
+      overlay.querySelector('#emojid-cancel').onclick = close;
+      overlay.onclick = ev => { if (ev.target === overlay) close(); };
+      overlay.querySelector('#emojid-save').onclick = async () => {
+        const errEl = overlay.querySelector('#emojid-error');
+        const file = fileInput.files?.[0];
+        const name = nameInput.value.trim().toLowerCase().replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '');
+        if (!file) { errEl.textContent = t('emoji_file_required'); errEl.classList.remove('hidden'); return; }
+        if (name.length < 2) { errEl.textContent = t('emoji_name_invalid'); errEl.classList.remove('hidden'); return; }
+        try {
+          const uploaded = await API.uploadFile(file);
+          await API.post(`/api/v1/guilds/${serverId}/emojis`, { name, image_url: uploaded.url });
+          close();
+          showToast(t('emoji_uploaded'), 'success');
+          renderServerSettingsPage(serverId, 'emoji');
+        } catch (e) { errEl.textContent = e.body?.error || t('error_generic'); errEl.classList.remove('hidden'); }
+      };
+    }
+
+    body.querySelector('#emoji-upload-btn')?.addEventListener('click', openEmojiUploadDialog);
+
+    body.querySelectorAll('.emoji-del-btn').forEach(btn => {
+      btn.onclick = async () => {
+        if (!await daConfirm(t('confirm_delete_emoji'), { title: t('confirm_delete_emoji_title'), danger: true })) return;
+        try {
+          await API.del(`/api/v1/guilds/${serverId}/emojis/${btn.closest('.emoji-card')?.dataset.emojiId}`);
+          showToast(t('emoji_deleted'), 'success');
+          renderServerSettingsPage(serverId, 'emoji');
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
+      };
+    });
+  }
+
+  if (page === 'events') {
+    if (!userHasPermissionClient(serverId, 'manage_events')) {
+      body.innerHTML = `<div class="perm-denied-notice">${IC.lock} ${escHtml(t('ss_no_manage_server'))}</div>`;
+      return;
+    }
+    let events = [];
+    let loadError = null;
+    try {
+      events = await API.get(`/api/guilds/${serverId}/scheduled-events`);
+    } catch (e) { loadError = e.body?.error || t('error_generic'); }
+    if (loadError) {
+      body.innerHTML = `
+        <div class="perm-denied-notice">${IC.lock} ${escHtml(loadError)}</div>
+        <button class="btn btn-outline mt-8" id="ev-retry">${t('retry')}</button>
+      `;
+      document.getElementById('ev-retry').onclick = () => renderServerSettingsPage(serverId, 'events');
+      return;
+    }
+    let channels = getServer(serverId)?.channels || [];
+    if (!channels.length) {
+      try { const fresh = await API.get(`/api/guilds/${serverId}`); channels = fresh.channels || []; const idx = S.servers.findIndex(s => s.id === serverId); if (idx !== -1) S.servers[idx] = { ...S.servers[idx], channels }; } catch {}
+    }
+    const channelName = id => {
+      const ch = channels.find(c => c.id === id);
+      return ch ? `#${ch.name}` : id ? escHtml(id) : '—';
+    };
+    const eventPlace = ev => {
+      if (!ev.channel_id) {
+        try { const meta = JSON.parse(ev.entity_metadata || '{}'); if (meta.location) return escHtml(meta.location); } catch {}
+        return '—';
+      }
+      return escHtml(channelName(ev.channel_id));
+    };
+    const startToLocalValue = epochSec => {
+      const d = new Date(epochSec * 1000 - new Date().getTimezoneOffset() * 60000);
+      return d.toISOString().slice(0, 16);
+    };
+    body.innerHTML = `
+      <button class="btn btn-primary mb-8" id="ev-create">${t('event_create')}</button>
+      ${!events.length ? `<div class="empty-state"><div class="empty-text">${t('events_empty')}</div></div>` : `
+      <table class="settings-table" id="events-table">
+        <thead><tr><th>${t('event_name')}</th><th>${t('event_start')}</th><th>${t('event_channel')}</th><th></th></tr></thead>
+        <tbody>
+          ${events.map(ev => `
+            <tr data-event-id="${escHtml(String(ev.id))}">
+              <td>${escHtml(ev.name || '—')}</td>
+              <td style="font-size:12px;color:var(--text-3)">${fmtDatetime(Number(ev.scheduled_start_time) * 1000)}</td>
+              <td style="font-size:12px;color:var(--text-3)">${eventPlace(ev)}</td>
+              <td class="table-actions">
+                <button class="table-btn edit-ev-btn" title="${t('edit')}">&#9998;</button>
+                <button class="table-btn del del-ev-btn" title="${t('delete')}">&#128465;</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`}
+    `;
+    const textChannelOptions = selectedId => channels
+      .filter(c => c.type === 2 || c.type === 13 || c.type === 'voice' || c.type === 'stage')
+      .map(c => `<option value="${escHtml(c.id)}" ${String(c.id) === String(selectedId) ? 'selected' : ''}>🔊 ${escHtml(c.name)}</option>`)
+      .join('');
+    function openEventDialog(existing) {
+      const isEdit = !!existing;
+      const overlay = document.createElement('div');
+      overlay.className = 'da-dialog-overlay';
+      const startVal = existing ? startToLocalValue(Number(existing.scheduled_start_time)) : startToLocalValue(Math.floor(Date.now() / 1000) + 3600);
+      let initialLocation = '';
+      if (existing && !existing.channel_id) {
+        try { initialLocation = JSON.parse(existing.entity_metadata || '{}').location || ''; } catch {}
+      }
+      const showLocation = !existing?.channel_id && !!initialLocation;
+      overlay.innerHTML = `
+        <div class="da-dialog-box" role="dialog" aria-modal="true">
+          <div class="da-dialog-head"><h3>${isEdit ? t('event_name') : t('event_create')}</h3></div>
+          <div class="da-dialog-body">
+            <div class="form-group">
+              <label>${t('event_name')}</label>
+              <input id="evd-name" maxlength="100" value="${escHtml(existing?.name || '')}">
+            </div>
+            <div class="form-group">
+              <label>${t('event_description')}</label>
+              <textarea id="evd-desc" maxlength="1000">${escHtml(existing?.description || '')}</textarea>
+            </div>
+            <div class="form-group">
+              <label>${t('event_start')}</label>
+              <input type="datetime-local" id="evd-start" value="${escHtml(startVal)}">
+            </div>
+            <div class="form-group">
+              <label>${t('event_channel')}</label>
+              <select id="evd-channel">
+                <option value="">${escHtml(t('event_external'))}</option>
+                ${textChannelOptions(existing?.channel_id || '')}
+              </select>
+            </div>
+            <div class="form-group ${showLocation || !existing?.channel_id ? '' : 'hidden'}" id="evd-location-group">
+              <label>${t('event_location')}</label>
+              <input id="evd-location" maxlength="100" value="${escHtml(initialLocation)}">
+            </div>
+            <div class="form-hint text-danger hidden" id="evd-error"></div>
+          </div>
+          <div class="da-dialog-foot">
+            <button class="btn btn-outline" id="evd-cancel">${t('cancel')}</button>
+            <button class="btn btn-accent" id="evd-save">${t(isEdit ? 'save' : 'create')}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      const channelSel = overlay.querySelector('#evd-channel');
+      const locGroup = overlay.querySelector('#evd-location-group');
+      channelSel.onchange = () => locGroup.classList.toggle('hidden', !!channelSel.value);
+      overlay.querySelector('#evd-cancel').onclick = close;
+      overlay.onclick = ev => { if (ev.target === overlay) close(); };
+      overlay.querySelector('#evd-save').onclick = async () => {
+        const errEl = overlay.querySelector('#evd-error');
+        const name = overlay.querySelector('#evd-name').value.trim();
+        const description = overlay.querySelector('#evd-desc').value.trim();
+        const startRaw = overlay.querySelector('#evd-start').value;
+        const channelId = channelSel.value || null;
+        const location = overlay.querySelector('#evd-location').value.trim();
+        const showErr = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+        if (!name) return showErr(t('enter_name'));
+        const startTime = startRaw ? new Date(startRaw).getTime() : NaN;
+        if (!startRaw || Number.isNaN(startTime)) return showErr(t('event_start_required'));
+        if (startTime <= Date.now()) return showErr(t('event_start_future'));
+        if (!channelId && !location) return showErr(t('event_location_required'));
+        try {
+          if (isEdit) {
+            await API.patch(`/api/guilds/${serverId}/scheduled-events/${existing.id}`, {
+              name,
+              description: description || null,
+              scheduled_start_time: Math.floor(startTime / 1000),
+              channel_id: channelId,
+              entity_metadata: channelId ? null : JSON.stringify({ location }),
+            });
+            showToast(t('event_updated') || t('saved'), 'success');
+          } else {
+            await API.post(`/api/guilds/${serverId}/scheduled-events`, {
+              name,
+              description: description || null,
+              channel_id: channelId,
+              entity_type: channelId ? 2 : 3,
+              entity_metadata: channelId ? null : JSON.stringify({ location }),
+              scheduled_start_time: Math.floor(startTime / 1000),
+            });
+            showToast(t('event_created'), 'success');
+          }
+          close();
+          renderServerSettingsPage(serverId, 'events');
+        } catch (e) { showErr(e.body?.error || t('error_generic')); }
+      };
+      overlay.querySelector('#evd-name').focus();
+    }
+    body.querySelector('#ev-create')?.addEventListener('click', () => openEventDialog(null));
+    body.querySelectorAll('.edit-ev-btn').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.closest('tr')?.dataset.eventId;
+        const ev = events.find(x => String(x.id) === String(id));
+        if (ev) openEventDialog(ev);
+      };
+    });
+    body.querySelectorAll('.del-ev-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.closest('tr')?.dataset.eventId;
+        if (!await daConfirm(t('confirm_delete_event'), { title: t('confirm_delete_event'), danger: true })) return;
+        try {
+          await API.del(`/api/guilds/${serverId}/scheduled-events/${id}`);
+          showToast(t('event_deleted'), 'success');
+          renderServerSettingsPage(serverId, 'events');
+        } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
       };
     });
   }
@@ -430,11 +883,10 @@ async function renderServerSettingsPage(serverId, page) {
 export function openRoleEditor(serverId, roleId, roles, perms) {
   const role = roles.find(r => r.id === roleId);
   if (!role) return;
-  let currentPerms = {};
-  try { currentPerms = JSON.parse(role.permissions || '{}'); } catch { }
+  const currentBits = rolePermBits(role);
 
   const body = document.getElementById('ss-page-body');
-  const PERM_KEY = { send_messages: 'perm_send_messages', manage_messages: 'perm_manage_messages', kick_members: 'perm_kick_members', ban_members: 'perm_ban_members', manage_channels: 'perm_manage_channels', manage_server: 'perm_manage_server', mention_everyone: 'perm_mention_everyone', manage_roles: 'perm_manage_roles', view_channel: 'perm_view_channel', administrator: 'perm_administrator' };
+  const PERM_KEY = { send_messages: 'perm_send_messages', manage_messages: 'perm_manage_messages', kick_members: 'perm_kick_members', ban_members: 'perm_ban_members', manage_channels: 'perm_manage_channels', manage_server: 'perm_manage_server', manage_roles: 'perm_manage_roles', view_channel: 'perm_view_channel', administrator: 'perm_administrator', moderate_members: 'perm_moderate_members', manage_webhooks: 'perm_manage_webhooks', manage_expressions: 'perm_manage_expressions', manage_events: 'perm_manage_events' };
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <button class="btn btn-outline" id="back-to-roles">${t('back_to_roles')}</button>
@@ -446,14 +898,14 @@ export function openRoleEditor(serverId, roleId, roles, perms) {
     </div>
     <div class="form-group">
       <label>${t('role_color')}</label>
-      <input type="color" id="re-color" value="${escHtml(role.color)}">
+      <input type="color" id="re-color" value="${escHtml(intToHexColor(role.color) || '#000000')}">
     </div>
     <div class="form-group">
       <label>${t('role_permissions')}</label>
       <div class="perm-grid">
         ${perms.map(p => `
           <div class="perm-item">
-            <input type="checkbox" id="perm-${p}" ${currentPerms[p] ? 'checked' : ''}>
+            <input type="checkbox" id="perm-${p}" ${(currentBits & ROLE_PERM_BITS[p]) !== 0n ? 'checked' : ''}>
             <label for="perm-${p}">${escHtml(t(PERM_KEY[p] || p))}</label>
           </div>
         `).join('')}
@@ -463,10 +915,10 @@ export function openRoleEditor(serverId, roleId, roles, perms) {
   `;
   document.getElementById('back-to-roles').onclick = () => renderServerSettingsPage(serverId, 'roles');
   document.getElementById('save-role-btn').onclick = async () => {
-    const newPerms = {};
-    for (const p of perms) { newPerms[p] = !!document.getElementById(`perm-${p}`)?.checked; }
+    let newBits = 0n;
+    for (const p of perms) { if (document.getElementById(`perm-${p}`)?.checked) newBits |= ROLE_PERM_BITS[p]; }
     try {
-      await API.patch(`/api/guilds/${serverId}/roles/${roleId}`, { name: document.getElementById('re-name').value.trim(), color: Number.parseInt((document.getElementById('re-color').value || '#000000').replace('#', ''), 16) || 0, permissions: newPerms });
+      await API.patch(`/api/guilds/${serverId}/roles/${roleId}`, { name: document.getElementById('re-name').value.trim(), color: hexToIntColor(document.getElementById('re-color').value), permissions: newBits.toString() });
       renderServerSettingsPage(serverId, 'roles');
       showToast(t('role_updated'), 'success');
     } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
@@ -480,6 +932,7 @@ export function openUserSettings(page = 'profile') {
   document.getElementById('us-nav-items').querySelectorAll('[data-page]').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
     el.onclick = () => { document.getElementById('us-nav-items').querySelectorAll('[data-page]').forEach(e => e.classList.remove('active')); el.classList.add('active'); renderUserSettingsPage(el.dataset.page); };
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
   });
 }
 
@@ -748,7 +1201,7 @@ export function renderUserSettingsPage(page) {
       <div class="settings-section-title">${t('language')}</div>
       <div class="lang-selector">
         ${Object.entries(LANG_NAMES).map(([code, name]) => `
-          <div class="lang-option ${currentLang === code ? 'active' : ''}" data-lang="${code}">
+           <div class="lang-option ${currentLang === code ? 'active' : ''}" role="button" tabindex="0" aria-label="${name}" data-lang="${code}">
             <div class="lang-flag">${code === 'ru' ? '🇷🇺' : code === 'en' ? '🇬🇧' : '🇵🇱'}</div>
             <div class="lang-name">${name}</div>
             ${currentLang === code ? '<div class="lang-check">&#10003;</div>' : ''}
@@ -762,8 +1215,130 @@ export function renderUserSettingsPage(page) {
         applyI18nToHtml();
         openUserSettings('language');
       };
+      el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
     });
+  } else if (page === 'security') {
+    renderSecurityPage(content);
   }
+}
+
+async function renderSecurityPage(content) {
+  content.innerHTML = `
+    <div class="settings-section-title">${IC.lock} ${t('mfa_title')}</div>
+    <div id="mfa-body"><div class="empty-state"><div class="spinner"></div></div></div>
+  `;
+  const body = document.getElementById('mfa-body');
+
+  let mfaEnabled = false;
+  try {
+    const me = await API.get('/api/users/@me');
+    mfaEnabled = !!me.mfa_enabled;
+    if (S.me) S.me.mfa_enabled = mfaEnabled;
+  } catch (e) {
+    body.innerHTML = `
+      <div class="perm-denied-notice">${escHtml(e.body?.error || t('error_generic'))}</div>
+      <button class="btn btn-outline mt-8" id="mfa-retry">${t('retry')}</button>
+    `;
+    document.getElementById('mfa-retry')?.addEventListener('click', () => renderSecurityPage(content));
+    return;
+  }
+
+  if (!mfaEnabled) {
+    body.innerHTML = `
+      <div id="mfa-disabled-view">
+        <div class="form-hint">${t('mfa_status_disabled')}</div>
+        <button class="btn btn-primary mt-8" id="mfa-enable-btn">${t('mfa_enable_btn')}</button>
+      </div>
+    `;
+    document.getElementById('mfa-enable-btn').onclick = () => startMfaEnroll(body, content);
+    return;
+  }
+
+  body.innerHTML = `
+    <div id="mfa-enabled-view">
+      <div class="perm-denied-notice" style="color:var(--success,#43b581)">${IC.check} ${t('mfa_status_enabled')}</div>
+      <div class="form-hint mt-8">${t('mfa_disable_prompt')}</div>
+      <div class="form-group">
+        <label>${t('mfa_code_label')}</label>
+        <input id="mfa-disable-code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="${t('mfa_code_placeholder')}">
+      </div>
+      <div class="form-hint text-danger hidden" id="mfa-disable-error"></div>
+      <button class="btn btn-danger mt-8" id="mfa-disable-btn">${t('mfa_disable_btn')}</button>
+    </div>
+  `;
+  document.getElementById('mfa-disable-btn').onclick = async () => {
+    const errEl = document.getElementById('mfa-disable-error');
+    errEl.classList.add('hidden');
+    try {
+      await API.post('/api/auth/mfa/disable', { code: document.getElementById('mfa-disable-code').value.trim() });
+      if (S.me) S.me.mfa_enabled = false;
+      showToast(t('saved'), 'success');
+      renderSecurityPage(content);
+    } catch (e) {
+      errEl.textContent = e.body?.error || t('error_generic');
+      errEl.classList.remove('hidden');
+    }
+  };
+}
+
+async function startMfaEnroll(body, content) {
+  body.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  let payload;
+  try {
+    payload = await API.post('/api/auth/mfa/enable');
+  } catch (e) {
+    body.innerHTML = `
+      <div class="perm-denied-notice">${escHtml(e.body?.error || t('error_generic'))}</div>
+      <button class="btn btn-outline mt-8" id="mfa-retry">${t('retry')}</button>
+    `;
+    document.getElementById('mfa-retry')?.addEventListener('click', () => renderSecurityPage(content));
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="form-hint">${t('mfa_scan_hint')}</div>
+    <img id="mfa-qr" src="${escHtml(payload.qr_code_data_url)}" alt="QR" width="180" height="180" style="border-radius:8px;margin:12px 0">
+    <div class="form-group">
+      <label>${t('mfa_secret_label')}</label>
+      <code id="mfa-secret" style="user-select:all;word-break:break-all">${escHtml(payload.secret)}</code>
+    </div>
+    <div class="form-group">
+      <label>${t('mfa_code_label')}</label>
+      <input id="mfa-confirm-code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="${t('mfa_code_placeholder')}">
+    </div>
+    <div class="form-hint text-danger hidden" id="mfa-error"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-primary" id="mfa-confirm-btn">${t('mfa_confirm_btn')}</button>
+      <button class="btn btn-outline" id="mfa-cancel-btn">${t('cancel')}</button>
+    </div>
+  `;
+  document.getElementById('mfa-cancel-btn').onclick = () => renderSecurityPage(content);
+  document.getElementById('mfa-confirm-btn').onclick = async () => {
+    const errEl = document.getElementById('mfa-error');
+    errEl.classList.add('hidden');
+    try {
+      const result = await API.post('/api/auth/mfa/confirm', { code: document.getElementById('mfa-confirm-code').value.trim() });
+      if (S.me) S.me.mfa_enabled = true;
+      const codes = Array.isArray(result.backup_codes) ? result.backup_codes : [];
+      body.innerHTML = `
+        <div id="mfa-enabled-view">
+          <div class="perm-denied-notice" style="color:var(--success,#43b581)">${IC.check} ${t('mfa_status_enabled')}</div>
+          ${codes.length ? `
+          <div class="settings-section-title" style="margin-top:16px">${t('mfa_backup_codes_title')}</div>
+          <div id="mfa-backup-codes" class="form-hint" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px;font-family:monospace">
+            ${codes.map(c => `<span>${escHtml(c)}</span>`).join('')}
+          </div>
+          <div class="form-hint mt-8">${t('mfa_backup_codes_hint')}</div>
+          ` : ''}
+          <button class="btn btn-primary mt-8" id="mfa-done-btn">${t('ok')}</button>
+        </div>
+      `;
+      document.getElementById('mfa-done-btn').onclick = () => renderSecurityPage(content);
+    } catch (e) {
+      errEl.textContent = e.body?.error || t('error_generic');
+      errEl.classList.remove('hidden');
+    }
+  };
 }
 
 export async function openNotificationSettings(guildId) {
@@ -771,13 +1346,13 @@ export async function openNotificationSettings(guildId) {
   overlay.className = 'da-dialog-overlay';
   overlay.innerHTML = `
     <div class="da-dialog-box" role="dialog" aria-modal="true">
-      <div class="da-dialog-head"><h3>${IC.bell} Настройки уведомлений</h3></div>
+      <div class="da-dialog-head"><h3>${IC.bell} ${t('ns_title')}</h3></div>
       <div class="da-dialog-body" id="ns-body">
         <div class="empty-state"><div class="spinner"></div></div>
       </div>
       <div class="da-dialog-foot">
-        <button class="btn btn-outline" id="ns-cancel">Отмена</button>
-        <button class="btn btn-accent" id="ns-save">Сохранить</button>
+        <button class="btn btn-outline" id="ns-cancel">${t('cancel')}</button>
+        <button class="btn btn-accent" id="ns-save">${t('save')}</button>
       </div>
     </div>
   `;
@@ -785,7 +1360,6 @@ export async function openNotificationSettings(guildId) {
   overlay.querySelector('#ns-cancel').onclick = () => overlay.remove();
   overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
 
-  // Load current settings
   let settings = { muted: 0, message_notifications: -1, suppress_everyone: 0, suppress_roles: 0 };
   try {
     settings = await API.get(`/api/users/@me/guilds/${guildId}/settings`);
@@ -794,36 +1368,36 @@ export async function openNotificationSettings(guildId) {
   const body = overlay.querySelector('#ns-body');
   body.innerHTML = `
     <div class="form-group">
-      <label>Заглушить сервер</label>
-      <input type="checkbox" id="ns-muted" ${settings.muted ? 'checked' : ''}>
+      <label><input type="checkbox" id="ns-muted" ${settings.muted ? 'checked' : ''}> ${t('ns_muted')}</label>
     </div>
     <div class="form-group">
-      <label>Уведомления о сообщениях</label>
+      <label>${t('ns_level')}</label>
       <select id="ns-level">
-        <option value="-1" ${settings.message_notifications === -1 ? 'selected' : ''}>По умолчанию</option>
-        <option value="0" ${settings.message_notifications === 0 ? 'selected' : ''}>Все сообщения</option>
-        <option value="1" ${settings.message_notifications === 1 ? 'selected' : ''}>Только упоминания</option>
-        <option value="2" ${settings.message_notifications === 2 ? 'selected' : ''}>Ничего</option>
+        <option value="-1" ${Number(settings.message_notifications) === -1 ? 'selected' : ''}>${t('ns_level_default')}</option>
+        <option value="0" ${Number(settings.message_notifications) === 0 ? 'selected' : ''}>${t('ns_level_all')}</option>
+        <option value="1" ${Number(settings.message_notifications) === 1 ? 'selected' : ''}>${t('ns_level_mentions')}</option>
+        <option value="2" ${Number(settings.message_notifications) === 2 ? 'selected' : ''}>${t('ns_level_none')}</option>
       </select>
     </div>
     <div class="form-group">
-      <label><input type="checkbox" id="ns-suppress-everyone" ${settings.suppress_everyone ? 'checked' : ''}> Подавлять @everyone и @here</label>
+      <label><input type="checkbox" id="ns-suppress-everyone" ${settings.suppress_everyone ? 'checked' : ''}> ${t('ns_suppress_everyone')}</label>
     </div>
     <div class="form-group">
-      <label><input type="checkbox" id="ns-suppress-roles" ${settings.suppress_roles ? 'checked' : ''}> Подавлять уведомления ролей</label>
+      <label><input type="checkbox" id="ns-suppress-roles" ${settings.suppress_roles ? 'checked' : ''}> ${t('ns_suppress_roles')}</label>
     </div>
   `;
 
   overlay.querySelector('#ns-save').onclick = async () => {
     try {
-      await API.patch(`/api/users/@me/guilds/${guildId}/settings`, {
+      const saved = await API.patch(`/api/users/@me/guilds/${guildId}/settings`, {
         muted: body.querySelector('#ns-muted').checked ? 1 : 0,
-        message_notifications: parseInt(body.querySelector('#ns-level').value),
+        message_notifications: parseInt(body.querySelector('#ns-level').value, 10),
         suppress_everyone: body.querySelector('#ns-suppress-everyone').checked ? 1 : 0,
         suppress_roles: body.querySelector('#ns-suppress-roles').checked ? 1 : 0,
       });
-      showToast('Настройки сохранены', 'success');
+      S.guildSettings[guildId] = saved;
+      showToast(t('ns_saved'), 'success');
       overlay.remove();
-    } catch (e) { showToast(e.body?.error || 'Ошибка', 'error'); }
+    } catch (e) { showToast(e.body?.error || t('error_generic'), 'error'); }
   };
 }

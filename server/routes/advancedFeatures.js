@@ -1,6 +1,7 @@
 // server/routes/advancedFeatures.js
 // Handles: Webhooks, Polls, Soundboard, Scheduled Events, Stickers
 
+import { randomBytes } from 'node:crypto';
 import { buildPermissionService, Permissions } from '../services/permissions.js';
 
 function nowSec() {
@@ -9,13 +10,34 @@ function nowSec() {
 
 function randomToken(len = 64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = randomBytes(len);
   let result = '';
-  for (let i = 0; i < len; i++) result += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < len; i++) result += chars[bytes[i] % chars.length];
   return result;
 }
 
-export default async function advancedFeaturesRoutes(fastify, { db, authenticate, snowflake, io }) {
+export default async function advancedFeaturesRoutes(fastify, { db, authenticate, snowflake, io, webhookRateLimit }) {
   const permissions = buildPermissionService(db);
+
+  function requireGuildPermission(guildId, userId, permission, reply, message) {
+    if (!permissions.hasGuildPermission(guildId, userId, permission)) {
+      reply.code(403).send({ error: message });
+      return false;
+    }
+    return true;
+  }
+
+  function requireGuildView(guildId, userId, reply) {
+    return requireGuildPermission(guildId, userId, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission');
+  }
+
+  function requireChannelPermission(channelId, userId, permission, reply, message) {
+    if (!permissions.hasChannelPermission(channelId, userId, permission)) {
+      reply.code(403).send({ error: message });
+      return false;
+    }
+    return true;
+  }
 
   // ═══════════════════════════════════════════════════════
   // WEBHOOKS
@@ -69,7 +91,9 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     const id = snowflake.generate();
     const token = randomToken(68);
     insertWebhook.run(id, channel.guild_id, channel.id, req.user.id, req.body.name, req.body.avatar || null, token, 1, nowSec());
-    return reply.code(201).send(getWebhook.get(id));
+    const { token: _, ...safe } = getWebhook.get(id);
+    io?.to(`guild:${channel.guild_id}`)?.emit('webhook:create', safe);
+    return reply.code(201).send(safe);
   });
 
   // GET /api/channels/:channelId/webhooks
@@ -79,7 +103,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     if (!permissions.hasGuildPermission(channel.guild_id, req.user.id, Permissions.MANAGE_WEBHOOKS)) {
       return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
     }
-    return listChannelWebhooks.all(req.params.channelId);
+    return listChannelWebhooks.all(req.params.channelId).map(({ token, ...rest }) => rest);
   });
 
   // GET /api/guilds/:guildId/webhooks
@@ -89,14 +113,37 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_WEBHOOKS)) {
       return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
     }
-    return listGuildWebhooks.all(req.params.guildId);
+    return listGuildWebhooks.all(req.params.guildId).map(({ token, ...rest }) => rest);
   });
+
+  function webhookUrl(wh) {
+    return `/api/webhooks/${wh.id}/${wh.token}`;
+  }
 
   // GET /api/webhooks/:webhookId
   fastify.get('/api/webhooks/:webhookId', { preHandler: authenticate }, async (req, reply) => {
     const wh = getWebhook.get(req.params.webhookId);
     if (!wh) return reply.code(404).send({ error: 'Webhook not found' });
-    return wh;
+    if (wh.guild_id && !permissions.hasGuildPermission(wh.guild_id, req.user.id, Permissions.MANAGE_WEBHOOKS)) {
+      return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
+    }
+    const { token: _, ...safe } = wh;
+    return { ...safe, url: webhookUrl(wh) };
+  });
+
+  // POST /api/webhooks/:webhookId/regenerate-token — rotate the webhook URL secret
+  fastify.post('/api/webhooks/:webhookId/regenerate-token', { preHandler: authenticate }, async (req, reply) => {
+    const wh = getWebhook.get(req.params.webhookId);
+    if (!wh) return reply.code(404).send({ error: 'Webhook not found' });
+    if (wh.guild_id && !permissions.hasGuildPermission(wh.guild_id, req.user.id, Permissions.MANAGE_WEBHOOKS)) {
+      return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
+    }
+    const token = randomToken(68);
+    db.prepare('UPDATE webhooks SET token = ? WHERE id = ?').run(token, wh.id);
+    const updated = getWebhook.get(wh.id);
+    const { token: _, ...safe } = updated;
+    io?.to(`guild:${updated.guild_id}`)?.emit('webhook:update', safe);
+    return { id: updated.id, url: webhookUrl(updated) };
   });
 
   // PATCH /api/webhooks/:webhookId
@@ -118,8 +165,16 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     if (wh.guild_id && !permissions.hasGuildPermission(wh.guild_id, req.user.id, Permissions.MANAGE_WEBHOOKS)) {
       return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
     }
+    if (req.body.channel_id) {
+      const targetChannel = getChannelById.get(req.body.channel_id);
+      if (!targetChannel || targetChannel.guild_id !== wh.guild_id) {
+        return reply.code(400).send({ error: 'Target channel must be in the same guild' });
+      }
+    }
     updateWebhookStmt.run(req.body.name || null, req.body.avatar || null, req.body.channel_id || null, wh.id);
-    return getWebhook.get(wh.id);
+    const { token: _, ...safe } = getWebhook.get(wh.id);
+    io?.to(`guild:${wh.guild_id}`)?.emit('webhook:update', safe);
+    return safe;
   });
 
   // DELETE /api/webhooks/:webhookId
@@ -130,11 +185,13 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       return reply.code(403).send({ error: 'Missing MANAGE_WEBHOOKS permission' });
     }
     deleteWebhookStmt.run(wh.id);
+    io?.to(`guild:${wh.guild_id}`)?.emit('webhook:delete', { id: wh.id, guild_id: wh.guild_id, channel_id: wh.channel_id });
     return { ok: true };
   });
 
   // POST /api/webhooks/:webhookId/:token — send message via webhook (NO AUTH)
   fastify.post('/api/webhooks/:webhookId/:token', {
+    preHandler: webhookRateLimit ? [webhookRateLimit] : [],
     schema: {
       body: {
         type: 'object',
@@ -190,6 +247,11 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   // ═══════════════════════════════════════════════════════
 
   const getPoll = db.prepare('SELECT * FROM polls WHERE message_id = ?');
+  const getPollMessage = db.prepare(`
+    SELECT m.*, c.guild_id AS channel_guild_id
+    FROM messages m JOIN channels c ON c.id = m.channel_id
+    WHERE m.id = ? AND m.channel_id = ? AND m.guild_id = c.guild_id
+  `);
   const getPollAnswers = db.prepare('SELECT * FROM poll_answers WHERE message_id = ? ORDER BY id');
   const getPollVoteCount = db.prepare('SELECT answer_id, COUNT(*) AS count FROM poll_votes WHERE message_id = ? GROUP BY answer_id');
   const getUserVotes = db.prepare('SELECT answer_id FROM poll_votes WHERE message_id = ? AND user_id = ?');
@@ -227,11 +289,25 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     };
   }
 
+  function authorizePoll(req, reply, permission) {
+    const message = getPollMessage.get(req.params.messageId, req.params.channelId);
+    if (!message) {
+      reply.code(404).send({ error: 'Poll not found' });
+      return null;
+    }
+    if (!requireChannelPermission(message.channel_id, req.user.id, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission')) return null;
+    if (!requireChannelPermission(message.channel_id, req.user.id, Permissions.READ_MESSAGE_HISTORY, reply, 'Missing READ_MESSAGE_HISTORY permission')) return null;
+    if (permission && !requireChannelPermission(message.channel_id, req.user.id, permission, reply, `Missing ${permission === Permissions.MANAGE_MESSAGES ? 'MANAGE_MESSAGES' : 'SEND_MESSAGES'} permission`)) return null;
+    return message;
+  }
+
   // Vote on poll
   fastify.put('/api/channels/:channelId/polls/:messageId/answers/:answerId/@me', {
     preHandler: authenticate,
   }, async (req, reply) => {
     const { messageId, answerId } = req.params;
+    const message = authorizePoll(req, reply, Permissions.SEND_MESSAGES);
+    if (!message) return;
     const poll = getPoll.get(messageId);
     if (!poll) return reply.code(404).send({ error: 'Poll not found' });
     if (poll.expiry && poll.expiry < nowSec()) return reply.code(400).send({ error: 'Poll expired' });
@@ -256,6 +332,9 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     preHandler: authenticate,
   }, async (req, reply) => {
     const { messageId, answerId } = req.params;
+    const message = authorizePoll(req, reply, Permissions.SEND_MESSAGES);
+    if (!message) return;
+    if (!getPoll.get(messageId)) return reply.code(404).send({ error: 'Poll not found' });
     deletePollVote.run(messageId, parseInt(answerId), req.user.id);
     const pollData = buildPollResponse(messageId, req.user.id);
     io?.emit('poll:vote_remove', { message_id: messageId, answer_id: parseInt(answerId), user_id: req.user.id, poll: pollData });
@@ -266,6 +345,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   fastify.get('/api/channels/:channelId/polls/:messageId/answers/:answerId', {
     preHandler: authenticate,
   }, async (req, reply) => {
+    if (!authorizePoll(req, reply)) return;
     const limit = Math.min(parseInt(req.query.limit) || 25, 100);
     return getVotersForAnswer.all(req.params.messageId, parseInt(req.params.answerId), limit);
   });
@@ -274,6 +354,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   fastify.post('/api/channels/:channelId/polls/:messageId/expire', {
     preHandler: authenticate,
   }, async (req, reply) => {
+    if (!authorizePoll(req, reply, Permissions.MANAGE_MESSAGES)) return;
     const poll = getPoll.get(req.params.messageId);
     if (!poll) return reply.code(404).send({ error: 'Poll not found' });
     db.prepare('UPDATE polls SET expiry = ? WHERE message_id = ?').run(nowSec(), req.params.messageId);
@@ -299,7 +380,8 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   const deleteSoundStmt = db.prepare('DELETE FROM soundboard_sounds WHERE id = ?');
 
   // GET /api/guilds/:guildId/soundboard-sounds
-  fastify.get('/api/guilds/:guildId/soundboard-sounds', { preHandler: authenticate }, async (req) => {
+  fastify.get('/api/guilds/:guildId/soundboard-sounds', { preHandler: authenticate }, async (req, reply) => {
+    if (!requireGuildView(req.params.guildId, req.user.id, reply)) return;
     return listSounds.all(req.params.guildId);
   });
 
@@ -320,9 +402,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
     const id = snowflake.generate();
     insertSound.run(id, req.params.guildId, req.body.name, req.body.emoji_name || null, req.body.emoji_id || null, req.body.volume ?? 1.0, req.body.file, req.user.id, nowSec());
     return reply.code(201).send(getSound.get(id));
@@ -342,19 +422,19 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
-    updateSoundStmt.run(req.body.name || null, req.body.volume ?? null, req.body.emoji_name || null, req.params.soundId);
-    return getSound.get(req.params.soundId) || reply.code(404).send({ error: 'Sound not found' });
+    const sound = getSound.get(req.params.soundId);
+    if (!sound || sound.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Sound not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+    updateSoundStmt.run(req.body.name || null, req.body.volume ?? null, req.body.emoji_name || null, sound.id);
+    return getSound.get(sound.id);
   });
 
   // DELETE /api/guilds/:guildId/soundboard-sounds/:soundId
   fastify.delete('/api/guilds/:guildId/soundboard-sounds/:soundId', { preHandler: authenticate }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
-    deleteSoundStmt.run(req.params.soundId);
+    const sound = getSound.get(req.params.soundId);
+    if (!sound || sound.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Sound not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+    deleteSoundStmt.run(sound.id);
     return { ok: true };
   });
 
@@ -363,8 +443,12 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
     preHandler: authenticate,
     schema: { body: { type: 'object', required: ['sound_id'], properties: { sound_id: { type: 'string' } } } },
   }, async (req, reply) => {
+    const channel = getChannelById.get(req.params.channelId);
+    if (!channel || !channel.guild_id) return reply.code(404).send({ error: 'Channel not found' });
     const sound = getSound.get(req.body.sound_id);
-    if (!sound) return reply.code(404).send({ error: 'Sound not found' });
+    if (!sound || sound.guild_id !== channel.guild_id) return reply.code(404).send({ error: 'Sound not found' });
+    if (!requireChannelPermission(channel.id, req.user.id, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission')) return;
+    if (!requireChannelPermission(channel.id, req.user.id, Permissions.CONNECT, reply, 'Missing CONNECT permission')) return;
     io?.to(`guild:${sound.guild_id}`)?.emit('soundboard:play', {
       channel_id: req.params.channelId,
       sound_id: sound.id,
@@ -402,11 +486,29 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   const insertEventUser = db.prepare('INSERT OR IGNORE INTO scheduled_event_users (event_id, user_id) VALUES (?, ?)');
   const deleteEventUser = db.prepare('DELETE FROM scheduled_event_users WHERE event_id = ? AND user_id = ?');
   const countEventUsers = db.prepare('SELECT COUNT(*) AS c FROM scheduled_event_users WHERE event_id = ?');
+  const getEventUser = db.prepare('SELECT 1 FROM scheduled_event_users WHERE event_id = ? AND user_id = ?');
+
+  function withEventViewer(ev, userId) {
+    return { ...ev, me: !!getEventUser.get(ev.id, userId) };
+  }
+
+  function authorizeEvent(req, reply, manage = false) {
+    const ev = getEvent.get(req.params.eventId);
+    if (!ev || ev.guild_id !== req.params.guildId) {
+      reply.code(404).send({ error: 'Event not found' });
+      return null;
+    }
+    const permission = manage ? Permissions.MANAGE_EVENTS : Permissions.VIEW_CHANNEL;
+    if (!requireGuildPermission(ev.guild_id, req.user.id, permission, reply, `Missing ${manage ? 'MANAGE_EVENTS' : 'VIEW_CHANNEL'} permission`)) return null;
+    if (ev.channel_id && !requireChannelPermission(ev.channel_id, req.user.id, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission')) return null;
+    return ev;
+  }
 
   // GET /api/guilds/:guildId/scheduled-events
-  fastify.get('/api/guilds/:guildId/scheduled-events', { preHandler: authenticate }, async (req) => {
-    const events = listEvents.all(req.params.guildId);
-    return events.map(e => ({ ...e, user_count: countEventUsers.get(e.id)?.c || 0 }));
+  fastify.get('/api/guilds/:guildId/scheduled-events', { preHandler: authenticate }, async (req, reply) => {
+    if (!requireGuildView(req.params.guildId, req.user.id, reply)) return;
+    const events = listEvents.all(req.params.guildId).filter((event) => !event.channel_id || permissions.hasChannelPermission(event.channel_id, req.user.id, Permissions.VIEW_CHANNEL));
+    return events.map((e) => ({ ...withEventViewer(e, req.user.id), user_count: countEventUsers.get(e.id)?.c || 0 }));
   });
 
   // POST /api/guilds/:guildId/scheduled-events
@@ -429,11 +531,13 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EVENTS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EVENTS permission' });
-    }
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EVENTS, reply, 'Missing MANAGE_EVENTS permission')) return;
     const id = snowflake.generate();
     const b = req.body;
+    if (b.channel_id) {
+      const channel = getChannelById.get(b.channel_id);
+      if (!channel || channel.guild_id !== req.params.guildId) return reply.code(400).send({ error: 'Channel must be in the same guild' });
+    }
     insertEvent.run(id, req.params.guildId, b.channel_id || null, req.user.id, b.name, b.description || null, b.image || null, b.scheduled_start_time, b.scheduled_end_time || null, b.entity_type, b.entity_metadata || null, 1, nowSec());
     const ev = getEvent.get(id);
     io?.to(`guild:${req.params.guildId}`)?.emit('scheduled_event:create', ev);
@@ -442,9 +546,9 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
 
   // GET /api/guilds/:guildId/scheduled-events/:eventId
   fastify.get('/api/guilds/:guildId/scheduled-events/:eventId', { preHandler: authenticate }, async (req, reply) => {
-    const ev = getEvent.get(req.params.eventId);
-    if (!ev || ev.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Event not found' });
-    return { ...ev, user_count: countEventUsers.get(ev.id)?.c || 0 };
+    const ev = authorizeEvent(req, reply);
+    if (!ev) return;
+    return { ...withEventViewer(ev, req.user.id), user_count: countEventUsers.get(ev.id)?.c || 0 };
   });
 
   // PATCH /api/guilds/:guildId/scheduled-events/:eventId
@@ -465,41 +569,50 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EVENTS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EVENTS permission' });
-    }
+    const ev = authorizeEvent(req, reply, true);
+    if (!ev) return;
     const b = req.body;
+    if (b.channel_id) {
+      const channel = getChannelById.get(b.channel_id);
+      if (!channel || channel.guild_id !== req.params.guildId) return reply.code(400).send({ error: 'Channel must be in the same guild' });
+    }
     updateEventStmt.run(b.name || null, b.description ?? null, b.scheduled_start_time || null, b.scheduled_end_time ?? null, b.status || null, b.channel_id ?? null, b.image ?? null, req.params.eventId);
-    const ev = getEvent.get(req.params.eventId);
-    io?.to(`guild:${req.params.guildId}`)?.emit('scheduled_event:update', ev);
-    return ev;
+    const updatedEvent = getEvent.get(req.params.eventId);
+    io?.to(`guild:${req.params.guildId}`)?.emit('scheduled_event:update', updatedEvent);
+    return updatedEvent;
   });
 
   // DELETE /api/guilds/:guildId/scheduled-events/:eventId
   fastify.delete('/api/guilds/:guildId/scheduled-events/:eventId', { preHandler: authenticate }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EVENTS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EVENTS permission' });
-    }
-    deleteEventStmt.run(req.params.eventId);
+    const ev = authorizeEvent(req, reply, true);
+    if (!ev) return;
+    deleteEventStmt.run(ev.id);
     io?.to(`guild:${req.params.guildId}`)?.emit('scheduled_event:delete', { id: req.params.eventId, guild_id: req.params.guildId });
     return { ok: true };
   });
 
   // GET /api/guilds/:guildId/scheduled-events/:eventId/users
-  fastify.get('/api/guilds/:guildId/scheduled-events/:eventId/users', { preHandler: authenticate }, async (req) => {
+  fastify.get('/api/guilds/:guildId/scheduled-events/:eventId/users', { preHandler: authenticate }, async (req, reply) => {
+    if (!authorizeEvent(req, reply)) return;
     return listEventUsers.all(req.params.eventId);
   });
 
   // PUT /api/guilds/:guildId/scheduled-events/:eventId/users/@me — RSVP
-  fastify.put('/api/guilds/:guildId/scheduled-events/:eventId/users/@me', { preHandler: authenticate }, async (req) => {
-    insertEventUser.run(req.params.eventId, req.user.id);
-    return { ok: true };
+  fastify.put('/api/guilds/:guildId/scheduled-events/:eventId/users/@me', { preHandler: authenticate }, async (req, reply) => {
+    const ev = authorizeEvent(req, reply);
+    if (!ev) return;
+    insertEventUser.run(ev.id, req.user.id);
+    io?.to(`guild:${ev.guild_id}`)?.emit('scheduled_event:update', { ...ev, user_count: countEventUsers.get(ev.id)?.c || 0 });
+    return { ok: true, user_count: countEventUsers.get(ev.id)?.c || 0 };
   });
 
   // DELETE /api/guilds/:guildId/scheduled-events/:eventId/users/@me
-  fastify.delete('/api/guilds/:guildId/scheduled-events/:eventId/users/@me', { preHandler: authenticate }, async (req) => {
-    deleteEventUser.run(req.params.eventId, req.user.id);
-    return { ok: true };
+  fastify.delete('/api/guilds/:guildId/scheduled-events/:eventId/users/@me', { preHandler: authenticate }, async (req, reply) => {
+    const ev = authorizeEvent(req, reply);
+    if (!ev) return;
+    deleteEventUser.run(ev.id, req.user.id);
+    io?.to(`guild:${ev.guild_id}`)?.emit('scheduled_event:update', { ...ev, user_count: countEventUsers.get(ev.id)?.c || 0, me: false });
+    return { ok: true, user_count: countEventUsers.get(ev.id)?.c || 0 };
   });
 
   // ═══════════════════════════════════════════════════════
@@ -518,7 +631,8 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   `);
   const deleteStickerStmt = db.prepare('DELETE FROM stickers WHERE id = ?');
 
-  fastify.get('/api/guilds/:guildId/stickers', { preHandler: authenticate }, async (req) => {
+  fastify.get('/api/guilds/:guildId/stickers', { preHandler: authenticate }, async (req, reply) => {
+    if (!requireGuildView(req.params.guildId, req.user.id, reply)) return;
     return listStickers.all(req.params.guildId);
   });
 
@@ -538,9 +652,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
     const id = snowflake.generate();
     const b = req.body;
     insertSticker.run(id, req.params.guildId, b.name, b.description || null, b.tags || null, b.format_type || 1, req.user.id, 0, nowSec());
@@ -562,18 +674,18 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
-    updateStickerStmt.run(req.body.name || null, req.body.description ?? null, req.body.tags ?? null, req.params.stickerId);
-    return getSticker.get(req.params.stickerId) || reply.code(404).send({ error: 'Sticker not found' });
+    const sticker = getSticker.get(req.params.stickerId);
+    if (!sticker || sticker.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Sticker not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+    updateStickerStmt.run(req.body.name || null, req.body.description ?? null, req.body.tags ?? null, sticker.id);
+    return getSticker.get(sticker.id);
   });
 
   fastify.delete('/api/guilds/:guildId/stickers/:stickerId', { preHandler: authenticate }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_EXPRESSIONS permission' });
-    }
-    deleteStickerStmt.run(req.params.stickerId);
+    const sticker = getSticker.get(req.params.stickerId);
+    if (!sticker || sticker.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Sticker not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+    deleteStickerStmt.run(sticker.id);
     io?.to(`guild:${req.params.guildId}`)?.emit('guild:stickers_update', { guild_id: req.params.guildId, stickers: listStickers.all(req.params.guildId) });
     return { ok: true };
   });
@@ -592,7 +704,8 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
   `);
   const deleteAutomodRuleStmt = db.prepare('DELETE FROM automod_rules WHERE id = ?');
 
-  fastify.get('/api/guilds/:guildId/auto-moderation/rules', { preHandler: authenticate }, async (req) => {
+  fastify.get('/api/guilds/:guildId/auto-moderation/rules', { preHandler: authenticate }, async (req, reply) => {
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD, reply, 'Missing MANAGE_GUILD permission')) return;
     return listAutomodRules.all(req.params.guildId);
   });
 
@@ -615,9 +728,7 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_GUILD permission' });
-    }
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD, reply, 'Missing MANAGE_GUILD permission')) return;
     const id = snowflake.generate();
     const b = req.body;
     db.prepare(`
@@ -645,9 +756,9 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       },
     },
   }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_GUILD permission' });
-    }
+    const rule = getAutomodRule.get(req.params.ruleId);
+    if (!rule || rule.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Rule not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD, reply, 'Missing MANAGE_GUILD permission')) return;
     const b = req.body;
     updateAutomodRuleStmt.run(
       b.name || null,
@@ -656,16 +767,16 @@ export default async function advancedFeaturesRoutes(fastify, { db, authenticate
       b.enabled !== undefined ? (b.enabled ? 1 : 0) : null,
       b.exempt_roles ? JSON.stringify(b.exempt_roles) : null,
       b.exempt_channels ? JSON.stringify(b.exempt_channels) : null,
-      req.params.ruleId
+       rule.id
     );
     return getAutomodRule.get(req.params.ruleId) || reply.code(404).send({ error: 'Rule not found' });
   });
 
   fastify.delete('/api/guilds/:guildId/auto-moderation/rules/:ruleId', { preHandler: authenticate }, async (req, reply) => {
-    if (!permissions.hasGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD)) {
-      return reply.code(403).send({ error: 'Missing MANAGE_GUILD permission' });
-    }
-    deleteAutomodRuleStmt.run(req.params.ruleId);
+    const rule = getAutomodRule.get(req.params.ruleId);
+    if (!rule || rule.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Rule not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_GUILD, reply, 'Missing MANAGE_GUILD permission')) return;
+    deleteAutomodRuleStmt.run(rule.id);
     return { ok: true };
   });
 

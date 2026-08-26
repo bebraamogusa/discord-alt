@@ -2,7 +2,7 @@ function setRefreshCookie(reply, token, config) {
   reply.setCookie('da_refresh', token, {
     path: '/api/auth',
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: config.cookieSameSite,
     secure: config.cookieSecure,
     maxAge: config.jwtRefreshTtlSec,
   });
@@ -12,8 +12,17 @@ function clearRefreshCookie(reply) {
   reply.clearCookie('da_refresh', { path: '/api/auth' });
 }
 
-export default async function authRoutes(fastify, { authService, config, authenticate }) {
+function sendAuthError(fastify, req, reply, error, config) {
+  const statusCode = error.statusCode || 500;
+  fastify.log.error({ err: error, requestId: req.id }, 'authentication request failed');
+  if (config.env !== 'production') return reply.code(statusCode).send({ error: error.message });
+  const messages = { 400: 'Invalid request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 413: 'Payload too large', 415: 'Unsupported media type' };
+  return reply.code(statusCode).send({ error: messages[statusCode] || 'Internal server error', request_id: req.id });
+}
+
+export default async function authRoutes(fastify, { authService, config, authenticate, authRateLimit }) {
   fastify.post('/api/auth/register', {
+    preHandler: authRateLimit ? [authRateLimit] : [],
     schema: {
       body: {
         type: 'object',
@@ -39,11 +48,12 @@ export default async function authRoutes(fastify, { authService, config, authent
       setRefreshCookie(reply, result.refreshToken, config);
       return reply.code(201).send({ token: result.token, user: result.user });
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
   fastify.post('/api/auth/login', {
+    preHandler: authRateLimit ? [authRateLimit] : [],
     schema: {
       body: {
         type: 'object',
@@ -72,11 +82,12 @@ export default async function authRoutes(fastify, { authService, config, authent
       setRefreshCookie(reply, result.refreshToken, config);
       return reply.send({ token: result.token, user: result.user });
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
   fastify.post('/api/auth/mfa/totp', {
+    preHandler: authRateLimit ? [authRateLimit] : [],
     schema: {
       body: {
         type: 'object',
@@ -100,11 +111,13 @@ export default async function authRoutes(fastify, { authService, config, authent
       setRefreshCookie(reply, result.refreshToken, config);
       return reply.send({ token: result.token, user: result.user });
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
-  fastify.post('/api/auth/refresh', async (req, reply) => {
+  fastify.post('/api/auth/refresh', {
+    preHandler: authRateLimit ? [authRateLimit] : [],
+  }, async (req, reply) => {
     try {
       const refreshToken = req.cookies.da_refresh;
       const result = await authService.refresh(refreshToken, {
@@ -115,11 +128,13 @@ export default async function authRoutes(fastify, { authService, config, authent
       return reply.send({ token: result.token, user: result.user });
     } catch (error) {
       clearRefreshCookie(reply);
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
-  fastify.post('/api/auth/logout', async (req, reply) => {
+  fastify.post('/api/auth/logout', {
+    preHandler: authRateLimit ? [authRateLimit] : [],
+  }, async (req, reply) => {
     const refreshToken = req.cookies.da_refresh;
     authService.logout(refreshToken);
     clearRefreshCookie(reply);
@@ -133,7 +148,7 @@ export default async function authRoutes(fastify, { authService, config, authent
       const payload = await authService.beginEnableMfa(req.user.id);
       return reply.send(payload);
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
@@ -154,7 +169,7 @@ export default async function authRoutes(fastify, { authService, config, authent
       const result = await authService.confirmEnableMfa(req.user.id, req.body.code);
       return reply.send(result);
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 
@@ -175,7 +190,7 @@ export default async function authRoutes(fastify, { authService, config, authent
       await authService.disableMfaForUser(req.user.id, req.body.code);
       return reply.send({ ok: true });
     } catch (error) {
-      return reply.code(error.statusCode || 500).send({ error: error.message });
+      return sendAuthError(fastify, req, reply, error, config);
     }
   });
 }

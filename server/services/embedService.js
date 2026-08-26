@@ -1,3 +1,6 @@
+import dns from 'node:dns/promises';
+import net from 'node:net';
+
 const URL_RE = /https?:\/\/[^\s<>{}"'`]+/gi;
 
 function stripMetaContent(input) {
@@ -27,15 +30,59 @@ function extractTitle(html) {
   return match?.[1] ? stripMetaContent(match[1]) : '';
 }
 
+function ipv4ToNumber(host) {
+  const parts = host.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return (((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3]) >>> 0;
+}
+
 function isPrivateHost(hostname) {
-  const host = String(hostname || '').toLowerCase();
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (!host) return true;
-  if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (host === '::1') return true;
-  if (/^127\./.test(host)) return true;
-  if (/^10\./.test(host)) return true;
-  if (/^192\.168\./.test(host)) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+
+  if (net.isIPv4(host)) {
+    const ip = ipv4ToNumber(host);
+    return ip === null || ip < 0x01000000 || ip >= 0xE0000000 ||
+      (ip >= 0x0A000000 && ip <= 0x0AFFFFFF) ||
+      (ip >= 0x64400000 && ip <= 0x647FFFFF) ||
+      (ip >= 0x7F000000 && ip <= 0x7FFFFFFF) ||
+      (ip >= 0xA9FE0000 && ip <= 0xA9FEFFFF) ||
+      (ip >= 0xAC100000 && ip <= 0xAC1FFFFF) ||
+      (ip >= 0xC0000000 && ip <= 0xC00000FF) ||
+      (ip >= 0xC0000200 && ip <= 0xC00002FF) ||
+      (ip >= 0xC0586300 && ip <= 0xC05863FF) ||
+      (ip >= 0xC0A80000 && ip <= 0xC0A8FFFF) ||
+      (ip >= 0xC6120000 && ip <= 0xC613FFFF) ||
+      (ip >= 0xC6336400 && ip <= 0xC63364FF) ||
+      (ip >= 0xCB007100 && ip <= 0xCB0071FF);
+  }
+
+  if (net.isIPv6(host)) {
+    const normalized = host.split('%')[0];
+    const groups = normalized.split(':');
+    const expanded = [];
+    const gap = groups.indexOf('');
+    if (gap >= 0) {
+      const left = groups.slice(0, gap).filter(Boolean);
+      const right = groups.slice(gap + 1).filter(Boolean);
+      expanded.push(...left, ...Array(8 - left.length - right.length).fill('0'), ...right);
+    } else expanded.push(...groups);
+    if (expanded.length !== 8) return true;
+    const values = expanded.map((part) => Number.parseInt(part || '0', 16));
+    const first = values[0];
+    const second = values[1];
+    const mappedIpv4 = values[5] === 0xFFFF
+      ? `${values[6] >> 8}.${values[6] & 0xFF}.${values[7] >> 8}.${values[7] & 0xFF}`
+      : '';
+    return values.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xFFFF) &&
+      (values.every((value) => value === 0) || (values.slice(0, 7).every((value) => value === 0) && values[7] <= 1) ||
+        (first & 0xFE00) === 0xFC00 || (first & 0xFFC0) === 0xFE80 || (first & 0xFF00) === 0xFF00 ||
+        (first === 0x2001 && second === 0x0DB8) || (first === 0x2001 && (second & 0xFFF0) === 0x0010) ||
+        (first === 0x2001 && second === 0x0002) || (first === 0x2001 && (second & 0xFE00) === 0x0200) ||
+        (values.slice(0, 5).every((value) => value === 0) && values[5] === 0xFFFF && isPrivateHost(mappedIpv4)));
+  }
+
   return false;
 }
 
@@ -44,7 +91,7 @@ function isMediaType(contentType) {
   return ct.startsWith('image/') || ct.startsWith('video/') || ct.startsWith('audio/');
 }
 
-export function buildEmbedService() {
+export function buildEmbedService({ fetchImpl = fetch, lookup = dns.lookup } = {}) {
   const cache = new Map();
   const cacheTtlMs = 60 * 60 * 1000;
   const maxHtmlBytes = 1024 * 1024;
@@ -75,6 +122,31 @@ export function buildEmbedService() {
     }
   }
 
+  async function assertPublicHost(url) {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^\[|\]$/g, '');
+    if (isPrivateHost(host)) throw new Error('private host');
+    if (net.isIP(host)) return;
+    const records = await lookup(host, { all: true, verbatim: true });
+    const addresses = Array.isArray(records) ? records : [records];
+    if (!addresses.length || addresses.some((record) => isPrivateHost(record.address || record))) throw new Error('private address');
+  }
+
+  async function fetchPublic(url, options = {}) {
+    let current = url;
+    for (let redirects = 0; redirects <= 5; redirects += 1) {
+      await assertPublicHost(current);
+      const response = await fetchImpl(current, { ...options, redirect: 'manual' });
+      if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+      const location = response.headers.get('location');
+      if (!location || redirects === 5) return { ok: false, status: 502 };
+      const next = normalizeUrl(new URL(location, current).toString());
+      if (!next) return { ok: false, status: 502 };
+      current = next;
+    }
+    return { ok: false, status: 502 };
+  }
+
   function extractUrls(text) {
     const unique = new Set();
     for (const raw of String(text || '').match(URL_RE) || []) {
@@ -89,9 +161,8 @@ export function buildEmbedService() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch(url, {
+      const response = await fetchPublic(url, {
         method: 'GET',
-        redirect: 'follow',
         signal: controller.signal,
         headers: {
           'user-agent': 'DiscordAltBot/1.0 (+self-hosted)',
@@ -111,7 +182,10 @@ export function buildEmbedService() {
         const { done, value } = await reader.read();
         if (done) break;
         bytes += value.byteLength;
-        if (bytes > maxHtmlBytes) break;
+        if (bytes > maxHtmlBytes) {
+          await reader.cancel();
+          return { ok: false };
+        }
         chunks.push(value);
       }
       const html = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
@@ -187,6 +261,7 @@ export function buildEmbedService() {
 
   return {
     normalizeUrl,
+    fetchPublic,
     getLinkPreview,
     generateEmbedsFromContent,
   };

@@ -1,5 +1,8 @@
 import path from 'path';
-import { mkdir, readFile, rename, stat, copyFile, unlink, writeFile } from 'fs/promises';
+import { mkdir, readFile, rename, stat, copyFile, unlink, writeFile, readdir } from 'fs/promises';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
+import { Transform } from 'stream';
 import { spawn } from 'child_process';
 
 function sanitizeFilename(name) {
@@ -34,7 +37,7 @@ function extToMime(ext, fallback = 'application/octet-stream') {
 }
 
 function toPublicPath(relPath) {
-  return `/files/${relPath.replaceAll('\\\\', '/')}`;
+  return `/files/${relPath.replaceAll('\\', '/')}`;
 }
 
 function tryPngDimensions(buffer) {
@@ -221,7 +224,23 @@ function generateWaveformBase64(buffer, bars = 64) {
   return Buffer.from(out).toString('base64');
 }
 
-export function buildFileService({ uploadsRoot, snowflake }) {
+export function buildFileService({ uploadsRoot, snowflake, maxFileSizeBytes = 25 * 1024 * 1024 }) {
+  const maxSize = Number.isFinite(Number(maxFileSizeBytes)) && Number(maxFileSizeBytes) > 0
+    ? Number(maxFileSizeBytes)
+    : 25 * 1024 * 1024;
+
+  function tooLargeError(message = 'File is too large') {
+    const err = new Error(message);
+    err.statusCode = 413;
+    return err;
+  }
+
+  function unsupportedTypeError() {
+    const err = new Error('SVG files are not supported');
+    err.statusCode = 415;
+    return err;
+  }
+
   async function moveFileSafe(src, dest) {
     try {
       await rename(src, dest);
@@ -245,31 +264,85 @@ export function buildFileService({ uploadsRoot, snowflake }) {
     };
   }
 
+  async function removeTempFile({ userId, url }) {
+    const parsed = parseTempAttachmentUrl(url, userId);
+    if (!parsed) return;
+    await unlink(parsed.absPath).catch(() => {});
+  }
+
   async function uploadTempFile({ userId, file }) {
     const fileId = snowflake.generate();
     const safeOriginalName = sanitizeFilename(file.filename || `file_${fileId}`);
     const ext = path.extname(safeOriginalName).toLowerCase();
+    if (ext === '.svg' || String(file.mimetype || '').toLowerCase() === 'image/svg+xml') {
+      throw unsupportedTypeError();
+    }
     const storageName = `${fileId}${ext}`;
     const relDir = path.join('attachments', 'temp', String(userId));
     const absDir = path.join(uploadsRoot, relDir);
     const absPath = path.join(absDir, storageName);
 
     await mkdir(absDir, { recursive: true });
-    const buffer = await file.toBuffer();
-    if (buffer.byteLength > 25 * 1024 * 1024) {
-      const err = new Error('File is too large');
-      err.statusCode = 413;
-      throw err;
+    let size = 0;
+    try {
+      if (file.file && typeof file.file[Symbol.asyncIterator] === 'function') {
+        const limiter = new Transform({
+          transform(chunk, _encoding, callback) {
+            size += chunk.length;
+            if (size > maxSize) return callback(tooLargeError());
+            callback(null, chunk);
+          },
+        });
+        await pipeline(file.file, limiter, createWriteStream(absPath, { flags: 'wx' }));
+        if (file.file.truncated) throw tooLargeError();
+      } else {
+        const buffer = await file.toBuffer();
+        if (buffer.byteLength > maxSize) throw tooLargeError();
+        await writeFile(absPath, buffer, { flag: 'wx' });
+        size = buffer.byteLength;
+      }
+    } catch (error) {
+      await unlink(absPath).catch(() => {});
+      throw error;
     }
-    await writeFile(absPath, buffer);
 
     return {
       id: fileId,
       url: toPublicPath(path.join(relDir, storageName)),
       filename: safeOriginalName,
       mime_type: file.mimetype || extToMime(ext),
-      size: buffer.byteLength,
+      size,
     };
+  }
+
+  async function cleanupExpiredTempFiles({ maxAgeMs = 24 * 60 * 60 * 1000, now = Date.now() } = {}) {
+    const tempRoot = path.join(uploadsRoot, 'attachments', 'temp');
+    let removed = 0;
+
+    async function visit(dir) {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch (error) {
+        if (error.code === 'ENOENT') return;
+        throw error;
+      }
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await visit(entryPath);
+          continue;
+        }
+        const fileStat = await stat(entryPath);
+        if (now - fileStat.mtimeMs > maxAgeMs) {
+          await unlink(entryPath);
+          removed += 1;
+        }
+      }
+    }
+
+    await visit(tempRoot);
+    return removed;
   }
 
   async function finalizeTempAttachment({ userId, channelId, messageId, attachment }) {
@@ -284,6 +357,9 @@ export function buildFileService({ uploadsRoot, snowflake }) {
 
     const safeOriginal = sanitizeFilename(attachment.filename || parsed.fileName);
     const ext = path.extname(safeOriginal).toLowerCase() || path.extname(parsed.fileName).toLowerCase();
+    if (ext === '.svg' || String(attachment.mime_type || '').toLowerCase() === 'image/svg+xml') {
+      throw unsupportedTypeError();
+    }
     const targetFile = `${snowflake.generate()}_${sanitizeFilename(path.basename(safeOriginal, path.extname(safeOriginal)))}${ext}`;
 
     const relDir = path.join('attachments', String(channelId), String(messageId));
@@ -295,10 +371,9 @@ export function buildFileService({ uploadsRoot, snowflake }) {
     await moveFileSafe(parsed.absPath, absPath);
 
     const fileStat = await stat(absPath);
-    if (fileStat.size > 25 * 1024 * 1024) {
-      const err = new Error('Attachment exceeds max size');
-      err.statusCode = 413;
-      throw err;
+    if (fileStat.size > maxSize) {
+      await unlink(absPath).catch(() => {});
+      throw tooLargeError('Attachment exceeds max size');
     }
 
     const mime = attachment.mime_type || extToMime(ext);
@@ -371,6 +446,8 @@ export function buildFileService({ uploadsRoot, snowflake }) {
 
   return {
     uploadTempFile,
+    removeTempFile,
+    cleanupExpiredTempFiles,
     finalizeTempAttachment,
   };
 }

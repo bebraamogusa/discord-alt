@@ -1,0 +1,1 @@
+ALTER TABLE emojis ADD COLUMN image TEXT;

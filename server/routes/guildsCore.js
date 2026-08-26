@@ -1,4 +1,4 @@
-import { Permissions, buildPermissionService, serializePermissions } from '../services/permissions.js';
+import { Permissions, buildPermissionService, serializePermissions, parsePermissions, can } from '../services/permissions.js';
 
 function nowSec() {
   return Math.floor(Date.now() / 1000);
@@ -29,6 +29,9 @@ function legacyChannelType(type) {
   if (type === 2) return 'voice';
   if (type === 4) return 'category';
   if (type === 5) return 'announcement';
+  if (type === 11) return 'thread';
+  if (type === 13) return 'stage';
+  if (type === 15) return 'forum';
   if (type === 1) return 'dm';
   if (type === 3) return 'group';
   return 'text';
@@ -233,6 +236,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
   `);
 
   const getOverwrite = db.prepare('SELECT * FROM channel_permission_overwrites WHERE channel_id = ? AND target_id = ?');
+  const getOverwritesForChannel = db.prepare('SELECT * FROM channel_permission_overwrites WHERE channel_id = ? ORDER BY rowid ASC');
 
   const updateRolePosition = db.prepare('UPDATE roles SET position = ? WHERE id = ? AND guild_id = ?');
   const updateChannelPositionParent = db.prepare('UPDATE channels SET position = ?, parent_id = ?, updated_at = ? WHERE id = ? AND guild_id = ?');
@@ -426,6 +430,8 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       everyonePerms |= Permissions.VIEW_CHANNEL;
       everyonePerms |= Permissions.SEND_MESSAGES;
       everyonePerms |= Permissions.CREATE_INSTANT_INVITE;
+      everyonePerms |= Permissions.CONNECT;
+      everyonePerms |= Permissions.READ_MESSAGE_HISTORY;
 
       insertRole.run(
         everyoneRoleId,
@@ -619,6 +625,8 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       everyonePerms |= Permissions.VIEW_CHANNEL;
       everyonePerms |= Permissions.SEND_MESSAGES;
       everyonePerms |= Permissions.CREATE_INSTANT_INVITE;
+      everyonePerms |= Permissions.CONNECT;
+      everyonePerms |= Permissions.READ_MESSAGE_HISTORY;
 
       insertRole.run(
         everyoneRoleId,
@@ -1146,6 +1154,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     };
     io?.to(`guild:${guild.id}`)?.emit('member:update', payload);
     io?.to(`guild:${guild.id}`)?.emit('guild:member:update', payload);
+    io?.to(`guild:${guild.id}`)?.emit('MEMBER_UPDATE', {
+      server_id: guild.id,
+      member: { id: req.params.userId, communication_disabled_until: updatedMember.communication_disabled_until },
+    });
 
     return payload;
   });
@@ -1274,14 +1286,26 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const rows = getRolesForGuild.all(guild.id);
     const highest = rows.length ? rows[0].position : 0;
 
+    const isOwner = guild.owner_id === req.user.id;
+    const actorHighest = highestRolePosition(guild.id, req.user.id);
+    const maxPosition = isOwner ? Infinity : Math.max(actorHighest - 1, 0);
+    const rolePosition = Math.min(req.body.position ?? (highest + 1), maxPosition);
+
+    let rolePerms = typeof req.body.permissions === 'object' ? JSON.stringify(req.body.permissions) : (req.body.permissions ?? '0');
+    const parsedRolePerms = parsePermissions(rolePerms);
+    const actorPerms = permissions.getGuildPermissions(guild.id, req.user.id);
+    if (!can(actorPerms, Permissions.ADMINISTRATOR)) {
+      rolePerms = serializePermissions(parsedRolePerms & actorPerms);
+    }
+
     insertRole.run(
       roleId,
       guild.id,
       String(req.body.name).trim().slice(0, 100),
       req.body.color ?? 0,
       req.body.hoist ?? 0,
-      req.body.position ?? (highest + 1),
-      typeof req.body.permissions === 'object' ? JSON.stringify(req.body.permissions) : (req.body.permissions ?? '0'),
+      rolePosition,
+      rolePerms,
       0,
       req.body.mentionable ?? 0,
       0,
@@ -1321,15 +1345,38 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const role = getRoleById.get(req.params.roleId);
     if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
 
+    if (role.id === guild.id) {
+      return reply.code(400).send({ error: 'Cannot modify @everyone role' });
+    }
+
+    if (!canManageRole(guild, req.user.id, role.id)) {
+      return reply.code(403).send({ error: 'Cannot manage this role' });
+    }
+
     const body = req.body || {};
+    const isOwner = guild.owner_id === req.user.id;
+    const actorHighest = highestRolePosition(guild.id, req.user.id);
+    const maxPosition = isOwner ? Infinity : Math.max(actorHighest - 1, 0);
+    const nextPosition = body.position !== undefined
+      ? Math.min(body.position, maxPosition)
+      : undefined;
+
+    let nextPermissions = typeof body.permissions === 'object' ? JSON.stringify(body.permissions) : body.permissions;
+    if (nextPermissions !== undefined) {
+      const parsedPerms = parsePermissions(nextPermissions);
+      const actorPerms = permissions.getGuildPermissions(guild.id, req.user.id);
+      if (!can(actorPerms, Permissions.ADMINISTRATOR)) {
+        nextPermissions = serializePermissions(parsedPerms & actorPerms);
+      }
+    }
 
     updateRole.run(
       body.name !== undefined ? String(body.name).trim().slice(0, 100) : null,
       body.color,
       body.hoist,
       body.mentionable,
-      typeof body.permissions === 'object' ? JSON.stringify(body.permissions) : body.permissions,
-      body.position,
+      nextPermissions,
+      nextPosition,
       role.id,
       guild.id
     );
@@ -1353,6 +1400,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     const role = getRoleById.get(req.params.roleId);
     if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
 
+    if (role.id === guild.id) {
+      return reply.code(400).send({ error: 'Cannot delete @everyone role' });
+    }
+
     deleteRole.run(role.id, guild.id);
     permissions.clearCache();
     io?.to(`guild:${guild.id}`)?.emit('guild:role:delete', { guild_id: guild.id, role_id: role.id });
@@ -1374,6 +1425,10 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     const role = getRoleById.get(req.params.roleId);
     if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
+
+    if (!canManageRole(guild, req.user.id, role.id)) {
+      return reply.code(403).send({ error: 'Cannot manage this role' });
+    }
 
     insertMemberRole.run(guild.id, req.params.userId, role.id);
     permissions.clearCache();
@@ -1397,6 +1452,13 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
 
     const targetMember = getGuildMember.get(guild.id, req.params.userId);
     if (!targetMember) return reply.code(404).send({ error: 'Target member not found' });
+
+    const role = getRoleById.get(req.params.roleId);
+    if (!role || role.guild_id !== guild.id) return reply.code(404).send({ error: 'Role not found' });
+
+    if (!canManageRole(guild, req.user.id, role.id)) {
+      return reply.code(403).send({ error: 'Cannot manage this role' });
+    }
 
     deleteMemberRole.run(guild.id, req.params.userId, req.params.roleId);
     permissions.clearCache();
@@ -1619,9 +1681,13 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
       }
     }
 
+    const isOwner = guild.owner_id === req.user.id;
+    const actorHighest = highestRolePosition(guild.id, req.user.id);
+    const maxPosition = isOwner ? Infinity : Math.max(actorHighest - 1, 0);
     db.transaction(() => {
       for (const item of req.body) {
-        updateRolePosition.run(item.position, item.id, guild.id);
+        const clampedPosition = isOwner ? item.position : Math.min(item.position, maxPosition);
+        updateRolePosition.run(clampedPosition, item.id, guild.id);
       }
     })();
 
@@ -1639,6 +1705,28 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     }));
     io?.to(`guild:${guild.id}`)?.emit('guild:roles:reorder', { guild_id: guild.id, roles: updated });
     return updated;
+  });
+
+  fastify.get('/api/channels/:channelId/permissions', {
+    preHandler: authenticate,
+  }, async (req, reply) => {
+    const channel = getChannelById.get(req.params.channelId);
+    if (!channel) return reply.code(404).send({ error: 'Channel not found' });
+    if (!channel.guild_id) return reply.code(400).send({ error: 'Only guild channels supported in this endpoint' });
+
+    const guild = requireGuildMemberAccess(channel.guild_id, req.user.id, reply);
+    if (!guild) return;
+    if (!permissions.hasGuildPermission(guild.id, req.user.id, Permissions.MANAGE_CHANNELS)) {
+      return reply.code(403).send({ error: 'Missing MANAGE_CHANNELS permission' });
+    }
+
+    return getOverwritesForChannel.all(channel.id)
+      .map((row) => {
+        let name = null;
+        if (row.target_type === 0) name = getRoleById.get(row.target_id)?.name ?? null;
+        else name = getUserById.get(row.target_id)?.username ?? null;
+        return { channel_id: row.channel_id, target_id: row.target_id, target_type: row.target_type, allow: row.allow, deny: row.deny, name };
+      });
   });
 
   fastify.put('/api/channels/:channelId/permissions/:targetId', {
@@ -1677,6 +1765,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     }
 
     upsertOverwrite.run(channel.id, req.params.targetId, req.body.type, req.body.allow, req.body.deny);
+    permissions.clearCache();
     const payload = getOverwrite.get(channel.id, req.params.targetId);
     io?.to(`guild:${guild.id}`)?.emit('channel:overwrite:update', payload);
     return payload;
@@ -1696,6 +1785,7 @@ export default async function guildsCoreRoutes(fastify, { db, authenticate, snow
     }
 
     deleteOverwritesForTarget.run(channel.id, req.params.targetId);
+    permissions.clearCache();
     io?.to(`guild:${guild.id}`)?.emit('channel:overwrite:delete', {
       channel_id: channel.id,
       target_id: req.params.targetId,

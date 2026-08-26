@@ -15,6 +15,7 @@ yarn-error.log*
 # -- Runtime data ------------------------------------------
 uploads/
 data/
+backups/
 *.db
 *.db-shm
 *.db-wal
@@ -29,6 +30,7 @@ app/src-tauri/gen/
 # -- Build outputs -----------------------------------------
 dist/
 build/
+app/release-staging/
 
 # -- OS files ----------------------------------------------
 .DS_Store
@@ -45,3 +47,7 @@ desktop.ini
 # -- Logs --------------------------------------------------
 logs/
 *.log
+
+# -- Browser test artifacts -------------------------------
+server/test-results/
+server/playwright-report/

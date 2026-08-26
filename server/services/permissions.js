@@ -6,7 +6,9 @@ export const Permissions = {
   MANAGE_GUILD: 1n << 5n,
   VIEW_CHANNEL: 1n << 10n,
   SEND_MESSAGES: 1n << 11n,
+  READ_MESSAGE_HISTORY: 1n << 12n,
   MANAGE_MESSAGES: 1n << 13n,
+  CONNECT: 1n << 20n,
   MANAGE_WEBHOOKS: 1n << 29n,
   MANAGE_EXPRESSIONS: 1n << 30n,
   MANAGE_EVENTS: 1n << 33n,
@@ -37,6 +39,11 @@ const JsonPermissionMap = {
   moderate_members: Permissions.MODERATE_MEMBERS,
   view_channel: Permissions.VIEW_CHANNEL,
   send_messages: Permissions.SEND_MESSAGES,
+  read_message_history: Permissions.READ_MESSAGE_HISTORY,
+  connect: Permissions.CONNECT,
+  manage_webhooks: Permissions.MANAGE_WEBHOOKS,
+  manage_expressions: Permissions.MANAGE_EXPRESSIONS,
+  manage_events: Permissions.MANAGE_EVENTS,
 };
 
 export function serializePermissions(bits) {
@@ -80,7 +87,12 @@ export function can(bits, perm) {
   return hasPerm(bits, perm);
 }
 
+// One shared cache per db so clearCache() invalidates every consumer
+const serviceInstances = new WeakMap();
+
 export function buildPermissionService(db) {
+  if (serviceInstances.has(db)) return serviceInstances.get(db);
+
   const getGuildOwner = db.prepare('SELECT owner_id FROM guilds WHERE id = ?');
   const getGuildMember = db.prepare('SELECT 1 FROM guild_members WHERE guild_id = ? AND user_id = ?');
   const getEveryoneRole = db.prepare('SELECT id, permissions FROM roles WHERE guild_id = ? ORDER BY position ASC LIMIT 1');
@@ -208,7 +220,7 @@ export function buildPermissionService(db) {
     return bits;
   }
 
-  return {
+  const service = {
     getGuildPermissions,
     getChannelPermissions,
     hasGuildPermission(guildId, userId, permission) {
@@ -225,4 +237,6 @@ export function buildPermissionService(db) {
       cache.clear();
     }
   };
+  serviceInstances.set(db, service);
+  return service;
 }

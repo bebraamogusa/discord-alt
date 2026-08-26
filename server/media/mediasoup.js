@@ -10,7 +10,19 @@ export const mediaState = {
   transports: new Map(),
   producers: new Map(),
   consumers: new Map(),
-  peers: new Map()
+  peers: new Map(),
+  transportMeta: new Map(),
+  producerMeta: new Map(),
+  consumerMeta: new Map(),
+};
+
+export const voiceLimits = {
+  transportsPerUser: 4,
+  producersPerUser: 4,
+  consumersPerUser: 64,
+  transportsPerChannel: 200,
+  producersPerChannel: 200,
+  consumersPerChannel: 1000,
 };
 
 export const mediaCodecs = [
@@ -106,10 +118,37 @@ export async function createWebRtcTransport(router) {
   });
 
   transport.on('close', () => {
-    console.log(`Transport closed: ${transport.id}`);
+    mediaState.transports.delete(transport.id);
+    mediaState.transportMeta.delete(transport.id);
+    for (const peer of mediaState.peers.values()) {
+      peer.transportIds = peer.transportIds.filter((id) => id !== transport.id);
+    }
+    cleanupIdleRouters();
   });
 
   mediaState.transports.set(transport.id, transport);
 
   return transport;
+}
+
+export function cleanupPeer(userId) {
+  const peer = mediaState.peers.get(userId);
+  if (!peer) return;
+
+  for (const id of peer.producerIds) mediaState.producers.get(id)?.close();
+  for (const id of peer.consumerIds) mediaState.consumers.get(id)?.close();
+  for (const id of peer.transportIds) mediaState.transports.get(id)?.close();
+  mediaState.peers.delete(userId);
+  cleanupIdleRouters();
+}
+
+export function cleanupIdleRouters() {
+  for (const [channelId, router] of routers) {
+    const inUse = [...mediaState.transportMeta.values(), ...mediaState.producerMeta.values(), ...mediaState.consumerMeta.values()]
+      .some((meta) => meta.channelId === channelId);
+    if (!inUse) {
+      router.close();
+      routers.delete(channelId);
+    }
+  }
 }

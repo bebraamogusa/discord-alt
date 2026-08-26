@@ -272,7 +272,7 @@ export default async function usersRoutes(fastify, { db, authenticate, authServi
     if (auth.startsWith('Bearer ')) {
       try {
         const token = auth.slice('Bearer '.length).trim();
-        const payload = jwt.verify(token, config.jwtSecret);
+        const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
         if (payload?.sub && payload.sub !== user.id) {
           publicData.mutual_guilds = countMutualGuilds.get(payload.sub, user.id)?.c || 0;
           publicData.mutual_friends = countMutualFriends.get(

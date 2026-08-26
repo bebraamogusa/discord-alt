@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
+    "dev": "cargo run --manifest-path src-tauri/Cargo.toml",
+    "build": "cargo build --manifest-path src-tauri/Cargo.toml --release",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1",
+    "package:windows:dry-run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -DryRun -SkipBuild",
+    "check:production": "node scripts/check-production-server.cjs",
+    "check:rendering": "node scripts/check-native-rendering.cjs",
+    "check:imports": "node scripts/check-client-imports.cjs",
+    "check:auth": "node scripts/check-client-auth.cjs",
     "icons": "node scripts/gen-icons.cjs"
   },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2"
-  }
+  "devDependencies": {}
 }

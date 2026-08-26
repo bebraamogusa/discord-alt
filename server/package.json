@@ -5,26 +5,44 @@
   "type": "module",
   "scripts": {
     "start": "node index.core.js",
-    "inspect:db": "node inspect-db.js"
+    "inspect:db": "node inspect-db.js",
+    "build:vendor": "esbuild node_modules/mediasoup-client/lib/index.js --bundle --format=esm --platform=browser --outfile=../client/vendor/mediasoup-client.esm.js",
+    "test": "node --test \"test/*.test.js\"",
+    "test:check": "node --test --test-reporter=spec \"test/*.test.js\"",
+    "test:e2e": "playwright test --config test/e2e/playwright.config.js",
+    "test:e2e:headed": "playwright test --headed --config test/e2e/playwright.config.js"
   },
   "dependencies": {
-    "@fastify/cookie": "^9.4.0",
-    "@fastify/cors": "^9.0.0",
-    "@fastify/formbody": "^7.4.0",
-    "@fastify/multipart": "^8.3.0",
-    "@fastify/static": "^7.0.4",
+    "@fastify/cookie": "^10.0.1",
+    "@fastify/cors": "^10.1.0",
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^10.1.3",
     "argon2": "^0.41.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.0",
-    "fastify": "^4.28.0",
+    "fastify": "^5.12.1",
     "jsonwebtoken": "^9.0.3",
     "mediasoup": "^3.19.18",
     "mediasoup-client": "^3.18.7",
-    "nanoid": "^5.0.0",
+    "nanoid": "^5.1.16",
     "qrcode": "^1.5.4",
     "socket.io": "^4.7.5",
     "speakeasy": "^2.0.0",
-    "uuid": "^11.0.5"
+    "uuid": "^11.1.1"
+  },
+  "overrides": {
+    "brace-expansion": "^2.1.4",
+    "engine.io": "^6.6.9",
+    "fast-uri": "^3.1.6",
+    "socket.io-parser": "^4.2.7",
+    "tar": "^7.5.22",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright": "^1.62.1",
+    "socket.io-client": "^4.8.3"
   }
 }

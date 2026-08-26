@@ -1,95 +1,102 @@
 // server/routes/phase4Core.js
-// Handles Threads, Emojis, AutoMod, Reactions
+// Handles Threads, Emojis, AutoMod
+
+import { buildPermissionService, Permissions } from '../services/permissions.js';
 
 export default async function phase4Routes(fastify, options) {
   const { db, authenticate, snowflake, io } = options;
+  const permissions = buildPermissionService(db);
+
+  function requireGuildPermission(guildId, userId, permission, reply, message) {
+    if (!permissions.hasGuildPermission(guildId, userId, permission)) {
+      reply.code(403).send({ error: message });
+      return false;
+    }
+    return true;
+  }
+
+  function requireChannelPermission(channelId, userId, permission, reply, message) {
+    if (!permissions.hasChannelPermission(channelId, userId, permission)) {
+      reply.code(403).send({ error: message });
+      return false;
+    }
+    return true;
+  }
 
   // --- Emojis ---
-  fastify.post('/guilds/:guildId/emojis', { preHandler: [authenticate] }, async (req, reply) => {
-    const { guildId } = req.params;
-    const { name, image_url, animated } = req.body; 
-    
-    const id = snowflake.generate();
-    const createdAt = Date.now();
-    
-    db.prepare(`
-      INSERT INTO emojis (id, guild_id, name, creator_id, animated, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, guildId, name, req.user.id, animated ? 1 : 0, createdAt);
+  const listEmojisForGuild = db.prepare('SELECT * FROM emojis WHERE guild_id = ? ORDER BY created_at ASC');
 
-    const emojiInfo = { id, guild_id: guildId, name, creator_id: req.user.id, animated: animated ? 1 : 0, roles_allowed: '[]' };
-    
+  function emitEmojiUpdate(guildId) {
     if (io) {
       io.to(`guild:${guildId}`).emit('GUILD_EMOJIS_UPDATE', {
         guild_id: guildId,
-        emojis: db.prepare('SELECT * FROM emojis WHERE guild_id = ?').all(guildId)
+        emojis: listEmojisForGuild.all(guildId),
       });
     }
+  }
+
+  fastify.post('/guilds/:guildId/emojis', {
+    preHandler: [authenticate],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 32, pattern: '^[\\w-]+$' },
+          image_url: { type: 'string', maxLength: 500000 },
+          animated: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { guildId } = req.params;
+    const { name, image_url, animated } = req.body;
+
+    if (!requireGuildPermission(guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+
+    const id = snowflake.generate();
+    const createdAt = Date.now();
+
+    db.prepare(`
+      INSERT INTO emojis (id, guild_id, name, creator_id, animated, image, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, guildId, name, req.user.id, animated ? 1 : 0, image_url || null, createdAt);
+
+    const emojiInfo = { id, guild_id: guildId, name, creator_id: req.user.id, animated: animated ? 1 : 0, image: image_url || null, roles_allowed: '[]' };
+    emitEmojiUpdate(guildId);
 
     return emojiInfo;
   });
 
   fastify.get('/guilds/:guildId/emojis', { preHandler: [authenticate] }, async (req, reply) => {
-    return db.prepare('SELECT * FROM emojis WHERE guild_id = ?').all(req.params.guildId);
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission')) return;
+    return listEmojisForGuild.all(req.params.guildId);
+  });
+
+  fastify.delete('/guilds/:guildId/emojis/:emojiId', { preHandler: [authenticate] }, async (req, reply) => {
+    const emoji = db.prepare('SELECT * FROM emojis WHERE id = ?').get(req.params.emojiId);
+    if (!emoji || emoji.guild_id !== req.params.guildId) return reply.code(404).send({ error: 'Emoji not found' });
+    if (!requireGuildPermission(req.params.guildId, req.user.id, Permissions.MANAGE_EXPRESSIONS, reply, 'Missing MANAGE_EXPRESSIONS permission')) return;
+
+    db.prepare('DELETE FROM emojis WHERE id = ?').run(emoji.id);
+    emitEmojiUpdate(req.params.guildId);
+    return { ok: true };
   });
 
   // --- Reactions ---
-  fastify.put('/channels/:channelId/messages/:messageId/reactions/:emoji', { preHandler: [authenticate] }, async (req, reply) => {
-    const { channelId, messageId, emoji } = req.params;
-    const userId = req.user.id;
-    const decodedEmoji = decodeURIComponent(emoji);
-    
-    try {
-      db.prepare(`
-        INSERT INTO reactions (message_id, emoji, user_id, created_at)
-        VALUES (?, ?, ?, ?)
-      `).run(messageId, decodedEmoji, userId, Date.now());
-    } catch (e) {
-      // already reacted or constraint failed
-    }
-
-    if (io) {
-      io.to(`channel:${channelId}`).emit('MESSAGE_REACTION_ADD', {
-        user_id: userId,
-        channel_id: channelId,
-        message_id: messageId,
-        emoji: { name: decodedEmoji } 
-      });
-    }
-
-    return reply.code(204).send();
-  });
-
-  fastify.delete('/channels/:channelId/messages/:messageId/reactions/:emoji/@me', { preHandler: [authenticate] }, async (req, reply) => {
-    const { channelId, messageId, emoji } = req.params;
-    const userId = req.user.id;
-    const decodedEmoji = decodeURIComponent(emoji);
-    
-    db.prepare(`
-      DELETE FROM reactions 
-      WHERE message_id = ? AND user_id = ? AND emoji = ?
-    `).run(messageId, userId, decodedEmoji);
-
-    if (io) {
-      io.to(`channel:${channelId}`).emit('MESSAGE_REACTION_REMOVE', {
-        user_id: userId,
-        channel_id: channelId,
-        message_id: messageId,
-        emoji: { name: decodedEmoji }
-      });
-    }
-
-    return reply.code(204).send();
-  });
+  // Removed: canonical reaction routes live in messagesCore.js (message_reactions table).
 
   // --- Threads / Forums ---
   fastify.post('/channels/:channelId/messages/:messageId/threads', { preHandler: [authenticate] }, async (req, reply) => {
     const { channelId, messageId } = req.params;
     const { name, auto_archive_duration } = req.body;
     
-    // Note: check fields match channels table exactly
-    const parentChannel = db.prepare('SELECT guild_id FROM channels WHERE id = ?').get(channelId);
-    if (!parentChannel) return reply.code(404).send({ error: "Channel not found" });
+    const parentChannel = db.prepare('SELECT id, guild_id FROM channels WHERE id = ?').get(channelId);
+    if (!parentChannel || !parentChannel.guild_id) return reply.code(404).send({ error: "Channel not found" });
+    if (!requireChannelPermission(channelId, req.user.id, Permissions.VIEW_CHANNEL, reply, 'Missing VIEW_CHANNEL permission')) return;
+    if (!requireChannelPermission(channelId, req.user.id, Permissions.SEND_MESSAGES, reply, 'Missing SEND_MESSAGES permission')) return;
+    const message = db.prepare('SELECT id, channel_id, guild_id FROM messages WHERE id = ? AND channel_id = ?').get(messageId, channelId);
+    if (!message || message.guild_id !== parentChannel.guild_id) return reply.code(404).send({ error: 'Message not found' });
 
     const threadId = snowflake.generate();
     const now = Date.now();
@@ -118,6 +125,8 @@ export default async function phase4Routes(fastify, options) {
   fastify.post('/guilds/:guildId/automod/rules', { preHandler: [authenticate] }, async (req, reply) => {
     const { guildId } = req.params;
     const { name, event_type, trigger_type, trigger_metadata, actions, enabled, exempt_roles, exempt_channels } = req.body;
+
+    if (!requireGuildPermission(guildId, req.user.id, Permissions.MANAGE_GUILD, reply, 'Missing MANAGE_GUILD permission')) return;
     
     const id = snowflake.generate();
     const now = Date.now();

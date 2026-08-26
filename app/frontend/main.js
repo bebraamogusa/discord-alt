@@ -5,7 +5,7 @@
 //  State
 // ══════════════════════════════════════════════════════════
 let socket = null;
-let serverUrl = localStorage.getItem('serverUrl') || '';
+const SERVER_URL = 'https://lolihentai.online';
 let roomId = null;
 let username = null;
 let localStream = null;
@@ -75,7 +75,6 @@ async function nativeNotify(title, body) {
 //  Initialization
 // ══════════════════════════════════════════════════════════
 (function init() {
-  $('#inp-server').value = serverUrl;
   $('#inp-name').value = localStorage.getItem('username') || '';
   $('#btn-connect').onclick = doConnect;
   $('#btn-disconnect').onclick = doDisconnect;
@@ -91,18 +90,15 @@ async function nativeNotify(title, body) {
 //  Connect / Disconnect
 // ══════════════════════════════════════════════════════════
 function doConnect() {
-  serverUrl = $('#inp-server').value.trim().replace(/\/+$/, '');
   username = $('#inp-name').value.trim().slice(0, 20);
   roomId = $('#inp-room').value.trim() || genId(8);
 
-  if (!serverUrl) { $('#inp-server').focus(); return; }
   if (!username) { $('#inp-name').focus(); return; }
 
-  localStorage.setItem('serverUrl', serverUrl);
   localStorage.setItem('username', username);
   $('#connect-error').textContent = 'Connecting…';
 
-  socket = io(serverUrl, {
+  socket = io(SERVER_URL, {
     transports: ['websocket', 'polling'],
     timeout: 8000,
   });
@@ -254,7 +250,7 @@ function sendText() {
 
 async function loadHistory() {
   try {
-    const res = await fetch(`${serverUrl}/api/rooms/${roomId}/messages`);
+    const res = await fetch(`${SERVER_URL}/api/rooms/${roomId}/messages`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const msgs = await res.json();
     $('#messages').innerHTML = '';
@@ -280,13 +276,13 @@ function renderMessage(msg) {
     const time = fmtTime(msg.created_at);
 
     if (msg.type === 'image') {
-      const src = msg.content.startsWith('http') ? msg.content : serverUrl + msg.content;
+      const src = msg.content.startsWith('http') ? msg.content : SERVER_URL + msg.content;
       div.innerHTML =
         `<span class="${cls}">${esc(msg.username)}</span>` +
         `<span class="msg-time">${time}</span>` +
         `<div class="msg-image"><img src="${esc(src)}" loading="lazy"></div>`;
     } else if (msg.type === 'file') {
-      const href = msg.content.startsWith('http') ? msg.content : serverUrl + msg.content;
+      const href = msg.content.startsWith('http') ? msg.content : SERVER_URL + msg.content;
       const fname = msg.content.split('/').pop();
       div.innerHTML =
         `<span class="${cls}">${esc(msg.username)}</span>` +
@@ -314,7 +310,7 @@ async function uploadFile(file) {
   fd.append('file', file);
 
   try {
-    const res = await fetch(`${serverUrl}/api/upload`, { method: 'POST', body: fd });
+    const res = await fetch(`${SERVER_URL}/api/upload`, { method: 'POST', body: fd });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.error || 'Upload failed');

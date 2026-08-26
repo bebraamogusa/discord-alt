@@ -2,7 +2,14 @@ import * as API from '/api.js';
 import { t } from '/i18n.js';
 import { S } from './state.js';
 import { $, normalizeMe } from './utils.js';
-import { bootApp } from '../app.js';
+
+let logoutInProgress = false;
+let mfaTicket = null;
+
+async function bootApp() {
+  const app = await import('../app.js');
+  return app.bootApp();
+}
 
 export function showAuth(view = 'login') {
   $('auth-overlay').classList.remove('hidden');
@@ -15,6 +22,8 @@ export function showAuth(view = 'login') {
   });
   $('auth-login-err').textContent = '';
   $('auth-reg-err').textContent = '';
+  if (view !== 'mfa') mfaTicket = null;
+  $('auth-mfa')?.classList.toggle('hidden', view !== 'mfa');
 }
 
 export function hideAuth() {
@@ -29,12 +38,48 @@ export async function doLogin() {
   if (!email || !password) { $('auth-login-err').textContent = t('fill_fields'); return; }
   try {
     const data = await API.post('/api/auth/login', { email, password });
+    if (data.mfa && data.ticket) {
+      mfaTicket = data.ticket;
+      showAuth('mfa');
+      $('mfa-code')?.focus();
+      return;
+    }
     API.setToken(data.token);
+    logoutInProgress = false;
     S.me = normalizeMe(data.user);
+    hideAuth();
     await bootApp();
   } catch (e) {
     $('auth-login-err').textContent = e.body?.error || t('login_error');
   }
+}
+
+export async function doMfaLogin() {
+  const error = $('auth-mfa-err');
+  if (error) error.textContent = '';
+  const code = $('mfa-code')?.value.trim() || '';
+  if (!mfaTicket || !code) {
+    if (error) error.textContent = t('fill_fields');
+    return;
+  }
+  try {
+    const data = await API.post('/api/auth/mfa/totp', { ticket: mfaTicket, code });
+    API.setToken(data.token);
+    mfaTicket = null;
+    logoutInProgress = false;
+    S.me = normalizeMe(data.user);
+    hideAuth();
+    await bootApp();
+  } catch (e) {
+    if (error) error.textContent = e.body?.error || t('login_error');
+  }
+}
+
+export function cancelMfaLogin() {
+  mfaTicket = null;
+  const code = $('mfa-code');
+  if (code) code.value = '';
+  showAuth('login');
 }
 
 export async function doRegister() {
@@ -46,7 +91,9 @@ export async function doRegister() {
   try {
     const data = await API.post('/api/auth/register', { email, username, password });
     API.setToken(data.token);
+    logoutInProgress = false;
     S.me = normalizeMe(data.user);
+    hideAuth();
     await bootApp();
   } catch (e) {
     $('auth-reg-err').textContent = e.body?.error || t('register_error');
@@ -54,9 +101,15 @@ export async function doRegister() {
 }
 
 export function doLogout(socket) {
-  API.post('/api/auth/logout', {}).catch(() => { });
+  if (logoutInProgress) return;
+  logoutInProgress = true;
   API.clearTokens();
-  socket?.disconnect();
+  const serverLogout = API.logout();
+  const activeSocket = socket && typeof socket.disconnect === 'function'
+    ? socket
+    : (typeof window !== 'undefined' ? window.socket : null);
+  if (activeSocket && typeof activeSocket.disconnect === 'function') activeSocket.disconnect();
   Object.assign(S, { me: null, servers: [], dmChannels: [], activeServerId: null, activeChannelId: null });
   showAuth('login');
+  serverLogout.catch(() => { });
 }
