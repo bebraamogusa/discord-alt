@@ -472,7 +472,7 @@ export function renderChannelList() {
   );
   renderChannelGroup(el, null, uncategorized, srv, threadsByParent);
   for (const cat of cats) {
-    const chans = channels.filter(c => c.category_id === cat.id);
+    const chans = channels.filter(c => String(c.category_id ?? c.parent_id ?? '') === String(cat.id));
     renderChannelGroup(el, cat, chans, srv, threadsByParent);
   }
   attachChannelDragHandlers(el, srv);
@@ -633,6 +633,12 @@ function attachChannelDragHandlers(container, srv) {
     renderChannelList();
     try {
       await API.patch(`/api/guilds/${srv.id}/channels`, payload);
+      // Reconcile the optimistic DOM with the server response. Socket delivery can
+      // be delayed or unavailable, so the successful PATCH must be authoritative.
+      const fresh = await API.get(`/api/guilds/${srv.id}`);
+      const serverIndex = S.servers.findIndex(server => server.id === srv.id);
+      if (serverIndex !== -1) S.servers[serverIndex] = { ...S.servers[serverIndex], ...fresh };
+      renderChannelList();
     } catch (err) {
       // rollback
       srv.categories = _dragSnapshot.categories;

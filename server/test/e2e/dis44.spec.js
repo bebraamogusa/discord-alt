@@ -169,14 +169,13 @@ test('DIS-44 channel/category management: create, rename, drag persistence and t
     }, { timeout: 10000 }).toBe(categoryId);
     // verify UI order: channel should now be after category
     // easiest: check that drag channel is after category in DOM
-    const orderOk = await page.evaluate(({ guildId, chId, catId }) => {
+    await expect.poll(async () => page.evaluate(({ chId, catId }) => {
       const container = document.getElementById('sidebar-channel-list');
       const children = [...container.children];
-      const catIdx = children.findIndex(el => el.dataset.catId === catId);
-      const chIdx = children.findIndex(el => el.dataset.chId === chId);
+      const catIdx = children.findIndex(el => el.dataset.catId && String(el.dataset.catId) === String(catId));
+      const chIdx = children.findIndex(el => el.dataset.chId && String(el.dataset.chId) === String(chId));
       return chIdx > catIdx;
-    }, { guildId, chId: dragChannelId, catId: categoryId });
-    expect(orderOk).toBe(true);
+    }, { chId: dragChannelId, catId: categoryId }), { timeout: 5000 }).toBe(true);
 
     // reload and verify persistence
     await page.reload();
