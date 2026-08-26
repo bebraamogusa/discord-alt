@@ -317,23 +317,28 @@ function rolePermissionBits(role) {
   try { return BigInt(raw || '0'); } catch { return 0n; }
 }
 
-export function memberPermissionBits(member) {
+export function memberPermissionBits(member, serverId = null) {
   let bits = 0n;
-  for (const r of member?.roles || []) bits |= rolePermissionBits(r);
-  for (const r of member?.role_objects || []) bits |= rolePermissionBits(r);
+  const roleObjects = [...(member?.roles || []), ...(member?.role_objects || [])];
+  const rolesById = new Map((serverId ? getServer(serverId)?.roles : []).map(role => [String(role.id), role]));
+  for (const role of roleObjects) bits |= rolePermissionBits(role);
+  for (const roleId of member?.role_ids || []) {
+    const role = rolesById.get(String(roleId));
+    if (role) bits |= rolePermissionBits(role);
+  }
   return bits;
 }
 
 export function userHasPermissionClient(serverId, perm) {
   const srv = getServer(serverId);
   if (!srv || !S.me) return false;
-  if (srv.owner_id === S.me.id) return true;
-  const member = (S.members[serverId] || []).find(m => m.user_id === S.me.id || m.id === S.me.id);
+  if (String(srv.owner_id) === String(S.me.id)) return true;
+  const member = (S.members[serverId] || []).find(m => String(m.user_id || m.id) === String(S.me.id));
   if (!member) return false;
-  const bits = memberPermissionBits(member);
+  const bits = memberPermissionBits(member, serverId);
   const bit = CLIENT_PERM_BITS[perm] || CLIENT_ALIAS_BITS[perm];
   if (!bit) return false;
-  return (bits & bit) === bit;
+  return (bits & CLIENT_PERM_BITS.administrator) === CLIENT_PERM_BITS.administrator || (bits & bit) === bit;
 }
 
 export function renderPollHtml(msg) {

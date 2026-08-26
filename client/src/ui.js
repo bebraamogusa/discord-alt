@@ -1,5 +1,5 @@
 import { S, V } from './state.js';
-import { API, escHtml, fmtTime, fmtDatetime, parseMarkdown, avatarEl, displayNameFor, showToast, statusDotHtml, getServer, getChannel, renderPollHtml, t, userHasPermissionClient, intToHexColor } from './utils.js';
+import { API, escHtml, fmtTime, fmtDatetime, parseMarkdown, avatarEl, displayNameFor, showToast, statusDotHtml, getServer, getChannel, renderPollHtml, t, userHasPermissionClient, memberPermissionBits, intToHexColor } from './utils.js';
 import { ackChannel } from './unread.js';
 import { IC } from './icons.js';
 
@@ -156,14 +156,22 @@ export function hasPermission(serverId, memberId, permName) {
   const now = Date.now();
   if (permCache.has(cacheKey) && (now - permCache.get(cacheKey).ts < 60000)) return permCache.get(cacheKey).val;
 
-  const srv = S.servers.find(s => s.id === serverId);
+  const srv = S.servers.find(s => String(s.id) === String(serverId));
   let val = false;
-  if (srv && srv.owner_id === memberId) val = true;
+  if (srv && String(srv.owner_id) === String(memberId)) val = true;
   else {
-    const member = (S.members[serverId] || []).find(m => m.user_id === memberId || m.id === memberId);
-    if (member && member.roles) {
-      if (member.roles.some(r => typeof r.permissions === 'string' && r.permissions.includes('"administrator":true'))) val = true;
-      else if (member.roles.some(r => typeof r.permissions === 'string' && r.permissions.includes(`"${permName}":true`))) val = true;
+    const member = (S.members[serverId] || []).find(m => String(m.user_id || m.id) === String(memberId));
+    if (member) {
+      const bits = memberPermissionBits(member, serverId);
+      const permBits = {
+        administrator: 1n << 3n, kick_members: 1n << 1n, ban_members: 1n << 2n,
+        manage_channels: 1n << 4n, manage_server: 1n << 5n, view_channel: 1n << 10n,
+        send_messages: 1n << 11n, read_message_history: 1n << 12n, manage_messages: 1n << 13n,
+        manage_roles: 1n << 28n, manage_webhooks: 1n << 29n, manage_expressions: 1n << 30n,
+        manage_events: 1n << 33n, moderate_members: 1n << 40n,
+      };
+      const bit = permBits[permName];
+      val = !!bit && (((bits & (1n << 3n)) === (1n << 3n)) || ((bits & bit) === bit));
     }
   }
   permCache.set(cacheKey, { val, ts: now });

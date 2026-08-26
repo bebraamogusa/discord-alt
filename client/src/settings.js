@@ -6,6 +6,7 @@ import { createInvite, deleteServer, leaveServer, createCategory } from './api_r
 
 // ─── SERVER SETTINGS ──────────────────────────────────────────────────────────
 const ROLE_PERM_BITS = {
+  create_instant_invite: 1n << 0n,
   send_messages: 1n << 11n,
   manage_messages: 1n << 13n,
   kick_members: 1n << 1n,
@@ -14,6 +15,9 @@ const ROLE_PERM_BITS = {
   manage_server: 1n << 5n,
   manage_roles: 1n << 28n,
   view_channel: 1n << 10n,
+  read_message_history: 1n << 12n,
+  connect: 1n << 20n,
+  move_members: 1n << 24n,
   administrator: 1n << 3n,
   moderate_members: 1n << 40n,
   manage_webhooks: 1n << 29n,
@@ -217,7 +221,7 @@ export async function renderServerSettingsPage(serverId, page) {
     const guild = await API.get(`/api/guilds/${serverId}`).catch(() => null);
     const roles = guild?.roles || [];
     const canManageRoles = userHasPermissionClient(serverId, 'manage_roles');
-    const perms = ['send_messages', 'manage_messages', 'kick_members', 'ban_members', 'manage_channels', 'manage_server', 'manage_roles', 'view_channel', 'administrator', 'moderate_members', 'manage_webhooks', 'manage_expressions', 'manage_events'];
+    const perms = ['create_instant_invite', 'kick_members', 'ban_members', 'manage_channels', 'manage_server', 'view_channel', 'send_messages', 'read_message_history', 'manage_messages', 'connect', 'move_members', 'manage_roles', 'manage_webhooks', 'manage_expressions', 'manage_events', 'moderate_members', 'mention_everyone', 'administrator'];
     // Calculate member counts per role
     const members = S.members[serverId] || await API.get(`/api/guilds/${serverId}/members`).catch(() => []);
     if (!S.members[serverId]) S.members[serverId] = members;
@@ -886,7 +890,7 @@ export function openRoleEditor(serverId, roleId, roles, perms) {
   const currentBits = rolePermBits(role);
 
   const body = document.getElementById('ss-page-body');
-  const PERM_KEY = { send_messages: 'perm_send_messages', manage_messages: 'perm_manage_messages', kick_members: 'perm_kick_members', ban_members: 'perm_ban_members', manage_channels: 'perm_manage_channels', manage_server: 'perm_manage_server', manage_roles: 'perm_manage_roles', view_channel: 'perm_view_channel', administrator: 'perm_administrator', moderate_members: 'perm_moderate_members', manage_webhooks: 'perm_manage_webhooks', manage_expressions: 'perm_manage_expressions', manage_events: 'perm_manage_events' };
+  const PERM_KEY = { create_instant_invite: 'perm_create_instant_invite', send_messages: 'perm_send_messages', manage_messages: 'perm_manage_messages', kick_members: 'perm_kick_members', ban_members: 'perm_ban_members', manage_channels: 'perm_manage_channels', manage_server: 'perm_manage_server', manage_roles: 'perm_manage_roles', view_channel: 'perm_view_channel', read_message_history: 'perm_read_message_history', connect: 'perm_connect', move_members: 'perm_move_members', administrator: 'perm_administrator', moderate_members: 'perm_moderate_members', manage_webhooks: 'perm_manage_webhooks', manage_expressions: 'perm_manage_expressions', manage_events: 'perm_manage_events' };
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <button class="btn btn-outline" id="back-to-roles">${t('back_to_roles')}</button>
