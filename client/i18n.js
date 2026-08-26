@@ -25,6 +25,8 @@ export const TRANSLATIONS = {
     // Chat
     msg_placeholder_dm: 'Написать @{name}',
     msg_placeholder_channel: 'Написать в #{name}',
+    channel_welcome_title: 'Добро пожаловать в #{name}!',
+    channel_welcome_subtitle: 'Это начало канала. Здесь появятся новые сообщения.',
     load_more: 'Загрузить ещё',
     edited: '(изменено)',
     reply_to: 'Ответ на',
@@ -570,6 +572,8 @@ export const TRANSLATIONS = {
     // Chat
     msg_placeholder_dm: 'Message @{name}',
     msg_placeholder_channel: 'Message #{name}',
+    channel_welcome_title: 'Welcome to #{name}!',
+    channel_welcome_subtitle: 'This is the beginning of the channel. New messages will appear here.',
     load_more: 'Load more',
     edited: '(edited)',
     reply_to: 'Replying to',
@@ -1112,6 +1116,8 @@ export const TRANSLATIONS = {
     // Chat
     msg_placeholder_dm: 'Napisz do @{name}',
     msg_placeholder_channel: 'Napisz na #{name}',
+    channel_welcome_title: 'Witaj na kanale #{name}!',
+    channel_welcome_subtitle: 'To początek kanału. Pojawią się tu nowe wiadomości.',
     load_more: 'Załaduj więcej',
     edited: '(edytowano)',
     reply_to: 'Odpowiedź na',

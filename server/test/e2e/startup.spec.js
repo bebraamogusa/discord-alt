@@ -124,6 +124,7 @@ for (const viewport of [
 
       await page.evaluate(channelId => window.selectChannel(channelId), channelId);
       await expect(page.locator('#msg-input')).toBeVisible();
+      await expect(page.locator('.channel-intro')).toBeVisible();
       if (viewport.name === 'desktop') {
         await expect(page.locator('#members-panel .member-item').first()).toBeVisible();
         const memberAvatarBounds = await page.locator('#members-panel .member-avatar').first().evaluate(el => {

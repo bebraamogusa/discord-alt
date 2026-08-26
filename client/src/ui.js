@@ -890,6 +890,18 @@ export async function jumpToMessage(channelId, messageId) {
   setTimeout(() => el.classList.remove('msg-highlight'), 2000);
 }
 
+function channelIntroMarkup(channel, messageCount) {
+  if (!channel || channel.type === 'dm' || channel.type === 'group' || messageCount > 3) return '';
+  const title = t('channel_welcome_title', { name: channel.name || 'channel' });
+  const subtitle = channel.topic || t('channel_welcome_subtitle');
+  return `
+    <div class="channel-intro" aria-label="${escHtml(title)}">
+      <div class="channel-intro-icon">${IC.hash}</div>
+      <h1>${escHtml(title)}</h1>
+      <p>${escHtml(subtitle)}</p>
+    </div>`;
+}
+
 export function renderMessages() {
   const container = document.getElementById('messages-container');
   if (!container) return;
@@ -900,6 +912,7 @@ export function renderMessages() {
   const seen = new Set();
   const msgs = raw.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
   S.messages[S.activeChannelId] = msgs;
+  container.innerHTML = channelIntroMarkup(getChannel(S.activeChannelId), msgs.length);
   let lastAuthor = null, lastTs = 0;
   for (const msg of msgs) {
     const ts = typeof msg.created_at === 'number' && msg.created_at < 1e12
@@ -932,6 +945,8 @@ function bindAndFetchMessage(el) {
 export function appendMessage(msg, previous) {
   const container = document.getElementById('messages-container');
   if (!container) return false;
+  const messageCount = S.messages[S.activeChannelId]?.length || 0;
+  if (messageCount > 3) container.querySelector('.channel-intro')?.remove();
   container.insertAdjacentHTML('beforeend', msgHtml(msg, messageIsFirst(msg, previous), true));
   bindAndFetchMessage(container.lastElementChild);
   return true;

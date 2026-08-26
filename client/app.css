@@ -122,6 +122,11 @@ body:not(.is-tauri) .desktop-server-config { display: none; }
 #messages-container, #messages-load-more { width: min(100%, 960px); margin-inline: auto; }
 #messages-load-more { text-align: center; padding: 12px; color: var(--text-3); font-size: 13px; cursor: pointer; }
 #messages-load-more:hover { color: var(--text-2); }
+.channel-intro { padding: 12px 12px 20px; margin-bottom: 8px; }
+.channel-intro-icon { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised)); border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle)); border-radius: 50%; margin-bottom: 12px; }
+.channel-intro-icon .ic { width: 30px; height: 30px; }
+.channel-intro h1 { color: var(--text-primary); font-size: 24px; line-height: 1.2; margin-bottom: 6px; }
+.channel-intro p { color: var(--text-secondary); font-size: 14px; line-height: 1.45; max-width: 620px; }
 .msg-group { position: relative; padding: 1px 12px; }
 .msg-group:hover { background: var(--bg-hover); }
 .msg-group:focus-within .msg-actions { opacity: 1; pointer-events: all; }
@@ -210,6 +215,8 @@ body:not(.is-tauri) .desktop-server-config { display: none; }
 .member-item .member-info { overflow: hidden; flex: 1; min-width: 0; }
 .member-item .member-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .member-item .member-status { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.member-group { padding: 0 8px; margin: 16px 0 8px; color: var(--text-3); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.member-group:first-child { margin-top: 0; }
 .modal-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; }
 .modal-overlay.hidden { display: none; }
 .modal { background: var(--surface-raised); border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); box-shadow: var(--shadow); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
